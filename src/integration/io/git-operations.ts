@@ -10,33 +10,14 @@ import {
 import { withWorktreeMutex } from '@src/integration/io/git-worktree-mutex.ts';
 
 /**
- * High-level git operations used by the implement and review chains.
- *
- * Function-first: each operation takes a `GitRunner` as first arg and the cwd second. No
- * shared class, no constructor — production composition root creates one runner and partial-
- * applies it; tests inject a fake runner directly.
- *
- * Scope: only the operations the harness needs. No branch creation, no remote URL lookup, no
- * history fetch — those belong to whichever chain wants them.
- *
- * Result conventions:
- *   - Pure reads: `Result<T, StorageError>`. The reads bubble system errors up; they don't
- *     swallow them like v1's defaults-returning version. The preflight gate only ever reads
- *     when the runner is healthy, so silent defaults aren't useful.
- *   - Mutations: `Result<T, StorageError>` with the new HEAD SHA / nothing on success and
- *     a captured-stderr storage error on failure.
- *   - "Nothing to do" is `Result.ok` with a payload, not an error: `gitCommitWithMessage`
- *     returns `{ committed: false }` on a clean tree. The stash family (`git-stash.ts`) follows
- *     the same rule. This avoids `StorageError({ subCode: 'no-changes' })` as a control-flow signal.
+ * High-level git operations for the implement and review chains. Each takes a `GitRunner` first
+ * and the cwd second. Reads bubble git failures up rather than defaulting. "Nothing to do" is
+ * `Result.ok` with a payload (`{ committed: false }`), never an error used as control flow.
  */
 
 const HEX_SHA_RE = /^[0-9a-f]{7,64}$/i;
 const MERGE_BASE = 'merge-base';
-// No byte cap on commit messages: audit-[03] mandates "no caps anywhere" on AI signal
-// bodies, and `git commit -m <msg>` passes via argv which has ARG_MAX headroom in the
-// hundreds of KB. The AI's validated `commit-message` signal is projected verbatim onto
-// the commit; the harness only appends the deterministic `Closes …` trailer when a task
-// carries external refs.
+// No cap on commit messages: AI signal bodies are never capped, and `commit -m` argv has ARG_MAX headroom.
 
 export interface GitStatusEntry {
   readonly status: string;
@@ -71,8 +52,7 @@ export const gitStatusPorcelain = async (
     const status = line.slice(0, 2);
     const rest = line.slice(2).trimStart();
     if (rest.length === 0) continue;
-    const arrow = rest.split(' -> ');
-    const path = arrow.length > 1 ? arrow[arrow.length - 1] : arrow[0];
+    const path = rest.split(' -> ').at(-1);
     if (path === undefined || path.length === 0) continue;
     entries.push({ status, path });
   }
@@ -139,9 +119,7 @@ export const gitRevParseHead = async (runner: GitRunner, cwd: AbsolutePath): Pro
 
 /** Stage every change in the working tree (including untracked files). */
 export const gitAddAll = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(runner, cwd, ['add', '-A'], 'add -A');
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return (await runGitChecked(runner, cwd, ['add', '-A'], 'add -A')).map(() => undefined);
 };
 
 /**
@@ -191,9 +169,7 @@ export const gitCommitWithMessage = async (
 export const gitResetHard = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {
   const reset = await runGitChecked(runner, cwd, ['reset', '--hard', 'HEAD'], 'reset --hard');
   if (!reset.ok) return Result.error(reset.error);
-  const clean = await runGitChecked(runner, cwd, ['clean', '-fd'], 'clean -fd');
-  if (!clean.ok) return Result.error(clean.error);
-  return Result.ok(undefined);
+  return (await runGitChecked(runner, cwd, ['clean', '-fd'], 'clean -fd')).map(() => undefined);
 };
 
 /**
@@ -244,8 +220,7 @@ export const gitCreateAndCheckoutBranch = async (
 
   const argv = exists.value ? ['checkout', name] : ['checkout', '-b', name];
   const checkout = await runGitChecked(runner, cwd, argv, 'checkout', { timeoutMs: GIT_HOOK_TIMEOUT_MS, signal });
-  if (!checkout.ok) return Result.error(checkout.error);
-  return Result.ok(undefined);
+  return checkout.map(() => undefined);
 };
 
 /**
@@ -287,8 +262,7 @@ export const gitWorktreeAdd = async (
       signal,
     })
   );
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return result.map(() => undefined);
 };
 
 /**
@@ -308,8 +282,7 @@ export const gitWorktreeRemove = async (
       timeoutMs: GIT_BULK_TIMEOUT_MS,
     })
   );
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return result.map(() => undefined);
 };
 
 /**
@@ -328,8 +301,7 @@ export const gitDeleteBranch = async (
   const result = await withWorktreeMutex(cwd, () =>
     runGitChecked(runner, cwd, ['branch', '-D', branchName], 'branch -D')
   );
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return result.map(() => undefined);
 };
 
 /**
@@ -340,9 +312,7 @@ export const gitWorktreeRepairHere = async (
   runner: GitRunner,
   worktreePath: AbsolutePath
 ): Promise<Result<void, StorageError>> => {
-  const result = await runGitChecked(runner, worktreePath, ['worktree', 'repair'], 'worktree repair');
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return (await runGitChecked(runner, worktreePath, ['worktree', 'repair'], 'worktree repair')).map(() => undefined);
 };
 
 /**
@@ -358,8 +328,7 @@ export const gitWorktreePrune = async (
   const result = await withWorktreeMutex(repoRoot, () =>
     runGitChecked(runner, repoRoot, ['worktree', 'prune'], 'worktree prune')
   );
-  if (!result.ok) return Result.error(result.error);
-  return Result.ok(undefined);
+  return result.map(() => undefined);
 };
 
 /**

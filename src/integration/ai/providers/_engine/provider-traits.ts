@@ -7,26 +7,12 @@ import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 
 /**
- * Every static per-provider fact ralphctl needs, in one row. PATH binary, install guidance,
- * readiness target file, skills parent directory, and the model catalog all vary by
- * {@link AiProvider} but never change at runtime — bundling them here means a new backend's
- * static data lands in ONE object literal instead of scattered `Record<AiProvider, …>`
- * maps spread across `integration/system`, `integration/ai/readiness`, `integration/ai/skills`,
- * and `application/bootstrap`. `Record<AiProvider, ProviderTraits>` gives TypeScript
- * exhaustiveness over the `AiProvider` union, so adding a member to that union without filling
- * in a row here is a compile error, not a silent runtime gap.
- *
- * Lives under `providers/_engine/` — the sanctioned cross-sibling / cross-concept surface —
- * because every consumer sits in a different concept (`integration/system`,
- * `integration/ai/readiness`, `integration/ai/skills`, `application/bootstrap`) and none of
- * them are siblings of each other.
+ * Every static per-provider fact, one row per {@link AiProvider}, so a new backend lands in one
+ * object literal instead of scattered `Record<AiProvider, …>` maps. Lives in `providers/_engine/`
+ * because its consumers sit in different concepts (system, readiness, skills, bootstrap).
  */
 export interface ProviderTraits {
-  /**
-   * PATH binary the adapter spawns. MUST match `providers/<tool>/{headless,interactive}.ts` —
-   * probing the wrong binary here would let the launch fail-fast pass and then the real spawn
-   * fail.
-   */
+  /** PATH binary the adapters spawn and the launch pre-flight probes — one source for both. */
   readonly binary: string;
   /** Per-vendor install guidance (docs URL + OS-specific install commands). */
   readonly installGuidance: ProviderInstallGuidance;
@@ -58,15 +44,8 @@ export interface ProviderTraits {
   /** Full official model catalog the availability probe filters down. */
   readonly modelCatalog: readonly string[];
   /**
-   * Whether this provider forwards `effort` to its CLI, per SURFACE. Capability is not a
-   * provider-level fact: OpenCode forwards effort on the headless `run` subcommand and cannot on
-   * the interactive one, so a single flag would have to lie about one of them.
-   *
-   * Declared here rather than inferred from the adapters so the port-conformance suites can assert
-   * argv against a DECLARATION in both directions — an adapter that starts (or stops) forwarding
-   * without updating its row fails the suite instead of quietly changing what an operator's
-   * configured effort does. `Record<AiProvider, ProviderTraits>` then makes answering the question
-   * mandatory for a fifth backend.
+   * Whether `effort` reaches the CLI, per SURFACE (OpenCode forwards it headless only). Declared
+   * rather than inferred so the conformance suites can assert argv against it in both directions.
    *
    * @see `FIXED_EFFORT_RUNG` in `business/task/escalation-map.ts` — the business-layer view
    * of the same question (may this provider be escalated by raising effort?), which is

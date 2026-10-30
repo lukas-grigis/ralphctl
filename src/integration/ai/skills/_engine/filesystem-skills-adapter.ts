@@ -19,10 +19,6 @@
  *    to clean up the `<parentDir>/skills` and `<parentDir>` directories when they end up empty.
  *  - **Idempotent.** A second `install` from the same adapter adds only the still-missing skills;
  *    double-`uninstall` is a no-op.
- *
- * Why one helper instead of three near-identical adapters: the only inter-provider differences
- * are the `parentDir` constant (`.claude` vs `.agents` vs `.github`) and the convention prose.
- * Keeping the logic in one place means a bugfix here lands for every provider at once.
  */
 
 import { existsSync } from 'node:fs';
@@ -39,11 +35,7 @@ import {
   writeInstallMarker,
 } from '@src/integration/ai/skills/_engine/skill-install-marker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import {
-  createGitExcludeOnce,
-  pruneMissingSessionDirs,
-  tryRmdirIfEmpty,
-} from '@src/integration/ai/skills/_engine/session-install-support.ts';
+import { createSessionInstallManifest } from '@src/integration/ai/skills/_engine/session-install-support.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface FilesystemSkillsAdapterDeps {
@@ -56,11 +48,7 @@ export interface FilesystemSkillsAdapterDeps {
   readonly parentDir: string;
   /** Markdown sentence returned from {@link SkillsAdapter.describeSkillsConvention}. */
   readonly convention: string;
-  /**
-   * Optional logger — used to warn when the best-effort `.git/info/exclude` write fails.
-   * Skills install still succeeds in that case; the user just sees harness-authored
-   * `ralphctl-*` folders in `git status` until the exclude lands manually.
-   */
+  /** Warns on a failed best-effort `.git/info/exclude` write and on shadowed / stale skill folders. */
   readonly logger?: Logger;
 }
 
@@ -230,37 +218,21 @@ const writeAllSkills = async (
 };
 
 export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps): SkillsAdapter => {
-  // Per-sessionDir manifest of skill names this adapter created at install time. Cleared on
-  // a successful uninstall. Not promised across crashed runs — the cleanup is best-effort.
-  const installed = new Map<string, Set<string>>();
-  // Unmarked folders already warned about (see `warnIfShadowing`). Never cleared: one warning per
-  // folder per adapter, i.e. per launch, is enough.
-  const shadow: ShadowWarnings = { providerId: deps.providerId, logger: deps.logger, warned: new Set<string>() };
-  const skillsSubdir = join(deps.parentDir, 'skills');
-  const ensureExcludeOnce = createGitExcludeOnce({
-    excludePattern: `${skillsSubdir}/ralphctl-*`,
+  const manifest = createSessionInstallManifest({
     providerId: deps.providerId,
+    parentDir: deps.parentDir,
+    subdir: 'skills',
+    noun: 'skills',
     logger: deps.logger,
-    logName: 'skills.exclude',
   });
+  const skillsSubdir = manifest.managedSubdir;
+  // One shadow warning per folder per adapter, i.e. per launch, is enough — never cleared.
+  const shadow: ShadowWarnings = { providerId: deps.providerId, logger: deps.logger, warned: new Set<string>() };
 
   return {
-    async install(sessionDir: AbsolutePath, skills: readonly Skill[]): Promise<Result<void, StorageError>> {
-      pruneMissingSessionDirs(installed);
+    install(sessionDir: AbsolutePath, skills: readonly Skill[]): Promise<Result<void, StorageError>> {
       const skillsDir = join(String(sessionDir), skillsSubdir);
-      const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
-
-      const written = await writeAllSkills(skillsDir, skills, tracked, shadow);
-      if (tracked.size > 0) installed.set(String(sessionDir), tracked);
-      if (!written.ok) return written;
-
-      // Best-effort: append a single wildcard line to <sessionDir>'s common `.git/info/exclude`
-      // (linked worktrees included) so every `ralphctl-*` skill we manage stays out of
-      // `git status`. A non-git tree, an uninspectable `.git`, or a write-protected
-      // `info/exclude` all collapse to "warn and proceed" — the skill install already succeeded.
-      await ensureExcludeOnce(sessionDir);
-
-      return Result.ok(undefined);
+      return manifest.install(sessionDir, (tracked) => writeAllSkills(skillsDir, skills, tracked, shadow));
     },
 
     async installBareSkill(sessionDir: AbsolutePath, skill: Skill): Promise<Result<void, StorageError>> {
@@ -296,34 +268,8 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       return deps.convention;
     },
 
-    async uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
-      const key = String(sessionDir);
-      const tracked = installed.get(key);
-      if (tracked === undefined || tracked.size === 0) return Result.ok(undefined);
-
-      const skillsDir = join(key, skillsSubdir);
-      try {
-        for (const id of tracked) {
-          await rm(join(skillsDir, id), { recursive: true, force: true });
-        }
-        installed.delete(key);
-      } catch (cause) {
-        return Result.error(
-          new StorageError({
-            subCode: 'io',
-            message: `${deps.providerId}: failed to uninstall skills under ${skillsDir}: ${messageOf(cause)}`,
-            path: skillsDir,
-            cause,
-          })
-        );
-      }
-
-      // Tidy empty parent dirs we may have created. Failure is benign — the skills
-      // themselves are already gone, and a non-empty parent (e.g. a project `.github/`
-      // with workflows in it) is preserved by `tryRmdirIfEmpty`.
-      await tryRmdirIfEmpty(skillsDir);
-      await tryRmdirIfEmpty(join(key, deps.parentDir));
-      return Result.ok(undefined);
+    uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
+      return manifest.uninstall(sessionDir, (key, name) => join(key, skillsSubdir, name));
     },
   };
 };

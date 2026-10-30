@@ -22,8 +22,7 @@ cold-started instead of resuming the interrupted session.
   On a rate-limit outcome with `error.sessionId` defined, the loop rebuilds the next session as
   `{ ...session, resume: id }`, so the per-attempt argv builder naturally emits `--resume` /
   `exec resume`. **Adapters never re-implement backoff, banners, abort-during-backoff, or resume.**
-- **Stale-resume cold fallback** is shared via the optional `resumeStaleRe` param (it was codex-only).
-  It drops `resume` for ONE cold respawn (latched) and re-runs the SAME attempt index, so it does NOT
+- **Stale-resume cold fallback** is shared via the required `resumeStaleRe` param. It drops `resume` for ONE cold respawn (latched) and re-runs the SAME attempt index, so it does NOT
   consume a rate-limit slot. Each adapter passes its own regex; codex keeps
   `/no rollout found|thread\/resume failed|code -32600/i`.
 - **A cold fallback that fires every time hides a dead resume path.** Codex passed `--ephemeral`
@@ -35,7 +34,13 @@ cold-started instead of resuming the interrupted session.
   providers report quota on stdout, not stderr. The regexes are broader than bare `/rate.?limit/i`
   (claude adds `usage limit reached|5-hour limit|overloaded_error|429`; others add `quota|429`).
 - `applyJitter` is wired into `handleRateLimitOutcome`'s `delayForRetry → sleepCancellable` hop, with an
-  injectable `random` option.
+  injectable `random` option. `sleepCancellable` was kept rather than swapped for
+  `node:timers/promises` `setTimeout(ms, _, { signal })`: its unit tests drive it under
+  `vi.useFakeTimers()` (not confirmed to patch timers/promises), and an application-lane test imports it.
+- **Identity is engine-owned:** adapters return a `getUsage()` snapshot (field names = `TokenUsageEvent`)
+  and the engine stamps `provider` from `PROVIDER_BY_SLUG`; the spawned binary is
+  `PROVIDER_TRAITS[p].binary` on both surfaces (no per-adapter `defaultCommand`). Conformance suites fence
+  both, so a new adapter cannot hard-code either.
 
 **Operator knob:** `settings.harness.idleWatchdogMs` (60_000–3_600_000, default 300_000), threaded
 `provider-factory.ts` → each adapter's `deps.idleMs`. **Adding a harness field touches:** settings.ts
@@ -64,21 +69,17 @@ editing a parser — e.g. `printf 'say hi' | codex exec --skip-git-repo-check --
 ## OOM caps on stdout parsing
 
 Two uncapped accumulators sat in the same OOM class as the TUI render-path leak. Both are bounded now,
-with the cap constants in ONE home so siblings cannot drift — `_engine/bounded-tail.ts`:
-`STDERR_TAIL_CAP` 16 KiB, `RATE_LIMIT_SCAN_TAIL_CAP` 8 KiB, `STDOUT_LINE_PARSE_CAP` 512 KiB,
-`FORENSIC_BODY_TAIL_CAP` 256 KiB.
+with the tail caps in `_engine/bounded-tail.ts` (`STDERR_TAIL_CAP` 16 KiB, `RATE_LIMIT_SCAN_TAIL_CAP`
+8 KiB, `FORENSIC_BODY_TAIL_CAP` 256 KiB) and `STDOUT_LINE_PARSE_CAP` (512 KiB) in `_engine/line-feed.ts`.
 
-- **NDJSON line accumulator** (`claude/parse-stream.ts`, `copilot/parse-stream.ts`): both grew
-  `buffer += chunk` until a newline; a single record embedding a large file-read or bash result inflated
-  one line to tens of MB. Fixed with an `appendCapped(chunk)` closure — the SOLE append site (`feed`
-  calls it; `flush` only drains, so the invariant holds) — trimming to the TAIL at
-  `STDOUT_LINE_PARSE_CAP`. Tail-trim, not head-trim, so the record's terminating `}`/newline still lands
-  in-window.
-- **copilot `headless.ts` `events[]`** retained every stdout line for the whole spawn, and its
-  `assistant` boolean tag was VESTIGIAL — neither consumer filtered on it, because signals come from
-  `signals.json` via the file-based contract, not by re-parsing the body. Replaced by two
-  `createBoundedTail`s fed through a `recordLine(text)` helper: `forensicTail` (→ body.txt) and
-  `rateLimitTail` (→ classifier haystack).
+- **NDJSON line accumulator** (`createCappedLineFeed`, shared by all five parsers): a single record
+  embedding a large file-read or bash result inflated one line to tens of MB. `feed` is the SOLE append
+  site (`flush` only drains), trimming to the TAIL at `STDOUT_LINE_PARSE_CAP` — tail, not head, so the
+  record's terminating `}`/newline still lands in-window.
+- **copilot `headless.ts` `events[]`** retained every stdout line for the whole spawn. Now one
+  `createBoundedTail(FORENSIC_BODY_TAIL_CAP)` backs body.txt, and the rate-limit haystack is its last
+  `RATE_LIMIT_SCAN_TAIL_CAP` bytes (grok / opencode likewise) — a second tail fed the same appends would
+  hold identical bytes.
 
 **Non-obvious: warning from a pure parser with no EventBus.** The parsers are pure factories (no deps,
 no bus). Use `console.warn` behind a one-shot latch (`let overflowWarned = false`) — the established

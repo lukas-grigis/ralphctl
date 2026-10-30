@@ -18,13 +18,10 @@
  *  - **Renderer errors abort the batch.** A definition the renderer rejects (e.g. Copilot's
  *    30000-char body guard) returns the error immediately and writes no file for it; anything
  *    already written earlier in the same `install` call stays tracked for cleanup.
- *
- * Mirrors {@link createFilesystemSkillsAdapter} — see that module for the rationale behind
- * sharing one implementation across siblings.
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -32,11 +29,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AgentDefinition, RenderedAgentFile } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
-import {
-  createGitExcludeOnce,
-  pruneMissingSessionDirs,
-  tryRmdirIfEmpty,
-} from '@src/integration/ai/skills/_engine/session-install-support.ts';
+import { createSessionInstallManifest } from '@src/integration/ai/skills/_engine/session-install-support.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 export interface FilesystemAgentDefinitionAdapterDeps {
@@ -52,11 +45,7 @@ export interface FilesystemAgentDefinitionAdapterDeps {
   readonly renderer: (definition: AgentDefinition) => Result<RenderedAgentFile, StorageError>;
   /** Markdown sentence returned from {@link AgentDefinitionAdapter.describeConvention}. */
   readonly convention: string;
-  /**
-   * Optional logger — used to warn when the best-effort `.git/info/exclude` write fails.
-   * Install still succeeds in that case; the user just sees harness-authored `ralphctl-*`
-   * files in `git status` until the exclude lands manually.
-   */
+  /** Warns when the best-effort `.git/info/exclude` write fails; the install still succeeds. */
   readonly logger?: Logger;
 }
 
@@ -116,69 +105,27 @@ const writeAllDefinitions = async (
 export const createFilesystemAgentDefinitionAdapter = (
   deps: FilesystemAgentDefinitionAdapterDeps
 ): AgentDefinitionAdapter => {
-  // Per-sessionDir manifest of relPaths this adapter created at install time. Cleared on a
-  // successful uninstall. Not promised across crashed runs — the cleanup is best-effort.
-  const installed = new Map<string, Set<string>>();
-  const agentsSubdir = join(deps.parentDir, 'agents');
-  const ensureExcludeOnce = createGitExcludeOnce({
-    excludePattern: `${agentsSubdir}/ralphctl-*`,
+  const manifest = createSessionInstallManifest({
     providerId: deps.providerId,
+    parentDir: deps.parentDir,
+    subdir: 'agents',
+    noun: 'agent definitions',
     logger: deps.logger,
-    logName: 'agents.exclude',
   });
 
   return {
-    async install(
-      sessionDir: AbsolutePath,
-      definitions: readonly AgentDefinition[]
-    ): Promise<Result<void, StorageError>> {
-      pruneMissingSessionDirs(installed);
-      const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
-
-      const written = await writeAllDefinitions(sessionDir, deps.providerId, deps.renderer, definitions, tracked);
-      if (tracked.size > 0) installed.set(String(sessionDir), tracked);
-      if (!written.ok) return written;
-
-      // Best-effort: append a single wildcard line to <sessionDir>'s common `.git/info/exclude`
-      // (linked worktrees included) so every `ralphctl-*` agent definition we manage stays out of
-      // `git status`. A non-git tree, an uninspectable `.git`, or a write-protected
-      // `info/exclude` all collapse to "warn and proceed" — the install already succeeded.
-      await ensureExcludeOnce(sessionDir);
-
-      return Result.ok(undefined);
+    install(sessionDir: AbsolutePath, definitions: readonly AgentDefinition[]): Promise<Result<void, StorageError>> {
+      return manifest.install(sessionDir, (tracked) =>
+        writeAllDefinitions(sessionDir, deps.providerId, deps.renderer, definitions, tracked)
+      );
     },
 
     describeConvention(): string {
       return deps.convention;
     },
 
-    async uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
-      const key = String(sessionDir);
-      const tracked = installed.get(key);
-      if (tracked === undefined || tracked.size === 0) return Result.ok(undefined);
-
-      try {
-        for (const relPath of tracked) {
-          await rm(join(key, relPath), { recursive: true, force: true });
-        }
-        installed.delete(key);
-      } catch (cause) {
-        return Result.error(
-          new StorageError({
-            subCode: 'io',
-            message: `${deps.providerId}: failed to uninstall agent definitions under ${join(key, agentsSubdir)}: ${messageOf(cause)}`,
-            path: join(key, agentsSubdir),
-            cause,
-          })
-        );
-      }
-
-      // Tidy empty parent dirs we may have created. Failure is benign — the files themselves
-      // are already gone, and a non-empty parent (e.g. a project `.github/` with workflows in
-      // it) is preserved by `tryRmdirIfEmpty`.
-      await tryRmdirIfEmpty(join(key, agentsSubdir));
-      await tryRmdirIfEmpty(join(key, deps.parentDir));
-      return Result.ok(undefined);
+    uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
+      return manifest.uninstall(sessionDir, (key, relPath) => join(key, relPath));
     },
   };
 };

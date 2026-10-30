@@ -113,7 +113,7 @@ export const createInteractiveOpencodeProvider = (deps: InteractiveProviderDeps)
   createInteractiveProvider(
     {
       providerName: 'interactive-opencode',
-      defaultCommand: 'opencode',
+      provider: 'opencode',
       modelCatalogLabel: 'OpenCode',
       isKnownModel: isOpencodeModelIdShape,
       supportsSessionId: false,

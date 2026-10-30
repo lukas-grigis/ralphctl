@@ -81,7 +81,7 @@ export const createFsLiveRunStore = (opts: { readonly stateRoot: AbsolutePath })
         const record = parseRecord(raw);
         if (record !== undefined) records.push(record);
       }
-      return Result.ok(records) as Result<readonly LiveRunRecord[], StorageError>;
+      return Result.ok(records);
     },
     async save(record) {
       const file = safeFileName(record.runId);
@@ -100,7 +100,7 @@ export const createFsLiveRunStore = (opts: { readonly stateRoot: AbsolutePath })
           );
         }
       }
-      return Result.ok(undefined) as Result<void, StorageError>;
+      return Result.ok(undefined);
     },
   };
 };

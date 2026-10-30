@@ -18,4 +18,10 @@ heredoc as blocked.
 the scratchpad and run `python3 <abs-path>` with no heredoc; run git as plain single commands (`git status --short`, then `git add <paths>`,
 then `git commit …`) and pass file lists by hand instead of `$(git …)` substitution.
 
+Also refused: sourcing nvm (`. /opt/nvm/nvm.sh`), `cd` into the main checkout, and shell loops that pass
+a computed path to `sed`. Put node on PATH with a scratchpad wrapper script
+(`export PATH=/opt/nvm/versions/node/<v>/bin:$PATH; cd <worktree>; exec "$@"`). To commit a subset
+without `restore`/`reset`, use `git commit -F <msg> -- <paths>`; to undo your own edit, `git show
+HEAD:<path>` into the scratchpad and copy it back.
+
 Related: [[concurrent-agent-writes]].

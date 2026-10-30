@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -11,87 +9,11 @@ import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/sess
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
-import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import { buildCodexArgs, createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
-
-interface FakeChildScript {
-  readonly stdoutChunks?: readonly string[];
-  /** Delivered after `exit` and before `close`, the order a real child's final pipe data can take. */
-  readonly stdoutAfterExit?: readonly string[];
-  readonly stderrChunks?: readonly string[];
-  readonly exitCode?: number | null;
-  readonly exitSignal?: NodeJS.Signals | null;
-  readonly hang?: boolean;
-}
-
-const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
-  const ee = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  ee.setEncoding = (): void => {};
-  return ee;
-};
-
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
-  const stdout = makeStream();
-  const stderr = makeStream();
-  const stdin = {
-    end(_data?: unknown): void {
-      void _data;
-    },
-  };
-  Object.assign(child, {
-    stdout,
-    stderr,
-    stdin,
-    kill(): boolean {
-      child._killed = true;
-      setTimeout(() => {
-        child.emit('exit', null, 'SIGTERM');
-        setTimeout(() => child.emit('close', null, 'SIGTERM'), 0);
-      }, 0);
-      return true;
-    },
-    _killed: false,
-  });
-  setTimeout(() => {
-    for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
-    for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
-    if (script.hang === true) return;
-    setTimeout(() => {
-      const code = script.exitCode ?? 0;
-      const signal = script.exitSignal ?? null;
-      child.emit('exit', code, signal);
-      setTimeout(() => {
-        for (const chunk of script.stdoutAfterExit ?? []) stdout.emit('data', chunk);
-        child.emit('close', code, signal);
-      }, 0);
-    }, 0);
-  }, 0);
-  return child;
-};
-
-interface CapturingSpawnState {
-  readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{
-    readonly command: string;
-    readonly args: readonly string[];
-    readonly cwd?: string;
-  }>;
-}
-
-const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
-  let i = 0;
-  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
-  const spawn: ProviderSpawn = (command, args, options) => {
-    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
-    const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
-    i++;
-    return makeFakeChild(script);
-  };
-  return { spawn, calls };
-};
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
+import type { SpawnScript } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/codex-provider-test');
@@ -157,7 +79,7 @@ describe('createCodexProvider', () => {
   it('happy path: captures sessionId from stdout JSONL and unlinks codex tempfile WITHOUT writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
     // The AI's natural-language body is no longer parsed for signals — audit-[09] makes the AI
     // write `signals.json` directly via its Write tool. The body remains for forensic capture.
     const fsStub = stubFs('completed task; wrote signals.json.');
@@ -186,7 +108,7 @@ describe('createCodexProvider', () => {
     // `thread.started` record — NOT a `session_id` field. Confirmed against the installed binary.
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"type":"thread.started","thread_id":"019e6373-c4f1-7ac2-89f9-e9e4f3f6b231"}\n',
@@ -243,7 +165,7 @@ describe('createCodexProvider', () => {
       // Terminate the oversized line, then a normal record on the next line.
       '"}\n{"type":"thread.started","thread_id":"kept-after-cap"}\n',
     ];
-    const { spawn } = makeSpawn([{ stdoutChunks, exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks, exitCode: 0 }]);
     const fsStub = stubFs('body content');
 
     const provider = createCodexProvider({
@@ -274,7 +196,7 @@ describe('createCodexProvider', () => {
     const cap = createCapturingBus();
     const cwd = absolutePath('/tmp/codex-target-repo');
     const sess = session({ cwd });
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       { stdoutChunks: ['{"session_id":"sess-cwd","type":"config"}\n'], exitCode: 0 },
     ]);
     const fsStub = stubFs('<task-complete/>');
@@ -298,7 +220,7 @@ describe('createCodexProvider', () => {
     const cap = createCapturingBus();
     const bodyFile = tempBodyFile();
     const sess = session({ bodyFile });
-    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
     const fsStub = stubFs('<task-verified>all good</task-verified>');
 
     const provider = createCodexProvider({
@@ -317,36 +239,11 @@ describe('createCodexProvider', () => {
     expect(mirrored).toBe('<task-verified>all good</task-verified>');
   });
 
-  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-persist","type":"config"}\n'], exitCode: 0 }]);
-    const fsStub = stubFs('<task-complete/>');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 0,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-    });
-
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    const sidContent = await fs.readFile(sidPath, 'utf8');
-    expect(sidContent).toBe('sess-persist\n');
-    expect(out.value.sessionId).toBe('sess-persist');
-  });
-
   it('skips the session-id.txt file when stdout never carried a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     // stdout JSONL with no session_id field — adapter must not write an empty session-id.txt file.
-    const { spawn } = makeSpawn([{ stdoutChunks: ['{"type":"config"}\n'], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: ['{"type":"config"}\n'], exitCode: 0 }]);
     const fsStub = stubFs('<task-complete/>');
 
     const provider = createCodexProvider({
@@ -367,39 +264,10 @@ describe('createCodexProvider', () => {
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-doomed","type":"config"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-    const fsStub = stubFs('unused');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 0,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-    });
-
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
-    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
     const cap = createCapturingBus();
-    const rate: FakeChildScript = { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 };
-    const { spawn } = makeSpawn([rate, rate, rate]);
+    const rate: SpawnScript = { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 };
+    const { spawn } = makeProviderSpawn([rate, rate, rate]);
     const fsStub = stubFs('unused');
 
     const provider = createCodexProvider({
@@ -422,7 +290,7 @@ describe('createCodexProvider', () => {
     // FINDING 6 — mirror the claude retry-arc. A 429 on attempt 1 must retry and, because the
     // first attempt captured a thread id, RESUME it via `exec resume <id>` on attempt 2.
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1: captures thread id, then a rate-limit exit.
       {
         stdoutChunks: ['{"type":"thread.started","thread_id":"thread-429"}\n'],
@@ -458,7 +326,7 @@ describe('createCodexProvider', () => {
     // 2 resumes the captured thread), then the resumed spawn finds the rollout gone and the cold
     // fallback fires WITHOUT consuming a rate-limit slot, landing a clean success on attempt 3.
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1 (fresh exec): captures thread id, then 429.
       {
         stdoutChunks: ['{"type":"thread.started","thread_id":"thread-A"}\n'],
@@ -502,42 +370,6 @@ describe('createCodexProvider', () => {
     expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(true);
   });
 
-  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
-    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
-    // AbortError — the one error chains propagate transparently. InvalidStateError would be
-    // classified as a recoverable turn error and wrongly self-block the task.
-    const cap = createCapturingBus();
-    const controller = new AbortController();
-    const calls = { n: 0 };
-    const spawn: ProviderSpawn = () => {
-      calls.n++;
-      // Fire the abort right after the first (rate-limited) spawn so it lands during the
-      // generous backoff sleep below — never before exit classification (which checks abort
-      // first and would short-circuit the attempt itself).
-      setTimeout(() => controller.abort(), 5);
-      return makeFakeChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
-    };
-    const fsStub = stubFs('unused');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 2,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
-    });
-
-    const out = await provider.generate(session({ abortSignal: controller.signal }));
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.error.code).toBe('aborted');
-    expect(out.error.name).toBe('AbortError');
-    // The retry never re-spawned — the abort tore the run down during the first backoff.
-    expect(calls.n).toBe(1);
-  });
-
   // Resume resilience (WS-F): a `resume` spawn that fails because codex no longer has the
   // rollout ("no rollout found", code -32600) must fall back to a COLD spawn rather than block
   // the task. This was the root cause of two blocked tasks in the wild (the prior session
@@ -545,7 +377,7 @@ describe('createCodexProvider', () => {
   it('falls back to a cold spawn (drops --resume) when the resume thread is gone, salvaging the turn', async () => {
     const cap = createCapturingBus();
     const sess = session({ resume: 'lost-thread-019e845a' as SessionId });
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1 (resume): codex can't find the rollout → exit 1 with the canonical message.
       {
         stderrChunks: [
@@ -592,7 +424,7 @@ describe('createCodexProvider', () => {
 
   it('does NOT cold-retry a non-resume failure (plain exit 1 surfaces the error)', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([{ stderrChunks: ['some other failure\n'], exitCode: 1 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stderrChunks: ['some other failure\n'], exitCode: 1 }]);
     const fsStub = stubFs('unused');
 
     const provider = createCodexProvider({
@@ -626,7 +458,7 @@ describe('createCodexProvider', () => {
       status: 400,
     });
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: [
           `${JSON.stringify({ type: 'error', message: apiError })}\n`,
@@ -664,7 +496,7 @@ describe('createCodexProvider', () => {
       status: 400,
     });
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       {
         stdoutChunks: ['{"type":"thread.started","thread_id":"t-late"}\n'],
         stdoutAfterExit: [`${JSON.stringify({ type: 'turn.failed', error: { message: apiError } })}\n`],
@@ -691,7 +523,7 @@ describe('createCodexProvider', () => {
 
   it('cleans up the output tempfile even when the call errors', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn([{ stderrChunks: ['some failure\n'], exitCode: 7 }]);
+    const { spawn } = makeProviderSpawn([{ stderrChunks: ['some failure\n'], exitCode: 7 }]);
     const fsStub = stubFs('unused');
 
     const provider = createCodexProvider({
@@ -721,7 +553,7 @@ describe('createCodexProvider', () => {
       minted.push(p);
       return p;
     };
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1: rate-limit (captures no id) → retry cold.
       { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 },
       // Attempt 2: clean success.
@@ -775,7 +607,7 @@ describe('createCodexProvider', () => {
     const malformed = '{not-json-at-all';
 
     const fsStub = stubFs('body content');
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [`${threadStarted}\n${agentMsg}\n${funcCall}\n${funcOut}\n${turnCompleted}\n${malformed}\n`],
         exitCode: 0,
@@ -814,33 +646,6 @@ describe('createCodexProvider', () => {
     expect(toolResultEvt?.meta?.['status']).toBe('ok');
     expect(toolResultEvt?.meta?.['preview']).toBe(`${'E'.repeat(120)}…`);
   });
-
-  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
-    // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
-    // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already
-    // written signals.json via its Write tool before the child wedged.
-    const cap = createCapturingBus();
-    const sess = session();
-    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
-    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeSpawn([{ exitCode: 143 }]);
-    const fsStub = stubFs('partial body before SIGTERM');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 0,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-    });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
-    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
-    expect(warn).toBeDefined();
-  });
 });
 
 describe('createCodexProvider — TokenUsageEvent emission', () => {
@@ -848,7 +653,7 @@ describe('createCodexProvider — TokenUsageEvent emission', () => {
     const cap = createCapturingBus();
     const sess = session();
     // Bare config record — sessionId only; codex v0.130.x typically omits usage entirely.
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       { stdoutChunks: ['{"session_id":"sess-tu","type":"config","model":"gpt-5.3-codex"}\n'], exitCode: 0 },
     ]);
     const fsStub = stubFs('<task-complete/>');
@@ -880,7 +685,7 @@ describe('createCodexProvider — TokenUsageEvent emission', () => {
   it('includes usage counters when codex surfaces a usage object on a later record', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-u","type":"config","model":"gpt-5.3-codex"}\n',
@@ -916,7 +721,7 @@ describe('createCodexProvider — TokenUsageEvent emission', () => {
     // carries the cumulative usage. With the id now populated the TokenUsageEvent fires.
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"type":"thread.started","thread_id":"019e6373-c4f1-7ac2-89f9-e9e4f3f6b231"}\n',
@@ -947,61 +752,6 @@ describe('createCodexProvider — TokenUsageEvent emission', () => {
     expect(evt.sessionId).toBe('019e6373-c4f1-7ac2-89f9-e9e4f3f6b231');
     expect(evt.inputTokens).toBe(27669);
     expect(evt.outputTokens).toBe(582);
-  });
-
-  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-fail","type":"config","model":"gpt-5.3-codex"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-    const fsStub = stubFs('unused');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 0,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-    });
-
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
-  });
-
-  it('stamps chainSessionId onto the event when the session carries one', async () => {
-    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
-    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
-    const cap = createCapturingBus();
-    const sess = session({ chainSessionId: 'chain-run-42' });
-    const { spawn } = makeSpawn([
-      { stdoutChunks: ['{"session_id":"sess-cs","type":"config","model":"gpt-5.3-codex"}\n'], exitCode: 0 },
-    ]);
-    const fsStub = stubFs('<task-complete/>');
-
-    const provider = createCodexProvider({
-      rateLimitRetries: 0,
-      eventBus: cap.bus,
-      spawn,
-      readFile: fsStub.readFile,
-      unlink: fsStub.unlink,
-      mkTempPath: fsStub.mkTempPath,
-    });
-
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-
-    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
-    expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
-    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 });
 

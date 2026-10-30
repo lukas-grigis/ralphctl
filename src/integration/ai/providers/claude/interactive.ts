@@ -28,7 +28,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
   createInteractiveProvider(
     {
       providerName: 'interactive-claude',
-      defaultCommand: 'claude',
+      provider: 'claude-code',
       modelCatalogLabel: 'Claude',
       isKnownModel: isClaudeModel,
       supportsSessionId: true,

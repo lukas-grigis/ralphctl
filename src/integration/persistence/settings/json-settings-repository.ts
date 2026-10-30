@@ -5,7 +5,6 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { pathExists, readJson, writeJsonAtomic } from '@src/integration/io/fs.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
 import { CURRENT_SCHEMA_VERSION, SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { applyMigrations, readSchemaVersion } from '@src/business/settings/migrations.ts';
@@ -68,7 +67,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       const json = await readJson(path);
       if (!json.ok) {
         if (json.error.code === 'not-found') {
-          return Result.ok(DEFAULT_SETTINGS) as Result<Settings, ParseError | StorageError>;
+          return Result.ok(DEFAULT_SETTINGS);
         }
         if (json.error.subCode === 'parse') {
           const { message, cause } = json.error;
@@ -121,7 +120,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
         await writeJsonAtomic(path, parsed.data);
       }
 
-      return Result.ok(parsed.data) as Result<Settings, ParseError | StorageError>;
+      return Result.ok(parsed.data);
     },
 
     async save(settings) {

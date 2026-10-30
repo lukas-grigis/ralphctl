@@ -4,7 +4,6 @@ import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/prov
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
@@ -12,8 +11,9 @@ import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-head
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdBestEffort } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
-import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
-import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { contextWindowFor } from '@src/domain/value/settings-models/context-window.ts';
+import { type AttemptOutcome, abortedByCaller } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import {
   classifySpawnExit,
   classifySpawnFailure,
@@ -30,14 +30,11 @@ import {
 } from '@src/integration/ai/providers/_engine/child-registry.ts';
 import { processGroupOf } from '@src/integration/io/kill-process-tree.ts';
 
-export type { ProviderName, ProviderSlug };
-
 /**
- * Token-usage payload supplied by each provider adapter. Fields map directly to the
- * `TokenUsageEvent` shape; each provider fills only the subset it captures from its CLI stream.
+ * Token usage an adapter captured from its CLI stream. Field names match `TokenUsageEvent`, so the
+ * payload spreads straight into the event; each provider fills only the subset its stream reports.
  */
-export interface TokenUsagePayload {
-  readonly provider: AiProvider;
+export interface ProviderTokenUsage {
   readonly model?: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
@@ -48,11 +45,7 @@ export interface TokenUsagePayload {
   readonly liveCacheCreationTokens?: number;
 }
 
-/**
- * Emit the per-spawn "session id captured" debug log. All five adapters publish the same
- * event shape; only the provider-name prefix and the captured id differ.
- */
-export const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, sessionId: string): void => {
+const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, sessionId: string): void => {
   eventBus.publish({
     type: 'log',
     level: 'debug',
@@ -62,50 +55,30 @@ export const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, 
   });
 };
 
-/**
- * Emit one `TokenUsageEvent` per success spawn. Handles the contextWindowFor lookup,
- * chainSessionId / role threading, and all optional field spreads so each provider just
- * passes its own payload fields.
- *
- * Returns the payload it published so the caller can ALSO hand the counts back as data (see
- * `ProviderAttemptInput.emitProviderTokenUsage`) — the event alone is ephemeral, and the chain
- * needs the same figures to persist them onto the attempt.
- */
-export const emitTokenUsage = (
+const emitTokenUsage = (
   eventBus: EventBus,
   session: AiSession,
   sessionId: string,
-  payload: TokenUsagePayload
-): TokenUsagePayload => {
-  const window = contextWindowFor(payload.model);
+  provider: AiProvider,
+  usage: ProviderTokenUsage
+): void => {
+  const window = contextWindowFor(usage.model);
   const chainSessionId = session.chainSessionId;
   eventBus.publish({
     type: 'token-usage',
     sessionId,
     ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    provider: payload.provider,
-    ...(payload.model !== undefined ? { model: payload.model } : {}),
-    ...(payload.inputTokens !== undefined ? { inputTokens: payload.inputTokens } : {}),
-    ...(payload.outputTokens !== undefined ? { outputTokens: payload.outputTokens } : {}),
-    ...(payload.cacheReadTokens !== undefined ? { cacheReadTokens: payload.cacheReadTokens } : {}),
-    ...(payload.cacheCreationTokens !== undefined ? { cacheCreationTokens: payload.cacheCreationTokens } : {}),
-    ...(payload.liveInputTokens !== undefined ? { liveInputTokens: payload.liveInputTokens } : {}),
-    ...(payload.liveCacheReadTokens !== undefined ? { liveCacheReadTokens: payload.liveCacheReadTokens } : {}),
-    ...(payload.liveCacheCreationTokens !== undefined
-      ? { liveCacheCreationTokens: payload.liveCacheCreationTokens }
-      : {}),
+    provider,
+    ...usage,
     ...(window !== undefined ? { contextWindow: window } : {}),
     ...(session.role !== undefined ? { role: session.role } : {}),
     at: IsoTimestamp.now(),
   });
-  return payload;
 };
 
 /**
- * Per-attempt spawn configuration. Each provider supplies its stdout consumer, flush callback,
- * state getters, and token-usage emitter; the shared scaffold owns the child lifecycle, bounded
- * tails, watchdog banner, `runHeadlessSpawn` wiring, `onSuccess` plumbing, and
- * `classifySpawnExit` call.
+ * Per-attempt spawn configuration: the adapter supplies argv and its stream accessors; the scaffold
+ * owns the child lifecycle, stderr tail, watchdog, session-id persistence and exit classification.
  */
 export interface ProviderAttemptInput {
   readonly spawnFn: ProviderSpawn;
@@ -114,45 +87,24 @@ export interface ProviderAttemptInput {
   readonly session: AiSession;
   /** Variables overlaid on the inherited environment for this spawn. */
   readonly env?: Readonly<Record<string, string>>;
-  /**
-   * Prompt piped to stdin. Omit for providers (Copilot) that pass the prompt as an argv
-   * argument — `runHeadlessSpawn` closes stdin immediately when this field is absent.
-   */
+  /** Prompt piped to stdin. Absent (copilot, grok pass a prompt file): stdin is closed at once. */
   readonly stdin?: string;
   readonly rateLimitRe: RegExp;
-  /** Receives each raw stdout chunk. */
   readonly onStdoutChunk: (chunk: string) => void;
-  /**
-   * Flush any trailing partial-line state after `runHeadlessSpawn` resolves so no JSONL
-   * record is lost to a missing terminal newline.
-   */
+  /** Drain a trailing partial line after the child closes, so no record is lost to a missing newline. */
   readonly flush: () => void;
-  /** Returns the session id captured from the stream (called after flush). */
   readonly getSessionId: () => string | undefined;
-  /** Returns the stdout body tail for the rate-limit haystack, or undefined to scan stderr only. */
+  /** Assistant stdout tail for the narrow rate-limit tier, or undefined to scan stderr only. */
   readonly getStdoutTail: () => string | undefined;
-  /**
-   * Returns the CLI's own structured error record, for providers that report fatal errors on
-   * stdout with an EMPTY stderr (opencode). Feeds `classifySpawnExit`'s `processErrorText`, which
-   * uses it as the failure-message fallback and as a model-unavailable haystack. Omit for
-   * providers whose fatal errors land on stderr — the classifier already reads those.
-   */
+  /** The CLI's structured stdout error record, for CLIs whose fatal errors leave stderr empty. */
   readonly getProcessErrorText?: () => string | undefined;
   /**
-   * Returns the assistant body for `bodyFile` mirroring. Only called when `session.bodyFile`
-   * is set. Forensic capture is best-effort across all providers — an unreadable body resolves to
-   * an empty string rather than a failure Result, so it never discards an otherwise-recovered
-   * success (`signals.json` is the authoritative gate). A non-`AbortError` failure Result here
-   * would still surface as a hard error from `onSuccess`.
+   * Body mirrored to `session.bodyFile`. Best-effort: resolve an unreadable body to `''` rather
+   * than an error, which would discard an otherwise-recovered success.
    */
   readonly getBody: () => Promise<Result<string, DomainError>>;
-  /**
-   * Emit the provider-specific token-usage event for this attempt's captured sessionId. Called
-   * from `onSuccess` only when `sessionId` is defined. Returns the payload it published so the
-   * scaffold can also fold the counts into {@link ProviderOutput.usage} — the event is ephemeral,
-   * the returned data is what the chain persists onto the attempt.
-   */
-  readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
+  /** Token usage captured from the stream. Read on success only, and only once a session id was captured. */
+  readonly getUsage: () => ProviderTokenUsage;
   readonly providerName: ProviderName;
   readonly providerSlug: ProviderSlug;
   readonly eventBus: EventBus;
@@ -186,38 +138,13 @@ const registerChild = (
   });
 };
 
-/**
- * Shared spawnAttempt scaffold for the five headless AI provider adapters. Owns:
- *
- * - Child spawn with cwd (context-file autoload depends on the child's `process.cwd()`).
- * - Bounded stderr tail (`STDERR_TAIL_CAP`).
- * - Watchdog banner id keyed by `watchdog-<slug>-<pid>`.
- * - `runHeadlessSpawn` wiring — onStdout / onStderr / stdin / idleMs /
- *   abortSignal / onIdle (idle-watchdog warn + banner-show).
- * - `onSuccess` plumbing — `emitSessionIdCaptured`, `emitProviderTokenUsage`,
- *   `persistSessionIdBestEffort`, bodyFile mirror.
- * - `classifySpawnExit` call with provider-specific rateLimitRe and stdoutTail.
- *
- * Each provider supplies only what genuinely differs: argv, stdout chunk consumer, flush
- * callback, sessionId / stdoutTail / body getters, and token-usage payload.
- */
-/**
- * Idle-watchdog telemetry for one attempt: the `onIdle` callback `runHeadlessSpawn` fires when
- * the child goes quiet, plus the spawn options that carry the threshold. Folding both into one
- * factory keeps the `idleMs !== undefined` conditional in a single place — the warn log, the
- * banner copy, and the spawn option all derive from the same optional threshold.
- */
+/** Idle-watchdog wiring for one attempt: the spawn option, the `onIdle` warn + banner, and whether it fired. */
 const createIdleTelemetry = (
   input: ProviderAttemptInput,
   watchdogBannerId: string
 ): {
   readonly spawnOption: { readonly idleMs?: number };
   readonly onIdle: () => void;
-  /**
-   * `true` once {@link onIdle} has fired — i.e. the SIGTERM this child dies from is OURS.
-   * Read after the spawn settles so the classifier can attribute the crash to the watchdog
-   * instead of guessing from an exit shape an external kill produces identically.
-   */
   readonly killedByWatchdog: () => boolean;
 } => {
   const { idleMs, providerName, providerSlug, eventBus } = input;
@@ -301,13 +228,8 @@ const mirrorBodyFile = async (input: ProviderAttemptInput): Promise<DomainError 
 };
 
 /**
- * Build the `onSuccess` block `classifySpawnExit` invokes on a clean exit AND on the
- * signals-recovery branch: session-id telemetry, `sessionId.txt`, the body-file mirror, and the
- * `ProviderOutput` envelope.
- *
- * `startedAtMs` is the pre-spawn clock read — the returned {@link ProviderUsage} carries the
- * elapsed wall-clock alongside whatever token counts the provider reported, so the chain can
- * persist per-attempt cost instead of only rendering it in the TUI.
+ * The success block `classifySpawnExit` runs on a clean exit AND on signals-recovery. The returned
+ * {@link ProviderUsage} carries wall-clock and token counts so the chain can persist per-attempt cost.
  */
 const createSuccessHandler =
   (
@@ -321,7 +243,9 @@ const createSuccessHandler =
     let usage: ProviderUsage = { durationMs: Date.now() - startedAtMs };
     if (sessionId !== undefined) {
       emitSessionIdCaptured(input.eventBus, input.providerName, sessionId);
-      const reported = input.emitProviderTokenUsage(sessionId);
+      // The event is ephemeral; the same counts ride `ProviderOutput.usage` so the chain can persist them.
+      const reported = input.getUsage();
+      emitTokenUsage(input.eventBus, input.session, sessionId, PROVIDER_BY_SLUG[input.providerSlug], reported);
       usage = {
         ...usage,
         ...(reported.inputTokens !== undefined ? { inputTokens: reported.inputTokens } : {}),
@@ -351,26 +275,18 @@ const createSuccessHandler =
 export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
   const { spawnFn, command, args, session, providerName } = input;
   // Nothing to kill yet: spawning under an already-aborted signal would leave a child no cancel can reach.
-  if (session.abortSignal?.aborted === true) {
-    return {
-      kind: 'error',
-      error: new AbortError({ elementName: providerName, reason: `${providerName}: aborted by caller` }),
-    };
-  }
+  if (session.abortSignal?.aborted === true) return { kind: 'error', error: abortedByCaller(providerName) };
 
   const argvBytes = argvByteLength(command, args);
-  // Read BEFORE the spawn so the recorded duration covers the child's whole life, including the
-  // synchronous-throw path's absence of one.
   const startedAtMs = Date.now();
   (input.childRegistry ?? NOOP_CHILD_REGISTRY).beforeSpawn();
 
-  // `crossPlatformSpawn` throws synchronously for a command line the OS refuses outright — an
-  // oversized argv on Windows arrives this way, not as an `'error'` event — so an uncaught call
-  // here would take the whole process down instead of failing the attempt.
+  // `crossPlatformSpawn` throws synchronously for an oversized Windows argv; uncaught it would kill the process.
   let child;
   try {
     child = spawnFn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'] as const,
+      // The CLIs discover CLAUDE.md / AGENTS.md, skills and MCP config from the child's cwd.
       cwd: String(session.cwd),
       detached: true,
       ...(input.env !== undefined ? { env: { ...process.env, ...input.env } } : {}),
@@ -424,8 +340,6 @@ const superviseAttempt = async (
   const processErrorText = input.getProcessErrorText?.();
   return classifySpawnExit({
     session,
-    // `spawnError` was previously dropped here, which left the classifier's spawn-error branch
-    // unreachable from this path — a missing binary read as a plain non-zero exit.
     exit: { code, signal, argvBytes, ...(spawnError !== undefined ? { spawnError } : {}) },
     stderr: stderrTail.value(),
     rateLimitRe,
@@ -441,13 +355,7 @@ const superviseAttempt = async (
   });
 };
 
-/**
- * Context created once per `generate()` call. Provides the attempt function (called for each
- * retry) and optional cleanup run in a `finally` block after all attempts complete.
- *
- * Allows per-generate state (e.g. codex's output tempfile path) to be created once and shared
- * across retries, while per-attempt stream state is created fresh inside `attempt`.
- */
+/** Per-`generate()` state: `attempt` runs once per retry, `cleanup` once after the last attempt. */
 export interface GenerateContext {
   readonly attempt: (session: AiSession) => Promise<AttemptOutcome>;
   readonly cleanup?: () => Promise<void>;
@@ -462,34 +370,24 @@ export type AttemptBase = Pick<
 export interface CreateHeadlessProviderInput {
   readonly providerSlug: ProviderSlug;
   readonly deps: HeadlessProviderDeps;
-  /** Executable used when `deps.command` is absent. */
-  readonly defaultCommand: string;
   readonly resumeStaleRe: RegExp;
-  /**
-   * Called once at the start of each `generate()` call with the resolved {@link AttemptBase}.
-   * Creates per-generate state (e.g. codex's output tempfile path) and returns the per-attempt
-   * function and optional cleanup. The attempt function is called once per retry; cleanup runs
-   * once after all attempts.
-   */
   readonly createGenerateContext: (base: AttemptBase) => GenerateContext;
 }
 
 /**
- * Factory for the identical deps-resolution and generate()->runWithRateLimitRetry boilerplate
- * shared by all five headless provider adapters. Owning the {@link AttemptBase} here means no
- * adapter can forget a seam (e.g. `childRegistry`, which would silently disable orphan reaping).
+ * Resolves the {@link AttemptBase} once and runs `generate()` through the shared retry loop, so no
+ * adapter can forget a seam (a missing `childRegistry` would silently disable orphan reaping).
  */
 export const createHeadlessProvider = ({
   providerSlug,
   deps,
-  defaultCommand,
   resumeStaleRe,
   createGenerateContext,
 }: CreateHeadlessProviderInput): HeadlessAiProvider => {
   const providerName: ProviderName = `${providerSlug}-provider`;
   const base: AttemptBase = {
     spawnFn: deps.spawn ?? defaultProviderSpawn,
-    command: deps.command ?? defaultCommand,
+    command: deps.command ?? PROVIDER_TRAITS[PROVIDER_BY_SLUG[providerSlug]].binary,
     providerName,
     providerSlug,
     eventBus: deps.eventBus,

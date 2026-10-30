@@ -53,8 +53,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
     const path = await tasksPathFor(sprintId);
     const json = await readJson(path);
     if (!json.ok) {
-      if (json.error instanceof NotFoundError)
-        return Result.ok([] as readonly Task[]) as Result<readonly Task[], StorageError>;
+      if (json.error instanceof NotFoundError) return Result.ok([] as readonly Task[]);
       return Result.error(json.error);
     }
     return decode((input) => fromJsonTasksFile(input, path), json.value, { entity: 'task', path });
@@ -83,8 +82,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
     async findBySprintId(sprintId) {
       const all = await readAll(sprintId);
       if (!all.ok) return Result.error(all.error);
-      const ordered = [...all.value].sort((a, b) => a.order - b.order);
-      return Result.ok(ordered);
+      return Result.ok(all.value.toSorted((a, b) => a.order - b.order));
     },
 
     async saveAll(sprintId, tasks) {

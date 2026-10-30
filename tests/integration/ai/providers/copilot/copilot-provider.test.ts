@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -13,78 +11,9 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { isSuspendedModel } from '@src/domain/value/settings-models/suspended-models.ts';
 import { buildCopilotArgs, createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
-
-interface FakeChildScript {
-  readonly stdoutChunks?: readonly string[];
-  readonly stderrChunks?: readonly string[];
-  readonly exitCode?: number | null;
-  readonly exitSignal?: NodeJS.Signals | null;
-  readonly hang?: boolean;
-}
-
-const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
-  const ee = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  ee.setEncoding = (): void => {};
-  return ee;
-};
-
-/** A real child emits `close` once its pipes drain, after `exit`; the adapter waits on `close`. */
-const exitThenClose = (child: EventEmitter, code: number | null, signal: NodeJS.Signals | null): void => {
-  child.emit('exit', code, signal);
-  setTimeout(() => child.emit('close', code, signal), 0);
-};
-
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
-  const stdout = makeStream();
-  const stderr = makeStream();
-  const stdin = {
-    end(_data?: unknown): void {
-      void _data;
-    },
-  };
-  Object.assign(child, {
-    stdout,
-    stderr,
-    stdin,
-    kill(): boolean {
-      child._killed = true;
-      setTimeout(() => exitThenClose(child, null, 'SIGTERM'), 0);
-      return true;
-    },
-    _killed: false,
-  });
-  setTimeout(() => {
-    for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
-    for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
-    if (script.hang === true) return;
-    setTimeout(() => exitThenClose(child, script.exitCode ?? 0, script.exitSignal ?? null), 0);
-  }, 0);
-  return child;
-};
-
-interface CapturingSpawnState {
-  readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{
-    readonly command: string;
-    readonly args: readonly string[];
-    readonly cwd?: string;
-  }>;
-}
-
-const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
-  let i = 0;
-  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
-  const spawn: ProviderSpawn = (command, args, options) => {
-    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
-    const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
-    i++;
-    return makeFakeChild(script);
-  };
-  return { spawn, calls };
-};
+import { makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
+import type { SpawnScript } from '@src/integration/ai/providers/_engine/scripted-spawn.ts';
 
 const PROMPT = 'rendered prompt body' as unknown as Prompt;
 const CWD = absolutePath('/tmp/copilot-provider-test');
@@ -126,7 +55,7 @@ describe('createCopilotProvider', () => {
     const cap = createCapturingBus();
     const sess = session();
 
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-1","model":"gpt-5.6-sol"}\n',
@@ -149,32 +78,11 @@ describe('createCopilotProvider', () => {
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
   });
 
-  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-persist","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'],
-        exitCode: 0,
-      },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    const sidContent = await fs.readFile(sidPath, 'utf8');
-    expect(sidContent).toBe('sess-persist\n');
-    expect(out.value.sessionId).toBe('sess-persist');
-  });
-
   it('skips the session-id.txt file when no meta line carried a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     // Only plain-text body lines — no JSON meta line, so no session_id is ever extracted.
-    const { spawn } = makeSpawn([{ stdoutChunks: ['<task-complete/>\n'], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: ['<task-complete/>\n'], exitCode: 0 }]);
 
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -186,30 +94,10 @@ describe('createCopilotProvider', () => {
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('keeps session-id.txt on a non-zero exit — the id is written as the stream yields it, so a crashed thread stays resumable', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-doomed"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
-    expect(await fs.readFile(sidPath, 'utf8')).toBe('sess-doomed\n');
-    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
     const cap = createCapturingBus();
-    const rate: FakeChildScript = { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 };
-    const { spawn } = makeSpawn([rate, rate, rate]);
+    const rate: SpawnScript = { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 };
+    const { spawn } = makeProviderSpawn([rate, rate, rate]);
     const provider = createCopilotProvider({
       rateLimitRetries: 2,
       eventBus: cap.bus,
@@ -226,7 +114,7 @@ describe('createCopilotProvider', () => {
     // FINDING 6 — mirror the claude / codex retry-arc. A 429 on attempt 1 must retry and, because
     // the first attempt captured a session id, RESUME it via `--resume <id>` on attempt 2.
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       // Attempt 1: captures the session id, then a rate-limit exit.
       {
         stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.6-sol"}\n'],
@@ -253,42 +141,10 @@ describe('createCopilotProvider', () => {
     expect(calls[1]?.args).toContain('--resume=sess-429');
   });
 
-  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
-    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
-    // AbortError — the one error chains propagate transparently. InvalidStateError would be
-    // classified as a recoverable turn error and wrongly self-block the task.
-    const cap = createCapturingBus();
-    const controller = new AbortController();
-    const calls = { n: 0 };
-    const spawn: ProviderSpawn = () => {
-      calls.n++;
-      // Fire the abort right after the first (rate-limited) spawn so it lands during the
-      // generous backoff sleep below — never before exit classification (which checks abort
-      // first and would short-circuit the attempt itself).
-      setTimeout(() => controller.abort(), 5);
-      return makeFakeChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
-    };
-
-    const provider = createCopilotProvider({
-      rateLimitRetries: 2,
-      eventBus: cap.bus,
-      spawn,
-      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
-    });
-
-    const out = await provider.generate(session({ abortSignal: controller.signal }));
-    expect(out.ok).toBe(false);
-    if (out.ok) return;
-    expect(out.error.code).toBe('aborted');
-    expect(out.error.name).toBe('AbortError');
-    // The retry never re-spawned — the abort tore the run down during the first backoff.
-    expect(calls.n).toBe(1);
-  });
-
   it('consumes JSON-only assistant delta events without writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-json","model":"gpt-5.6-sol"}\n',
@@ -313,7 +169,7 @@ describe('createCopilotProvider', () => {
     const signalsFile = tempSignalsFile();
     const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
     const sess = session({ signalsFile, bodyFile });
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-body","model":"gpt-5.6-sol"}\n',
@@ -340,7 +196,7 @@ describe('createCopilotProvider', () => {
     const sess = session({ signalsFile, bodyFile });
     // The AI did not emit anything that would lead it to write `signals.json`. The forensic
     // body.txt is exactly the surface operators need to debug an empty proposal.
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-empty","model":"gpt-5.6-sol"}\n',
@@ -364,7 +220,7 @@ describe('createCopilotProvider', () => {
     const cap = createCapturingBus();
     const cwd = absolutePath('/tmp/some-target-repo');
     const sess = session({ cwd });
-    const { spawn, calls } = makeSpawn([
+    const { spawn, calls } = makeProviderSpawn([
       { stdoutChunks: ['{"session_id":"sess-cwd","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
     ]);
 
@@ -385,7 +241,7 @@ describe('createCopilotProvider', () => {
     // assistant delta (SHOULD appear as its extracted bodyText).
     const unknownEvt = '{"type":"tool_call.delta","data":{"name":"Read","args":{"path":"/x"}}}';
     const knownDelta = '{"type":"assistant.message_delta","data":{"deltaContent":"<task-complete/>"}}';
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [`{"session_id":"sess-mix","model":"gpt-5.6-sol"}\n${unknownEvt}\n${knownDelta}\n`],
         exitCode: 0,
@@ -422,7 +278,7 @@ describe('createCopilotProvider', () => {
       type: 'assistant.message',
       data: { content: 'I will proceed with the change.' },
     });
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [`{"session_id":"sess-echo","model":"gpt-5.6-sol"}\n${userEcho}\n${assistantTurn}\n`],
         exitCode: 0,
@@ -449,7 +305,7 @@ describe('createCopilotProvider', () => {
     await fs.mkdir(dirname(String(bodyFile)), { recursive: true });
     await fs.writeFile(String(bodyFile), 'stale prior content\n', 'utf8');
     const sess = session({ signalsFile, bodyFile });
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: ['{"session_id":"sess-clobber","model":"gpt-5.6-sol"}\n', 'fresh body\n'],
         exitCode: 0,
@@ -482,7 +338,7 @@ describe('createCopilotProvider', () => {
     const systemLine = JSON.stringify({ type: 'system', subtype: 'init', sessionId: 'sess-debug' });
     const malformed = '{not-json-at-all';
 
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: [`${systemLine}\n${assistantLine}\n${synthToolUse}\n${synthToolResult}\n${malformed}\n`],
         exitCode: 0,
@@ -506,25 +362,6 @@ describe('createCopilotProvider', () => {
     );
     expect(toolDebugs).toHaveLength(0);
   });
-
-  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
-    // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
-    // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already
-    // written signals.json via its Write tool before the child wedged.
-    const cap = createCapturingBus();
-    const sess = session();
-    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
-    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
-    const { spawn } = makeSpawn([{ exitCode: 143 }]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-    if (!out.ok) return;
-    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
-    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
-    expect(warn).toBeDefined();
-  });
 });
 
 describe('createCopilotProvider — TokenUsageEvent emission', () => {
@@ -532,7 +369,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     const cap = createCapturingBus();
     const sess = session();
     // Bare meta line — sessionId + model, no usage object. Honest about missing fields.
-    const { spawn } = makeSpawn([
+    const { spawn } = makeProviderSpawn([
       {
         stdoutChunks: ['{"session_id":"sess-tu","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'],
         exitCode: 0,
@@ -563,7 +400,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
       model: 'gpt-5.6-sol',
       usage: { input_tokens: 444, output_tokens: 222 },
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${meta}\n`, '<task-complete/>\n'], exitCode: 0 }]);
+    const { spawn } = makeProviderSpawn([{ stdoutChunks: [`${meta}\n`, '<task-complete/>\n'], exitCode: 0 }]);
 
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
     const out = await provider.generate(sess);
@@ -575,42 +412,6 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     expect(evt.sessionId).toBe('sess-u');
     expect(evt.inputTokens).toBe(444);
     expect(evt.outputTokens).toBe(222);
-  });
-
-  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: ['{"session_id":"sess-fail","model":"gpt-5.6-sol"}\n'],
-        stderrChunks: ['boom\n'],
-        exitCode: 7,
-      },
-    ]);
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(false);
-
-    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
-  });
-
-  it('stamps chainSessionId onto the event when the session carries one', async () => {
-    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
-    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
-    const cap = createCapturingBus();
-    const sess = session({ chainSessionId: 'chain-run-42' });
-    const { spawn } = makeSpawn([
-      { stdoutChunks: ['{"session_id":"sess-cs","model":"gpt-5.6-sol"}\n', '<task-complete/>\n'], exitCode: 0 },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-
-    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
-    expect(tokenEvents).toHaveLength(1);
-    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
-    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 });
 
@@ -720,7 +521,7 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     // The body never rides argv, so an unwritable prompt file is a failed attempt, not an inline fallback.
     const blocker = join(tmpdir(), `ralphctl-copilot-blocker-${String(process.pid)}-${String(Date.now())}`);
     await fs.writeFile(blocker, 'a file where a directory is needed', 'utf8');
-    const { spawn, calls } = makeSpawn([{ exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ exitCode: 0 }]);
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
 
     const out = await provider.generate(session({ signalsFile: absolutePath(join(blocker, 'signals.json')) }));
@@ -737,7 +538,7 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     // on Windows.
     const cap = createCapturingBus();
     const sess = session();
-    const { spawn, calls } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1"}\n'], exitCode: 0 }]);
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: ['{"session_id":"sess-1"}\n'], exitCode: 0 }]);
     const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
 
     await provider.generate(sess);

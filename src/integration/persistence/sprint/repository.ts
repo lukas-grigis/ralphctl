@@ -129,7 +129,7 @@ const listSprints = async (root: AbsolutePath): Promise<Result<readonly Sprint[]
 
   // Sort by the leading id (split on `--`) so chronological UUIDv7 order survives the slug
   // suffix — a `<id>--zzz` dir must still sort by its id, not the whole name.
-  const sortedEntries = [...entries.value].sort((a, b) => parseIdFromName(a).localeCompare(parseIdFromName(b)));
+  const sortedEntries = entries.value.toSorted((a, b) => parseIdFromName(a).localeCompare(parseIdFromName(b)));
   // Read every entry's sprint.json concurrently — each read is an independent disk round-trip,
   // and Promise.all preserves the input array's order regardless of settle order, so the
   // chronological order established above survives untouched.
