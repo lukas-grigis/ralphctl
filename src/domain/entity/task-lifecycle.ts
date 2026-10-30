@@ -24,34 +24,15 @@ export const BLOCKED_UPSTREAM_REASON_PREFIX = 'blocked upstream';
 export const isUpstreamBlocked = (task: Task): task is BlockedTask =>
   task.status === 'blocked' && task.blockKind === 'upstream';
 
-/**
- * The {@link BlockCause} member meaning "the task ran out of its attempt budget" — shared by
- * {@link inferBlockCause} (inferring it from crash / explicit-exhaustion reason text) and
- * {@link defaultFaultSideFor} (matching on it to pick a crash-vs-model-driven fault side). `satisfies`
- * rather than a `: BlockCause` annotation so the constant keeps its literal type — required for
- * `defaultFaultSideFor`'s `switch` to stay exhaustively checked against every `BlockCause` member.
- */
+/** `satisfies`, not `: BlockCause`, so the literal type keeps `defaultFaultSideFor`'s switch exhaustive. */
 const BUDGET_EXHAUSTED_BLOCK_CAUSE = 'budget-exhausted' satisfies BlockCause;
 
 /**
- * Read-time / construction-time inference for {@link BlockCause} — mirrors the reason-prefix
- * inference {@link BLOCKED_UPSTREAM_REASON_PREFIX} already does for `blockKind`, one level more
- * granular. `blockKind === 'upstream'` always resolves to `'upstream-dependency'` (no need to
- * inspect the reason text — the structural discriminant already settles it). For an `'own'` block
- * the reason text is pattern-matched against every literal prefix the harness's own producers are
- * known to write (`wave-branch.ts`'s fold-conflict / worktree-setup-failure text,
- * `pre-task-verify-internals`'s broken-baseline text, `post-task-verify.ts`'s verify-script text,
- * `finalize-gen-eval.ts`'s crash + budget-exhaustion text, `cancel-active-task.ts`'s operator-cancel
- * text) — falling back to `ownDefault` when nothing matches. Callers with extra context (e.g.
- * `settleAttemptUseCase`, which knows its `blockedReason` path is generator-self-block /
- * verify-driven and never fold-conflict / upstream / operator-cancel) pass a narrower
- * `ownDefault` than the persistence codec's true "no idea" `'unknown'`.
- *
- * EVERY check below is anchored to the literal producer text (`startsWith`, never a bare
- * `.includes` on a common English word) and ordered so no anchored prefix sits behind a looser
- * one — a generator self-block's free-form prose can legitimately mention "crashed" or "cancel"
- * (describing what the TASK is about, not what happened to the harness) without being
- * misclassified as a harness-driven `budget-exhausted` / `operator-cancelled` block.
+ * Infer a {@link BlockCause}: `upstream` blocks are always `upstream-dependency`; `own` blocks are
+ * matched against the literal prefixes the harness's own producers write, else `ownDefault`.
+ * Every check is anchored with `startsWith` on the producer's exact text, never `.includes` on a
+ * common word — a self-block's prose may legitimately mention "crashed", "cancel" or "broken
+ * baseline" while describing the task itself.
  */
 export const inferBlockCause = (
   blockKind: BlockedTask['blockKind'],
@@ -60,35 +41,20 @@ export const inferBlockCause = (
 ): BlockCause => {
   if (blockKind === 'upstream') return 'upstream-dependency';
   if (reason.startsWith('attempt budget exhausted')) return BUDGET_EXHAUSTED_BLOCK_CAUSE;
-  // Anchored to `finalize-gen-eval.ts`'s exact literal (`'AI process repeatedly crashed; attempt
-  // budget exhausted'`) rather than a bare `.includes('crashed')` — the latter matched ANY reason
-  // text mentioning a crash, including a generator self-block whose prose happens to describe a
-  // crashing dependency (e.g. "the payment sandbox crashed on every run").
   if (reason.startsWith('AI process repeatedly crashed')) return BUDGET_EXHAUSTED_BLOCK_CAUSE;
   if (reason.startsWith('fold conflict')) return 'fold-conflict';
   if (reason.startsWith('worktree setup script failed')) return 'worktree-setup-failure';
-  // Anchored to `pre-task-verify-internals/verify-execution.ts`'s two exact literals
-  // (`'baseline already red at task start …'`, `'operator skipped task on broken baseline'`)
-  // rather than a bare `.includes('broken baseline')` — the latter matched ANY reason text that
-  // merely mentions a broken baseline, including a generator self-block whose prose happens to
-  // describe one (e.g. "the integration suite has a broken baseline on CI").
   if (reason.startsWith('baseline already red') || reason.startsWith('operator skipped task on broken baseline')) {
     return 'pre-verify-red';
   }
   if (reason.startsWith('verify script')) return 'post-verify-regression';
-  // Anchored to `cancel-active-task.ts` / the TUI cancel handler's exact literal (`'user cancel'`)
-  // rather than a bare `.includes('cancel')` — the latter matched a self-block reason that merely
-  // mentions a cancellation POLICY being ambiguous, not an actual operator cancel.
   if (reason.startsWith('user cancel')) return 'operator-cancelled';
   return ownDefault;
 };
 
 /**
- * Default {@link FaultSide} per {@link BlockCause}, used when neither the caller nor
- * {@link faultSideForAbortCause} supplies one. `budget-exhausted` is the one cause whose fault side
- * genuinely depends on WHY the budget ran out — text-matched the same way {@link inferBlockCause}
- * detects a crash-driven exhaustion, since a caller with definitive crash forensics should prefer
- * {@link faultSideForAbortCause} instead of falling through to this text match.
+ * Default {@link FaultSide} per {@link BlockCause}. `budget-exhausted` depends on why the budget ran
+ * out; callers with crash forensics should prefer {@link faultSideForAbortCause} over this text match.
  */
 export const defaultFaultSideFor = (cause: BlockCause, reason: string): FaultSide => {
   switch (cause) {
@@ -178,11 +144,7 @@ export const markTaskBlocked = (
   return Result.ok({ ...guard.value, status: 'blocked', blockedReason: reason, blockKind, blockCause, faultSide });
 };
 
-/**
- * True when a retired run is worth archiving — at least one attempt, a verdict map, or an
- * escalation stamp survived to the block. An upstream-cascade dependent unblocked with nothing of
- * its own carries none of these, and archiving an empty entry would just be noise in `tasks.json`.
- */
+/** An upstream-cascade dependent unblocked with nothing of its own would only add noise to the archive. */
 const hasArchivableState = (run: RetiredRun): boolean =>
   run.attempts.length > 0 ||
   run.criteriaVerdicts !== undefined ||
@@ -192,31 +154,11 @@ const hasArchivableState = (run: RetiredRun): boolean =>
   run.escalatedToEvaluatorEffort !== undefined;
 
 /**
- * Unblock a `blocked` task back to `todo` as a CLEAN RESTART: strip the block fields AND reset the
- * attempt budget (empty `attempts`) and any carried-over model escalation. A deliberate operator
- * unblock means "the blocker is addressed — give this task a genuine fresh run," so it re-enters
- * with a full `maxAttempts` budget on the configured model, behaving like a freshly-planned task.
- *
- * Without the reset, an own-blocked task sitting at a full attempt history would, on its next run,
- * hit `budget-exhausted` on the first plateau (no room to climb the escalation ladder again) — and
- * carrying a top-of-ladder escalation stamp would `topped-out` immediately.
- *
- * This is an ARCHIVE, not a deletion: the attempts, per-criterion verdicts and escalation stamps
- * cleared from the live fields are packaged into one {@link RetiredRun} and appended to
- * {@link Task.retiredAttempts} (oldest first) rather than discarded. The per-attempt history also
- * still lives in `progress.md` and git; this is what keeps it in `tasks.json` too, so
- * `foldOutcomeStats` and any future forensic view can still see it after the live ledger resets. A
- * run with nothing worth keeping (see {@link hasArchivableState}) is not archived — an upstream-
- * cascade dependent re-armed with zero attempts of its own does not grow the archive.
- *
- * The one stamp a clean restart KEEPS live is the permanent `bestOfNGranted` marker (the
- * once-per-task gate); its transient `bestOfNGrantedCandidates` handshake is dropped entirely —
- * neither archived nor carried forward — see the destructure below.
- *
- * The quarantined-diff fact survives the clean restart; the operator's decision is recorded on it.
- *
- * Distinct from {@link resetTaskToTodo} (crash recovery), which PRESERVES attempts because it
- * resumes mid-work rather than restarting.
+ * Unblock a `blocked` task back to `todo` as a CLEAN RESTART: block fields stripped, attempt budget
+ * and escalation stamps reset — otherwise the next run would hit `budget-exhausted` or `topped-out`
+ * at once. The cleared state is archived as a {@link RetiredRun}, not deleted (a run with nothing
+ * worth keeping is skipped). The quarantined-diff fact survives, with the operator's decision.
+ * Unlike {@link resetTaskToTodo} (crash recovery), which keeps attempts to resume mid-work.
  */
 export const unblockTask = (task: Task, prior?: DatedPriorWorkDecision): Result<TodoTask, InvalidStateError> => {
   const guard = requireStatus('task', task, ['blocked'] as const, 'unblock');
@@ -224,35 +166,20 @@ export const unblockTask = (task: Task, prior?: DatedPriorWorkDecision): Result<
   const {
     blockedReason: _reason,
     blockKind: _kind,
-    // Same clean-restart rationale as `_reason` / `_kind` immediately above — a fresh `todo` task
-    // carries no block classification at all, so these are dropped rather than carried forward.
+    // A fresh `todo` task has no block to classify or triage: these are dropped, not archived.
     blockCause: _blockCause,
     faultSide: _faultSide,
-    // The GENERATOR's own structured triage for the block just cleared — same clean-restart
-    // rationale as `blockCause` / `faultSide` immediately above: a fresh `todo` task has no block
-    // to triage yet, so a stale answer from the PRIOR block cycle must not ride onto it. Dropped,
-    // not archived (same posture as `blockCause` / `faultSide`, unlike `criteriaVerdicts` below).
     blockerClass: _blockerClass,
     question: _question,
     whatUnblocksMe: _whatUnblocksMe,
+    // Per-run remedies and verdicts: archived below, not carried forward.
     escalatedFromModel,
     escalatedToModel,
-    // The raised effort is a per-run remedy like the model bump — a clean restart drops it so the
-    // fresh run begins on the configured effort again (archived, not carried forward).
     escalatedToEffort,
-    // Evaluator-side counterpart of the effort remedy above — same clean-restart rationale.
     escalatedToEvaluatorEffort,
-    // A clean restart drops the prior run's per-criterion verdicts too — a freshly-planned task
-    // carries no k-of-N history; stale verdicts would mislead the next run's checklist. Archived,
-    // not carried forward.
     criteriaVerdicts,
-    // The best-of-N handshake is transient: it is meant to be consumed by the ATTEMPT it was issued
-    // for. A grant stamped but never consumed (the attempt was cancelled / self-blocked before
-    // `best-of-n-selection` cleared it) would otherwise ride onto a task with zero attempts and make
-    // the restarted run's FIRST attempt sample N candidate generator sessions — an unexpected N×
-    // spend on what the operator asked to be a fresh run. The PERMANENT `bestOfNGranted` marker is
-    // deliberately NOT stripped: it is the once-per-task gate `decideEscalation` reads, and clearing
-    // it would let repeated block/unblock cycles re-grant N sessions without bound.
+    // An unconsumed best-of-N handshake would make the fresh run's first attempt spend N sessions.
+    // The permanent `bestOfNGranted` gate stays, or block/unblock cycles could re-grant without bound.
     bestOfNGrantedCandidates: _bestOfNCandidates,
     attempts,
     retiredAttempts,
@@ -302,7 +229,7 @@ export const resetTaskToTodo = (task: Task): Result<TodoTask, InvalidStateError>
     'Only `in_progress` tasks can be reset to todo.'
   );
   if (!guard.ok) return Result.error(guard.error);
-  const last = guard.value.attempts[guard.value.attempts.length - 1];
+  const last = guard.value.attempts.at(-1);
   if (last !== undefined && last.status === 'running') {
     return Result.error(
       new InvalidStateError({

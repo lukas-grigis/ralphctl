@@ -13,21 +13,14 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 const FIELD_REPOSITORY_NAME = 'repository.name';
 
 /**
- * One structured per-module verify gate. A monorepo-style repo chains module gates inside a
- * single opaque {@link Repository.verifyScript}, so every verify run pays for every module. A
- * `VerifyGate` carves that into addressable units so a post-verify run can execute only the
- * gates whose `pathPrefix` matches the attempt's diff footprint.
- *
- *  - `pathPrefix` — POSIX-style path prefix relative to the repo root that scopes the gate.
- *    `''` (empty string) matches everything — the catch-all gate a legacy `verifyScript`
- *    normalises to. A leading `./` or `/` is ignored (see {@link canonicalGatePrefix}).
- *  - `command`   — the verbatim shell line to run for this module.
- *  - `timeoutMs`  — optional per-gate wall-clock cap. Falls back to the repo's `verifyTimeout`
- *    (then the shell runner default) when absent.
+ * One per-module verify gate, so a post-verify run executes only the gates whose `pathPrefix`
+ * matches the diff footprint instead of one monolithic `verifyScript`.
  */
 export interface VerifyGate {
+  /** Repo-relative POSIX prefix; `''` is the catch-all a legacy `verifyScript` normalises to. */
   readonly pathPrefix: string;
   readonly command: string;
+  /** Falls back to the repo's `verifyTimeout`, then the shell runner default. */
   readonly timeoutMs?: number;
 }
 
@@ -53,48 +46,23 @@ export const normalizeVerifyGates = (
 };
 
 /**
- * `id` is the stable domain identity (UUIDv7). `slug` is a kebab-case CLI handle (renamable
- * without breaking refs). `path` is a local-machine fact and may differ across environments —
- * never use it as identity. `name` is human-readable display, defaulted from `path` basename
- * when not supplied. Readiness state is no longer a Repository field — see
- * `ai/readiness/_engine/`.
+ * `id` is the identity; `slug` is a renamable CLI handle; `path` is a per-machine fact, never
+ * identity; `name` defaults to the path basename.
  */
 export interface Repository extends Entity<RepositoryId> {
   readonly slug: Slug;
   readonly name: string;
   readonly path: AbsolutePath;
   readonly verifyScript?: string;
-  /**
-   * Structured per-module verify gates. Precedence (resolved by consumers, not here): when
-   * `verifyGates` is present AND non-empty it WINS — the multi-gate executor runs these and
-   * ignores `verifyScript`. {@link verifyScript} remains for legacy repos (no gates configured)
-   * and as the `detect-scripts` fallback when the AI proposes no structured gates. The
-   * factory/setter never persists an empty array — an all-blank input clears the field — so
-   * "present and non-empty" collapses to "present" on read.
-   */
+  /** Wins over `verifyScript` when present (see {@link normalizeVerifyGates}); never persisted empty. */
   readonly verifyGates?: readonly VerifyGate[];
   readonly verifyTimeout?: number;
   readonly setupScript?: string;
-  /**
-   * Markdown body of a per-repo *setup* skill: AI guidance the harness installs into every
-   * AI session for this repo so the assistant knows how to prepare the working tree (build
-   * tooling, monorepo layout, etc.). Distinct from {@link setupScript}, which is the literal
-   * shell line. Authored by the user via the `detect-skills` flow (AI-proposed, human-approved).
-   */
+  /** Markdown guidance installed into every AI session on how to prepare the tree (from `detect-skills`). */
   readonly setupSkill?: string;
-  /**
-   * Markdown body of a per-repo *verify* skill: AI guidance for verifying changes (how the
-   * project surfaces test/lint/typecheck signal, how to interpret failures). Distinct from
-   * {@link verifyScript}. Same authoring path as `setupSkill`.
-   */
+  /** Markdown guidance on verifying changes; same authoring path as `setupSkill`. */
   readonly verifySkill?: string;
-  /**
-   * Kebab-case skill names the readiness flow's AI proposed linking into the repo (the
-   * `skill-suggestions` signal). Persisted so the operator has a durable record of what was
-   * recommended; the `offer-skill-suggestions` readiness leaf is the human gate that turns a
-   * suggestion into an installed / stubbed skill. Plain optional-on-read field — persisted
-   * `project.json` files written before this field existed simply omit it.
-   */
+  /** Skill names the readiness AI proposed; `offer-skill-suggestions` is the human gate that installs them. */
   readonly suggestedSkills?: readonly string[];
 }
 
@@ -120,81 +88,65 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const slugResult = Slug.derive('repository.slug', input.slug, nameResult.value);
   if (!slugResult.ok) return Result.error(slugResult.error);
 
-  const scriptFieldsResult = resolveOptionalScriptFields(input);
-  if (!scriptFieldsResult.ok) return Result.error(scriptFieldsResult.error);
-
-  const verifyGates = verifyGatesPart(input.verifyGates);
-  if (!verifyGates.ok) return Result.error(verifyGates.error);
-
-  const verifyTimeoutResult = resolveVerifyTimeout(input.verifyTimeout);
-  if (!verifyTimeoutResult.ok) return Result.error(verifyTimeoutResult.error);
-
-  const optionalFields = optionalFieldsPart({
-    verifyScript: scriptFieldsResult.value.verifyScript,
-    setupScript: scriptFieldsResult.value.setupScript,
-    setupSkill: scriptFieldsResult.value.setupSkill,
-    verifySkill: scriptFieldsResult.value.verifySkill,
-    verifyGates: verifyGates.value.verifyGates,
-    verifyTimeout: verifyTimeoutResult.value,
-  });
-
-  return Result.ok({
+  const setters: ReadonlyArray<(repo: Repository) => Result<Repository, ValidationError>> = [
+    (r) => setRepositoryVerifyScript(r, input.verifyScript),
+    (r) => setRepositorySetupScript(r, input.setupScript),
+    (r) => setRepositorySetupSkill(r, input.setupSkill),
+    (r) => setRepositoryVerifySkill(r, input.verifySkill),
+    (r) => setRepositoryVerifyGates(r, input.verifyGates),
+    (r) => setRepositoryVerifyTimeout(r, input.verifyTimeout),
+  ];
+  let repo: Repository = {
     id: input.id ?? RepositoryId.generate(),
     slug: slugResult.value,
     name: nameResult.value,
     path: input.path,
     ...suggestedSkillsPart(input.suggestedSkills),
-    ...optionalFields,
-  });
+  };
+  for (const set of setters) {
+    const next = set(repo);
+    if (!next.ok) return next;
+    repo = next.value;
+  }
+  return Result.ok(repo);
 };
 
-type OptionalTextField = 'verifyScript' | 'setupScript' | 'setupSkill' | 'verifySkill';
+type OptionalField =
+  'verifyScript' | 'setupScript' | 'setupSkill' | 'verifySkill' | 'verifyGates' | 'verifyTimeout' | 'suggestedSkills';
+
+/** Set an optional field, or drop the key on `undefined` — the persisted shape never holds an explicit undefined. */
+const withOptional = (repo: Repository, key: OptionalField, value: Repository[OptionalField]): Repository => {
+  if (value !== undefined) return { ...repo, [key]: value };
+  const { [key]: _drop, ...rest } = repo;
+  void _drop;
+  return rest;
+};
 
 const setOptionalText =
-  (key: OptionalTextField) =>
+  (key: 'verifyScript' | 'setupScript' | 'setupSkill' | 'verifySkill') =>
   (repo: Repository, value: string | undefined): Result<Repository, ValidationError> => {
     const next = parseOptionalString(`repository.${key}`, value);
     if (!next.ok) return Result.error(next.error);
-    if (next.value === undefined) {
-      const { [key]: _drop, ...rest } = repo;
-      void _drop;
-      return Result.ok(rest);
-    }
-    return Result.ok({ ...repo, [key]: next.value });
+    return Result.ok(withOptional(repo, key, next.value));
   };
 
 export const setRepositoryVerifyScript = setOptionalText('verifyScript');
 
-/**
- * Replace the repository's structured `verifyGates`. Normalised through the same
- * {@link verifyGatesPart} the factory uses (trim commands, drop blank-command gates, drop the
- * field entirely when nothing survives) so the field round-trips cleanly and an all-blank input
- * clears it — a repo with no gates persists without an empty array on disk. Returns a
- * `ValidationError` when a surviving gate carries a non-positive `timeoutMs`.
- */
+/** Trims commands and drops blank-command gates; an all-blank input clears the field. */
 export const setRepositoryVerifyGates = (
   repo: Repository,
   gates: readonly VerifyGate[] | undefined
 ): Result<Repository, ValidationError> => {
   const part = verifyGatesPart(gates);
   if (!part.ok) return Result.error(part.error);
-  if (part.value.verifyGates === undefined) {
-    const { verifyGates: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
-  return Result.ok({ ...repo, verifyGates: part.value.verifyGates });
+  return Result.ok(withOptional(repo, 'verifyGates', part.value.verifyGates));
 };
 
 export const setRepositoryVerifyTimeout = (
   repo: Repository,
   ms: number | undefined
 ): Result<Repository, ValidationError> => {
-  if (ms === undefined) {
-    const { verifyTimeout: _drop, ...rest } = repo;
-    void _drop;
-    return Result.ok(rest);
-  }
+  if (ms === undefined) return Result.ok(withOptional(repo, 'verifyTimeout', undefined));
   const next = parsePositiveInt('repository.verifyTimeout', ms);
   if (!next.ok) return Result.error(next.error);
   return Result.ok({ ...repo, verifyTimeout: next.value });
@@ -224,95 +176,10 @@ export const setRepositorySlug = (repo: Repository, slug: Slug): Repository => (
   slug,
 });
 
-/**
- * Replace the repository's `suggestedSkills` record. Trims / de-duplicates via the same
- * {@link suggestedSkillsPart} normalisation the factory uses, so the field round-trips cleanly.
- * `undefined` or an all-blank list clears the field entirely (a clean repo persists without an
- * empty array on disk). Never fails — suggestion names are free-form kebab strings the AI
- * proposes, not validated value objects.
- */
-export const setRepositorySuggestedSkills = (repo: Repository, names: readonly string[] | undefined): Repository => {
-  const part = suggestedSkillsPart(names);
-  if (part.suggestedSkills === undefined) {
-    const { suggestedSkills: _drop, ...rest } = repo;
-    void _drop;
-    return rest;
-  }
-  return { ...repo, suggestedSkills: part.suggestedSkills };
-};
+/** Trims and de-duplicates; `undefined` or an all-blank list clears the field. Never fails. */
+export const setRepositorySuggestedSkills = (repo: Repository, names: readonly string[] | undefined): Repository =>
+  withOptional(repo, 'suggestedSkills', suggestedSkillsPart(names).suggestedSkills);
 
-/**
- * Parse the four optional string fields (verifyScript, setupScript, setupSkill, verifySkill)
- * from the input, validating each in sequence. Returns a Result containing all four parsed
- * values (which may be undefined). Short-circuits on the first parse error.
- */
-const resolveOptionalScriptFields = (
-  input: RepositoryCreateInput
-): Result<
-  {
-    readonly verifyScript: string | undefined;
-    readonly setupScript: string | undefined;
-    readonly setupSkill: string | undefined;
-    readonly verifySkill: string | undefined;
-  },
-  ValidationError
-> => {
-  const verifyScript = parseOptionalString('repository.verifyScript', input.verifyScript);
-  if (!verifyScript.ok) return Result.error(verifyScript.error);
-
-  const setupScript = parseOptionalString('repository.setupScript', input.setupScript);
-  if (!setupScript.ok) return Result.error(setupScript.error);
-
-  const setupSkill = parseOptionalString('repository.setupSkill', input.setupSkill);
-  if (!setupSkill.ok) return Result.error(setupSkill.error);
-
-  const verifySkill = parseOptionalString('repository.verifySkill', input.verifySkill);
-  if (!verifySkill.ok) return Result.error(verifySkill.error);
-
-  return Result.ok({
-    verifyScript: verifyScript.value,
-    setupScript: setupScript.value,
-    setupSkill: setupSkill.value,
-    verifySkill: verifySkill.value,
-  });
-};
-
-/**
- * Parse an optional verifyTimeout. When the input is undefined, returns Ok(undefined).
- * Otherwise validates that it is a positive integer.
- */
-const resolveVerifyTimeout = (timeout: number | undefined): Result<number | undefined, ValidationError> => {
-  if (timeout === undefined) return Result.ok(undefined);
-  const parsed = parsePositiveInt('repository.verifyTimeout', timeout);
-  if (!parsed.ok) return Result.error(parsed.error);
-  return Result.ok(parsed.value);
-};
-
-/**
- * Construct the partial object containing all optional Repository fields from their parsed
- * values. Returns an object ready to spread into the final Repository.
- */
-const optionalFieldsPart = (fields: {
-  readonly verifyScript: string | undefined;
-  readonly setupScript: string | undefined;
-  readonly setupSkill: string | undefined;
-  readonly verifySkill: string | undefined;
-  readonly verifyGates: readonly VerifyGate[] | undefined;
-  readonly verifyTimeout: number | undefined;
-}): Partial<Repository> => ({
-  ...(fields.verifyScript !== undefined ? { verifyScript: fields.verifyScript } : {}),
-  ...(fields.verifyGates !== undefined ? { verifyGates: fields.verifyGates } : {}),
-  ...(fields.verifyTimeout !== undefined ? { verifyTimeout: fields.verifyTimeout } : {}),
-  ...(fields.setupScript !== undefined ? { setupScript: fields.setupScript } : {}),
-  ...(fields.setupSkill !== undefined ? { setupSkill: fields.setupSkill } : {}),
-  ...(fields.verifySkill !== undefined ? { verifySkill: fields.verifySkill } : {}),
-});
-
-/**
- * Trim each suggested skill name, drop blanks, de-duplicate. Returns `{ suggestedSkills }` only
- * when at least one name survives so the factory omits the field entirely otherwise (a clean
- * repo round-trips without an empty array on disk).
- */
 const suggestedSkillsPart = (
   input: readonly string[] | undefined
 ): { readonly suggestedSkills?: readonly string[] } => {
@@ -322,13 +189,11 @@ const suggestedSkillsPart = (
 };
 
 /**
- * Normalise a single verify gate: trim the command, validate the optional timeoutMs.
- * Returns undefined when the command is blank (the gate is skipped). Returns an error
- * if the gate has a non-positive timeoutMs. The pathPrefix loses only a leading `./` or `/`
- * ({@link canonicalGatePrefix}); it is NOT trimmed, since whitespace in a POSIX path is significant.
+ * Trim the command (blank → the gate is skipped) and validate `timeoutMs`. The prefix loses only a
+ * leading `./` or `/`; it is NOT trimmed, since whitespace in a POSIX path is significant.
  */
 const normalizeVerifyGate = (gate: VerifyGate): Result<VerifyGate | undefined, ValidationError> => {
-  const command = typeof gate.command === 'string' ? gate.command.trim() : '';
+  const command = gate.command.trim();
   if (command.length === 0) return Result.ok(undefined);
 
   let timeoutMs: number | undefined;
@@ -339,19 +204,13 @@ const normalizeVerifyGate = (gate: VerifyGate): Result<VerifyGate | undefined, V
   }
 
   return Result.ok({
-    pathPrefix: typeof gate.pathPrefix === 'string' ? canonicalGatePrefix(gate.pathPrefix) : '',
+    pathPrefix: canonicalGatePrefix(gate.pathPrefix),
     command,
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });
 };
 
-/**
- * Normalise a `verifyGates` input. Validates each gate via {@link normalizeVerifyGate},
- * drops gates whose command is blank, and validates optional per-gate timeoutMs values.
- * Returns `{ verifyGates }` only when at least one gate survives so the factory omits the
- * field entirely otherwise (a repo with no gates round-trips without an empty array on
- * disk). Short-circuits on the first validation error.
- */
+/** `{ verifyGates }` only when at least one gate survives, so no empty array lands on disk. */
 const verifyGatesPart = (
   input: readonly VerifyGate[] | undefined
 ): Result<{ readonly verifyGates?: readonly VerifyGate[] }, ValidationError> => {

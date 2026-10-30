@@ -3,6 +3,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { EventLogLevel } from '@src/domain/value/log-level.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 
 /** Application-wide structured events. */
@@ -126,7 +127,7 @@ export interface AwaitingInputEvent {
 
 export interface LogEvent {
   readonly type: 'log';
-  readonly level: 'debug' | 'info' | 'warn' | 'error';
+  readonly level: EventLogLevel;
   readonly message: string;
   readonly meta?: Readonly<Record<string, unknown>>;
   readonly at: IsoTimestamp;

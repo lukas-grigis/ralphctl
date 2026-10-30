@@ -105,7 +105,7 @@ export const blockedTriageCarry = (source: BlockTriageCarry): BlockTriageCarry =
 
 const findLatestCommitMessage = (signals: readonly HarnessSignal[]): ProposedCommitMessage | undefined => {
   const matches = signals.filter((s): s is HarnessSignal & { type: 'commit-message' } => s.type === 'commit-message');
-  const last = matches[matches.length - 1];
+  const last = matches.at(-1);
   if (last === undefined) return undefined;
   return last.body !== undefined ? { subject: last.subject, body: last.body } : { subject: last.subject };
 };

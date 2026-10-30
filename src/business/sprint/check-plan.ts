@@ -323,7 +323,7 @@ export const checkPlanUseCase = (props: CheckPlanProps): Result<PlanCheckReport,
 
   const reposById = new Map<RepositoryId, Repository>(props.project.repositories.map((r) => [r.id, r]));
   // Sort is stable in V8, so equal `order` values keep their declared sequence.
-  for (const task of [...props.tasks].sort((a, b) => a.order - b.order)) {
+  for (const task of props.tasks.toSorted((a, b) => a.order - b.order)) {
     const repo = reposById.get(task.repositoryId);
     findings.push(...checkTaskShape(task, repo));
     findings.push(...checkCriteria(task, repo));

@@ -14,9 +14,9 @@
  * new model, this catalog has to grow (or the row has to be re-pinned). Forwarding an unknown id
  * to the CLI is OpenCode's contract, not Grok's.
  */
-export type GrokModel = 'grok-4.7' | 'grok-4.7-build-fast' | 'grok-4.6' | 'grok-4.5';
+export const GROK_MODELS = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5'] as const;
 
-export const GROK_MODELS: readonly GrokModel[] = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5'] as const;
+export type GrokModel = (typeof GROK_MODELS)[number];
 
 export const isGrokModel = (s: string): s is GrokModel => (GROK_MODELS as readonly string[]).includes(s);
 

@@ -82,8 +82,8 @@ export const parseFeedbackMd = (text: string): readonly FeedbackRound[] => {
 const extractBody = (roundLines: readonly string[]): string => {
   // Drop a single trailing `---` separator line (plus any trailing blanks after it).
   const lines = [...roundLines];
-  while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') lines.pop();
-  if (lines.length > 0 && /^---\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop();
+  while (lines.length > 0 && lines.at(-1)?.trim() === '') lines.pop();
+  if (lines.length > 0 && /^---\s*$/.test(lines.at(-1) ?? '')) lines.pop();
 
   const bodyLines: string[] = [];
   let pastMarker = false;

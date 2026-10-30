@@ -1,16 +1,9 @@
 /**
- * Model-escalation ladder consulted by the gen-eval loop when an attempt plateaus and the
- * user has opted into `settings.harness.escalateOnPlateau`. This module ships the static
- * per-provider ladders, the merge helper, the cycle check, the self-loop warning, and the
- * same-model effort rung.
- *
- * The default ladders encode "weaker → stronger" rungs within each provider's catalog and are
- * scoped per provider: the rung above a model depends on WHICH backend runs it, because some
- * slugs are shared across catalogs (`claude-sonnet-5` is both a Claude-Code and a Copilot id,
- * spelled the same, yet each backend climbs it within its own catalog — `claude-opus-5-5` vs
- * `claude-opus-5.5`). Users can extend or override via the flat `settings.harness.escalationMap`,
- * which applies to whichever provider the generator runs on; user keys win on conflict and a
- * custom key with no default entry adds a new rung.
+ * Model-escalation ladders, the user-map merge, cycle / self-loop / retired-value checks, and the
+ * same-model effort rung. Ladders are scoped per provider because some slugs are shared across
+ * catalogs (`claude-sonnet-5` climbs to `claude-opus-5-5` on Claude Code, `claude-opus-5.5` on
+ * Copilot). The flat `settings.harness.escalationMap` applies to whichever provider runs; user keys
+ * win and user-only keys add rungs.
  */
 
 import { type AiProvider, RETIRED_MODEL_REMAPS } from '@src/domain/entity/settings.ts';
@@ -18,35 +11,18 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 
 /**
- * Built-in escalation ladders, one per provider. Keys are the model id the generator is
- * currently spawning with; values are the model id to switch to after a plateau exit. Ladders
- * are climbed cheapest-first, one rung per plateau.
+ * Built-in ladders, cheapest first, one rung per escalation; legacy tiers converge on each top:
  *
- *  - **claude-code** — Haiku 5.5 → Sonnet 5.5 → Opus 5.5 (top). Legacy tiers converge on the
- *    flagship: Haiku 4.5 → Sonnet 5.5, Sonnet 5 → Opus 5.5 (kept keyed so rows still pinned to
- *    Sonnet 5 escalate), Sonnet 4.6 → Opus 4.8 → Opus 5.5, and Opus 5 → Opus 5.5 (cheaper and
- *    stronger). Fable is never a default rung — it costs 2.5x Opus 5.5 and needs a non-ZDR org;
- *    opt in via `escalationMap` (`'claude-opus-5-5': 'claude-fable-5-1'`).
- *  - **github-copilot** — Haiku 5.5 / Haiku 4.5 → Sonnet 5.5 → Opus 5.5 (top); rows pinned to
- *    Sonnet 5, Opus 4.8 or Opus 5 also climb to Opus 5.5. GitHub gates Opus 4.8 / 5 / 5.5
- *    identically (Pro+ and up), so topping out on 5.5 reaches no fewer accounts than 4.8 did, at a
- *    lower price. GPT: luna → sol within 5.6, skipping terra (it retires 2026-11-16; pinned terra
- *    rows still climb to sol). Rows pinned to the 2026-10-19-retired GPT-5 ids are remapped onto
- *    those tiers at parse time. The GPT-6 ids are not rungs — `gpt-6-sol` / `gpt-6.1-sol` are Pro+
- *    only.
- *  - **openai-codex** — `gpt-6-luna` → `gpt-6.1-sol` (top). `gpt-6-astra` is opt-in premium (5x the
- *    sol price), never a default rung. Pinned older tiers converge on `gpt-6.1-sol`: `gpt-6-sol` →
- *    `gpt-6.1-sol` (same price, the cache's current workhorse), luna → terra → sol within 5.6,
- *    then `gpt-5.6-sol` → `gpt-6.1-sol`.
- *  - **xai-grok** — one generation per plateau up to `grok-4.7`. `grok-4.7-build-fast` is the same
- *    model at 2x price, so it is not a rung.
- *  - **opencode** — none. OpenCode aggregates upstream providers, so there is no vendor ladder.
+ *  - claude-code — Haiku → Sonnet 5.5 → Opus 5.5. Fable is never a default rung (2.5x Opus 5.5,
+ *    needs a non-ZDR org); opt in via `escalationMap`.
+ *  - github-copilot — Haiku → Sonnet 5.5 → Opus 5.5 (Opus 4.8 / 5 / 5.5 are plan-gated alike, 5.5 is
+ *    cheapest); GPT luna → sol within 5.6, skipping the retiring terra. GPT-6 ids are Pro+ only, so no rungs.
+ *  - openai-codex — up to `gpt-6.1-sol`; the premium `gpt-6-astra` is never a default rung.
+ *  - xai-grok — one generation per escalation up to `grok-4.7`; `-build-fast` is the same model at 2x.
+ *  - opencode — none: an aggregator has no vendor ladder.
  *
- * Kept in lockstep with the catalogs in `domain/value/settings-models/` by a verify-gate:
- * `tests/unit/business/task/escalation-map.test.ts` asserts every key/value is a member of THAT
- * provider's catalog and fingerprints the catalogs, so a rename/de-list that strands a rung fails
- * `pnpm verify` (and triggers the HARNESS-PRINCIPLES.md model-bump audit) rather than shipping a
- * rung the adapter rejects at spawn time.
+ * `escalation-map.test.ts` asserts every key/value is in that provider's catalog and fingerprints the
+ * catalogs, so a de-listed rung fails verify (and triggers the model-bump audit).
  */
 const CLAUDE_OPUS_5_5 = 'claude-opus-5-5';
 const CLAUDE_SONNET_5_5 = 'claude-sonnet-5-5';
@@ -90,13 +66,7 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
   opencode: {},
 };
 
-/**
- * Merge the user's `settings.harness.escalationMap` over the built-in ladder for `provider`
- * (the generator row's provider). User keys win on conflict (allowing them to redirect a default
- * rung) and user-only keys extend the ladder. With no provider there is no built-in ladder to
- * pick, so only the user's rungs apply. Returns a fresh object so callers can keep treating it
- * as immutable.
- */
+/** User rungs over the generator provider's built-in ladder; with no provider, only the user's rungs. */
 export const mergeEscalationMap = (
   user: Readonly<Record<string, string>>,
   provider: AiProvider | undefined
@@ -105,12 +75,7 @@ export const mergeEscalationMap = (
   ...user,
 });
 
-/**
- * Emit one warn-level log record per self-loop entry (`{ 'foo': 'foo' }`). Self-loops parse
- * cleanly through the schema — the value matches the `z.string()` constraint — but they
- * have no effect on the runtime ladder, so the harness logs a warning at settings-load time
- * so the misconfiguration is visible without rejecting the file.
- */
+/** Self-loops (`{ a: 'a' }`) parse fine but do nothing, so they warn at load instead of failing the file. */
 export const warnEscalationMapSelfLoops = (escalationMap: Readonly<Record<string, string>>, logger: Logger): void => {
   for (const [from, to] of Object.entries(escalationMap)) {
     if (from === to) {
@@ -120,12 +85,8 @@ export const warnEscalationMapSelfLoops = (escalationMap: Readonly<Record<string
 };
 
 /**
- * Emit one warn-level log record per escalation target that is still a retired slug after the
- * parse. Unambiguous retirements are already rewritten by the settings schema's harness
- * preprocess, so any survivor is AMBIGUOUS — retired on one provider but live on another (e.g.
- * `grok-4.5`: gone from Copilot, still an xai-grok id), or retired on several with different
- * successors (`gpt-5.4`). The rung stays as written (correct for the provider that still serves it); the
- * warning names the provider(s) whose spawn would reject it and the successor to pin instead.
+ * Warn on escalation targets still retired after the parse. The schema already rewrote unambiguous
+ * ones, so a survivor is ambiguous (`grok-4.5`, `gpt-5.4`) and stays as written.
  */
 export const warnEscalationMapRetiredValues = (
   escalationMap: Readonly<Record<string, string>>,
@@ -143,15 +104,8 @@ export const warnEscalationMapRetiredValues = (
 };
 
 /**
- * True when following the escalation chain from `start` revisits any model — i.e. the map
- * contains a cycle reachable from `start`. The built-in {@link DEFAULT_ESCALATION_LADDERS} are
- * acyclic, but a user-authored `escalationMap` can introduce a multi-node cycle (`{ a: b, b: a }`)
- * that {@link warnEscalationMapSelfLoops} (which only catches the 1-cycle `{ a: a }`) misses.
- *
- * `decideEscalation` consults this so a cyclic rung never drives an unbounded climb: a generator
- * model that sits on a cycle is treated as top-of-ladder (same-model nudge → topped-out) instead
- * of escalating forever. Conservative by design — a cycle anywhere downstream of `start` blocks
- * escalation from `start` too, because every step would eventually loop. Pure; no I/O.
+ * True when the chain from `start` reaches a cycle — a user map can author `{ a: b, b: a }`. A model
+ * on or upstream of a cycle is treated as top-of-ladder rather than climbing forever.
  */
 export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>, start: string): boolean => {
   const seen = new Set<string>([start]);
@@ -165,79 +119,26 @@ export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>
 };
 
 /**
- * The reasoning-effort level the Copilot effort rung climbs TO. Fixed at `high`: it is a member
- * of the Copilot effort vocabulary (`none..max`), and it is a meaningful step up from the ~medium
- * effort the CLI defaults a fresh row to. Non-OpenAI models' effort semantics are opaque, so
- * Copilot stays conservative here. Claude does NOT use this constant — its rung is model-aware
- * (see {@link nextEffortRung}): it climbs one tier above the effective level, and the effective
- * level for an unset row depends on the model's own CLI default, so no fixed target fits. Codex
- * uses its own fixed target, {@link CODEX_EFFORT_ESCALATION_TARGET}, not this one.
+ * Fixed effort-rung targets and the levels already at or above them (spent). Copilot stays at a
+ * conservative `high` because non-OpenAI models' effort semantics are opaque. Codex and Grok use
+ * `xhigh`, which every codex catalog model accepts; `max` / `ultra` are plan- or model-gated, so
+ * the rung never targets them. OpenCode is absent on purpose: its levels belong to the upstream
+ * vendor, so no stamp is known to be valid and a rejected `--variant` would turn a plateau into a
+ * spawn failure.
  */
-export const EFFORT_ESCALATION_TARGET = 'high';
+const FIXED_EFFORT_RUNG: Readonly<Partial<Record<AiProvider, { target: string; spent: ReadonlySet<string> }>>> = {
+  'github-copilot': { target: 'high', spent: new Set(['high', 'xhigh', 'max']) },
+  'openai-codex': { target: 'xhigh', spent: new Set(['xhigh', 'max', 'ultra']) },
+  'xai-grok': { target: 'xhigh', spent: new Set(['xhigh', 'max', 'ultra']) },
+};
 
-/**
- * The reasoning-effort level the Codex effort rung climbs TO. Fixed at `xhigh`: it is accepted by
- * every codex catalog model since the CLI's `low | medium | high | xhigh | max | ultra` vocabulary
- * change, so the rung is live for every preset — the old shared `high` target left it permanently
- * spent for every codex preset, which stamps `high` on implement by default. `max` / `ultra` are
- * deliberately NOT the target: they are narrower than the full catalog (5.6-family-only /
- * sol-terra-only, plan-gated) and this rung has no per-model context to know whether they apply.
- */
-export const CODEX_EFFORT_ESCALATION_TARGET = 'xhigh';
-
-/**
- * Effort levels at or above {@link EFFORT_ESCALATION_TARGET}. A Copilot generator already running
- * at one of these has no headroom for the effort rung — it is spent and the policy falls through
- * to the same-model nudge. Copilot-only: Codex uses {@link CODEX_EFFORT_AT_OR_ABOVE_TARGET}.
- */
-const EFFORT_AT_OR_ABOVE_TARGET: ReadonlySet<string> = new Set(['high', 'xhigh', 'max']);
-
-/**
- * Effort levels at or above {@link CODEX_EFFORT_ESCALATION_TARGET}. A Codex generator already
- * running at one of these has no headroom for the effort rung. `max` / `ultra` are narrower than
- * the universal `xhigh` target but both still count as "at or above" it — a generator already
- * running one of the narrower tiers is never downgraded to `xhigh` by this rung.
- */
-const CODEX_EFFORT_AT_OR_ABOVE_TARGET: ReadonlySet<string> = new Set(['xhigh', 'max', 'ultra']);
-
-/**
- * Providers whose reasoning-effort dimension this ladder can raise with a KNOWN-GOOD level.
- * Modelled as a set — rather than assumed for every provider — so a provider whose effort
- * vocabulary cannot be resolved statically skips the effort rung gracefully instead of stamping a
- * level the adapter would reject mid-task.
- *
- * `opencode` is deliberately EXCLUDED even though it has an effort knob (`--variant`). OpenCode
- * aggregates upstream providers, so the accepted levels for a given `provider/model` id belong to
- * that upstream vendor, not to OpenCode — there is no level this ladder could stamp that is known
- * to be valid for the row's model, and the free-tier community models generally expose none at all.
- * Escalating into a rejected `--variant` would turn a plateau into a hard spawn failure, which is
- * strictly worse than not escalating. Operators who know their upstream model's vocabulary can set
- * the effort explicitly on the row.
- */
-const EFFORT_CAPABLE_PROVIDERS: ReadonlySet<AiProvider> = new Set<AiProvider>([
-  'claude-code',
-  'github-copilot',
-  'openai-codex',
-  'xai-grok',
-]);
-
-/**
- * Claude's reasoning-effort ladder, weakest → strongest. The adapter validates against the same
- * `low | medium | high | xhigh | max` provider vocabulary (`settings.ts`), so every entry here is a
- * level the Claude Code CLI accepts. Used to compute the model-aware effort rung below.
- */
 const CLAUDE_EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type ClaudeEffort = (typeof CLAUDE_EFFORT_LADDER)[number];
 
 /**
- * Claude Code's built-in effort when no `--effort` is passed, for models whose default is NOT
- * `high` (code.claude.com/docs/en/model-config, checked 2026-09-30; Haiku 5.5 from the platform
- * overview, 2026-10-11): Opus 5.5, Sonnet 5.5 and Haiku 5.5 default to `medium`. Every other
- * effort-capable Claude model (Opus 5 / 4.8, Sonnet 5 / 4.6, Fable 5 / 5.1) defaults to `high`.
- * This is the CLI's default, not the API's — the Claude API documents `high` as Sonnet 5.5's
- * default, but the rung must track what the spawned CLI runs. Kept in lockstep with the
- * per-provider catalogs in `domain/value/settings-models/`: the catalog fingerprint test flags a
- * model bump so this table is re-checked alongside the ladder.
+ * Claude Code's effort when no `--effort` is passed, where it is not `high`
+ * (code.claude.com/docs/en/model-config). This is the CLI default, not the API's — the API documents
+ * `high` for Sonnet 5.5, but the rung must track what the spawned CLI runs. Re-check on a model bump.
  */
 const CLAUDE_CLI_DEFAULT_EFFORT: Readonly<Record<string, ClaudeEffort>> = {
   'claude-opus-5-5': 'medium',
@@ -250,19 +151,9 @@ const CLAUDE_FALLBACK_CLI_DEFAULT_EFFORT: ClaudeEffort = 'high';
 const isClaudeEffort = (s: string): s is ClaudeEffort => (CLAUDE_EFFORT_LADDER as readonly string[]).includes(s);
 
 /**
- * Model-aware Claude effort rung — one tier above the effective effort:
- *
- *   - A model with no effort dimension (`claude-haiku-4-5`) → `undefined`; the rung is skipped.
- *     The model's levels come from `CLAUDE_MODEL_EFFORT_LEVELS`; a custom id gets the full ladder.
- *   - The `effective` current effort is the explicit level, or — when unset — the model's CLI
- *     default ({@link CLAUDE_CLI_DEFAULT_EFFORT}: `medium` on Opus / Sonnet 5.5, `high` elsewhere).
- *   - The target is the next tier strictly above `effective` on the model's own ladder
- *     (`low → medium → high → xhigh → max`; models without `xhigh` go `high → max`); `max` is the
- *     ceiling → `undefined` (spent).
- *
- * Never returns a level at or below `effective` — so it never re-stamps the CLI default, which
- * would be a no-op attempt. ralphctl stamps an explicit effort on effort-capable rows, so the
- * unset path is a fallback, but it stays correct.
+ * The next tier strictly above the effective effort (explicit, else the model's CLI default) on the
+ * model's own ladder, so the rung never re-stamps the implicit default as a no-op attempt. A model
+ * with no effort dimension skips; a custom id gets the full ladder; `max` is spent.
  */
 const claudeEffortRung = (
   model: string,
@@ -272,8 +163,6 @@ const claudeEffortRung = (
   const levels = modelLevels ?? CLAUDE_EFFORT_LADDER;
   if (levels.length === 0) return undefined;
   const effective = currentEffort ?? CLAUDE_CLI_DEFAULT_EFFORT[model] ?? CLAUDE_FALLBACK_CLI_DEFAULT_EFFORT;
-  // An effort string outside the Claude ladder (never expected from a validated row) — skip rather
-  // than stamp a level we can't reason about.
   if (!isClaudeEffort(effective)) return undefined;
   const effectiveIndex = CLAUDE_EFFORT_LADDER.indexOf(effective);
   return CLAUDE_EFFORT_LADDER.find(
@@ -282,62 +171,35 @@ const claudeEffortRung = (
 };
 
 /**
- * Same-model effort rung — the cheapest remedy on the graduated escalation ladder. Given the
- * generator's provider, the model the just-finished attempt ran on, and its currently-resolved
- * effort, returns the effort level to escalate TO, or `undefined` when the rung is unavailable
- * (skip gracefully, never error):
- *
- *   - the provider has no effort dimension the caller could resolve (`undefined` provider, or a
- *     future provider outside {@link EFFORT_CAPABLE_PROVIDERS}); or
- *   - the model has no effort dimension (Haiku 4.5 on either catalog) or its catalog effort
- *     list lacks the target; or
- *   - the generator has no headroom left (already at the ceiling for its provider/model).
- *
- * Provider-aware target:
- *   - **claude-code** — model-aware ({@link claudeEffortRung}): one tier above the effective effort
- *     (the explicit level, or the model's CLI default — `medium` on Opus / Sonnet 5.5, `high`
- *     elsewhere), so the rung never re-stamps the implicit default. `claude-opus-5-5` unset →
- *     `high`; `xhigh` → `max`; `max` is spent.
- *   - **github-copilot** — fixed target {@link EFFORT_ESCALATION_TARGET} (`high`); `unset` counts as
- *     escalatable (its CLI default sits ~medium), and `high | xhigh | max` are spent. Non-OpenAI
- *     models' effort semantics are opaque, so Copilot stays conservative rather than climbing further.
- *   - **openai-codex** and **xai-grok** — fixed target {@link CODEX_EFFORT_ESCALATION_TARGET}
- *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the ceiling of
- *     `grok-4.6` / `grok-4.7`); `unset` and a legacy `minimal` (retired, pre-migration) count as
- *     escalatable, and `xhigh | max | ultra` are spent. On Grok the target is capped to the model's
- *     own ceiling ({@link grokEffortRung}): `grok-4.5` tops out at `high`, so it climbs there instead.
- *     Beyond that cap and the catalog-support check, `model` plays no role on the Copilot, Codex, or
- *     Grok path.
- *
- * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`), or
- * `undefined` for the CLI default. Pure; no I/O.
+ * The effort level the same-model effort rung climbs to, or `undefined` when the rung is unavailable:
+ * no provider, no effort dimension, a catalog model whose levels lack the target (that would hard-fail
+ * the CLI), or no headroom left. `currentEffort` is the resolved effort; `undefined` = CLI default.
  */
 export const nextEffortRung = (
   provider: AiProvider | undefined,
   model: string,
   currentEffort: string | undefined
 ): string | undefined => {
-  if (provider === undefined || !EFFORT_CAPABLE_PROVIDERS.has(provider)) return undefined;
+  if (provider === undefined) return undefined;
   const levels = modelEffortLevels(provider, model);
   if (provider === 'claude-code') return claudeEffortRung(model, levels, currentEffort);
-  // A catalog model whose effort list lacks the target (e.g. Copilot `claude-haiku-4.5`, no effort
-  // at all) would hard-fail the CLI — skip the rung rather than escalate into a spawn error.
-  const supports = (target: string): boolean => levels === undefined || levels.includes(target);
-  if (provider === 'github-copilot') {
-    if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-    return supports(EFFORT_ESCALATION_TARGET) ? EFFORT_ESCALATION_TARGET : undefined;
-  }
-  // openai-codex and xai-grok: xhigh is the target; max/ultra are already above it.
-  if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-  if (provider === 'xai-grok' && levels !== undefined) return grokEffortRung(levels, currentEffort);
-  return supports(CODEX_EFFORT_ESCALATION_TARGET) ? CODEX_EFFORT_ESCALATION_TARGET : undefined;
+  const rung = FIXED_EFFORT_RUNG[provider];
+  if (rung === undefined) return undefined;
+  if (currentEffort !== undefined && rung.spent.has(currentEffort)) return undefined;
+  if (provider === 'xai-grok' && levels !== undefined) return grokEffortRung(levels, currentEffort, rung);
+  return levels === undefined || levels.includes(rung.target) ? rung.target : undefined;
 };
 
-/** `xhigh`, or the model's ceiling below it (`high` on `grok-4.5`); spent once the current level reaches it. */
-const grokEffortRung = (levels: readonly string[], currentEffort: string | undefined): string | undefined => {
-  const target = levels.includes(CODEX_EFFORT_ESCALATION_TARGET)
-    ? CODEX_EFFORT_ESCALATION_TARGET
-    : levels.filter((level) => !CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(level)).at(-1);
+/**
+ * The target, or the model's ceiling below it (`high` on `grok-4.5`). Hand-rolled rather than the
+ * settings clamp: `business/task` may not import `business/settings`.
+ */
+const grokEffortRung = (
+  levels: readonly string[],
+  currentEffort: string | undefined,
+  rung: { target: string; spent: ReadonlySet<string> }
+): string | undefined => {
+  const target = levels.includes(rung.target) ? rung.target : levels.filter((level) => !rung.spent.has(level)).at(-1);
   if (target === undefined) return undefined;
   if (currentEffort !== undefined && levels.indexOf(currentEffort) >= levels.indexOf(target)) return undefined;
   return target;
