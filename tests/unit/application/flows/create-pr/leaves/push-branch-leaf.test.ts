@@ -6,9 +6,7 @@ import {
   type GitRunOptions,
   type GitRunResult,
 } from '@src/integration/io/git-runner.ts';
-import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { PullRequestCreator } from '@src/business/scm/pull-request-creator.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
@@ -24,24 +22,10 @@ import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fake
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { inMemoryExecutionRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const CWD = absolutePath('/tmp/repo');
 const BRANCH = 'ralphctl/sprint-x';
-
-const inMemoryExecutionRepo = (initial: SprintExecution): SprintExecutionRepository =>
-  ({
-    async findById(id: SprintId) {
-      if (id !== initial.sprintId)
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-      return Result.ok(initial);
-    },
-    async save() {
-      return Result.ok(undefined);
-    },
-    async remove() {
-      return Result.ok(undefined);
-    },
-  }) as SprintExecutionRepository;
 
 // Records every `git <argv>` invocation; routes a per-test answer per argv prefix.
 const scriptedGitRunner = (
@@ -99,7 +83,7 @@ const stubCreatePrDeps = (overrides: {
   sprint?: Sprint;
 }): CreatePrDeps => ({
   sprintRepo: sprintRepoFor(overrides.sprint ?? sprint),
-  sprintExecutionRepo: inMemoryExecutionRepo(execution),
+  sprintExecutionRepo: inMemoryExecutionRepo(execution).repo,
   taskRepo: stubTaskRepo(),
   pullRequestCreator: stubPullRequestCreator,
   gitRunner: overrides.runner,

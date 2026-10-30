@@ -13,12 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { AskConfirmInput, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -31,6 +27,7 @@ import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts'
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) {
@@ -43,21 +40,6 @@ const unwrap = <T, E>(r: Result<T, E>): T => {
 
 const blockedTask = (name: string): Task =>
   unwrap(markTaskBlocked(makeTodoTask({ name }), 'ran out of attempts', 'own'));
-
-const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
-  let current = initial;
-  const repo = withUpdate({
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-  return { repo, current: () => current };
-};
 
 const staticTaskRepo = (tasks: readonly Task[]): FindTasksBySprintId => ({
   findBySprintId: async () => Result.ok(tasks),

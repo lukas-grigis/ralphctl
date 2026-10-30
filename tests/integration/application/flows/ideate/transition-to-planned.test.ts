@@ -5,19 +5,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Task } from '@src/domain/entity/task.ts';
-import type { Project } from '@src/domain/entity/project.ts';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { absolutePath, makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -29,7 +20,7 @@ import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
+import { inMemorySprintRepo, inMemoryProjectRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 /**
  * Integration fence for change-set M1 — ideate transitions the sprint `draft → planned` so the
@@ -41,35 +32,6 @@ import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
  */
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-
-const inMemorySprintRepo = (initial: Sprint): SprintRepository =>
-  withUpdate({
-    async findById(id: SprintId) {
-      if (initial.id === id) return Result.ok(initial);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save() {
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-
-const inMemoryProjectRepo = (project: Project): ProjectRepository =>
-  ({
-    async findById(id: ProjectId) {
-      if (project.id === id) return Result.ok(project);
-      return Result.error(new NotFoundError({ entity: 'project', id: String(id) }));
-    },
-  }) as ProjectRepository;
-
-const inMemoryTaskRepo = (): TaskRepository =>
-  ({
-    async findBySprintId() {
-      return Result.ok([] as readonly Task[]);
-    },
-    async saveAll() {
-      return Result.ok(undefined);
-    },
-  }) as unknown as TaskRepository;
 
 const fakeInteractiveAi = (outputJson: string): InteractiveAiProvider => ({
   async run(input: InteractiveAiProviderInput) {
@@ -104,9 +66,9 @@ describe('createIdeateFlow — draft → planned transition (M1)', () => {
 
     const flow = createIdeateFlow(
       {
-        sprintRepo: inMemorySprintRepo(sprint),
+        sprintRepo: inMemorySprintRepo(sprint).repo,
         projectRepo: inMemoryProjectRepo(project),
-        taskRepo: inMemoryTaskRepo(),
+        taskRepo: inMemoryTaskRepo().repo,
         interactiveAi: fakeInteractiveAi(
           JSON.stringify({
             requirements: '## Problem\n…\n\n## AC\n- given X, when Y, then Z',

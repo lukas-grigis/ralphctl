@@ -23,7 +23,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -31,10 +30,6 @@ import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -68,6 +63,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
+import { inMemorySprintRepo, inMemoryExecutionRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 if (process.platform === 'win32') {
   describe.skip('bugfix relaunch — real git (skipped on Windows)', () => {
@@ -92,65 +88,6 @@ function runTests(): void {
   const PARTIAL_SOURCE = "export const foo = (): string => 'BUG'; // PARTIAL\n";
   // What a fresh reproduce session would write (C2) — the relaunch must never produce it.
   const FRESH_REPRO_TEST = `${TEST_AT_HEAD}it('REPRO (fresh session)', () => {});\n`;
-
-  const inMemorySprintRepo = (initial: Sprint): SprintRepository => {
-    let current = initial;
-    return {
-      async findById(id: SprintId) {
-        if (current.id === id) return Result.ok(current);
-        return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-      },
-      async save(sprint: Sprint) {
-        current = sprint;
-        return Result.ok(undefined);
-      },
-      async list() {
-        return Result.ok([current]);
-      },
-    } as unknown as SprintRepository;
-  };
-
-  const inMemoryExecutionRepo = (initial: SprintExecution): SprintExecutionRepository => {
-    let current = initial;
-    return {
-      async findById(id: SprintId) {
-        if (current.sprintId === id) return Result.ok(current);
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-      },
-      async save(next: SprintExecution) {
-        current = next;
-        return Result.ok(undefined);
-      },
-      async remove() {
-        return Result.ok(undefined);
-      },
-    };
-  };
-
-  const inMemoryTaskRepo = (initial: readonly Task[]): { repo: TaskRepository; tasks: () => readonly Task[] } => {
-    let store: Task[] = [...initial];
-    const repo = {
-      async findBySprintId() {
-        return Result.ok(store as readonly Task[]);
-      },
-      async findById(_sprintId: SprintId, taskId: TaskId) {
-        const found = store.find((t) => t.id === taskId);
-        if (found === undefined) return Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
-        return Result.ok(found);
-      },
-      async update(_sprintId: SprintId, task: Task) {
-        const idx = store.findIndex((t) => t.id === task.id);
-        if (idx >= 0) store[idx] = task;
-        else store = [...store, task];
-        return Result.ok(undefined);
-      },
-      async saveAll(_sprintId: SprintId, tasks: readonly Task[]) {
-        store = [...tasks];
-        return Result.ok(undefined);
-      },
-    } as unknown as TaskRepository;
-    return { repo, tasks: () => store };
-  };
 
   const floorPasses = [
     { dimension: 'correctness', passed: true, finding: 'the reproduction passes' },
@@ -325,8 +262,8 @@ function runTests(): void {
       provider: HeadlessAiProvider,
       shellScriptRunner: ShellScriptRunner
     ): ImplementDeps => ({
-      sprintRepo: inMemorySprintRepo(seeded.sprint),
-      sprintExecutionRepo: inMemoryExecutionRepo(seeded.execution),
+      sprintRepo: inMemorySprintRepo(seeded.sprint).repo,
+      sprintExecutionRepo: inMemoryExecutionRepo(seeded.execution).repo,
       taskRepo,
       generatorProvider: provider,
       evaluatorProvider: provider,

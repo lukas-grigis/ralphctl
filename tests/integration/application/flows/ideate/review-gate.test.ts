@@ -5,19 +5,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Task } from '@src/domain/entity/task.ts';
-import type { Project } from '@src/domain/entity/project.ts';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { absolutePath, makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -29,45 +20,10 @@ import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
+import { inMemorySprintRepo, inMemoryProjectRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 /** Review gate: reject leaves the draft sprint unsaved-as-planned and no tasks written; accept plans it. */
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-
-const saved: Sprint[] = [];
-
-const inMemorySprintRepo = (initial: Sprint): SprintRepository =>
-  withUpdate({
-    async findById(id: SprintId) {
-      if (initial.id === id) return Result.ok(initial);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(s: Sprint) {
-      saved.push(s);
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-
-const inMemoryProjectRepo = (project: Project): ProjectRepository =>
-  ({
-    async findById(id: ProjectId) {
-      if (project.id === id) return Result.ok(project);
-      return Result.error(new NotFoundError({ entity: 'project', id: String(id) }));
-    },
-  }) as ProjectRepository;
-
-const savedTasks: Task[] = [];
-
-const inMemoryTaskRepo = (): TaskRepository =>
-  ({
-    async findBySprintId() {
-      return Result.ok([] as readonly Task[]);
-    },
-    async saveAll(_id: unknown, tasks: readonly Task[]) {
-      savedTasks.push(...tasks);
-      return Result.ok(undefined);
-    },
-  }) as unknown as TaskRepository;
 
 const fakeInteractiveAi = (outputJson: string): InteractiveAiProvider => ({
   async run(input: InteractiveAiProviderInput) {
@@ -84,8 +40,6 @@ describe('createIdeateFlow — review gate', () => {
   let dir: string;
   beforeEach(async () => {
     dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-ideate-review-')));
-    saved.length = 0;
-    savedTasks.length = 0;
   });
   afterEach(async () => {
     await fs.rm(dir, { recursive: true, force: true });
@@ -96,13 +50,15 @@ describe('createIdeateFlow — review gate', () => {
   ) => {
     const project = makeProject();
     const sprint = makeDraftSprint();
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo();
     const root = AbsolutePath.parse(join(dir, 'ideate'));
     if (!root.ok) throw new Error('test setup');
     const flow = createIdeateFlow(
       {
-        sprintRepo: inMemorySprintRepo(sprint),
+        sprintRepo: sprintRepo.repo,
         projectRepo: inMemoryProjectRepo(project),
-        taskRepo: inMemoryTaskRepo(),
+        taskRepo: taskRepo.repo,
         interactiveAi: fakeInteractiveAi(
           JSON.stringify({
             requirements: '## Problem\nneeds export',
@@ -152,12 +108,12 @@ describe('createIdeateFlow — review gate', () => {
       },
     });
     await runner.start();
-    return runner;
+    return { runner, savedSprints: sprintRepo.saves, savedTasks: taskRepo.saveAlls.flat() };
   };
 
   it('shows requirements + tasks to the gate, then plans on accept', async () => {
     const seen: Array<{ req: string; tasks: number; findings: number }> = [];
-    const runner = await run(async (req, tasks, findings) => {
+    const { runner, savedTasks } = await run(async (req, tasks, findings) => {
       seen.push({ req, tasks: tasks.length, findings: findings.length });
       return { accept: true };
     });
@@ -171,12 +127,12 @@ describe('createIdeateFlow — review gate', () => {
   });
 
   it('on reject restores the draft sprint, adds no tickets/tasks and skips the transition', async () => {
-    const runner = await run(async () => ({ accept: false }));
+    const { runner, savedTasks, savedSprints } = await run(async () => ({ accept: false }));
     expect(runner.status).toBe('completed');
     expect(runner.ctx.ideateRejected).toBe(true);
     expect(runner.ctx.sprint?.status).toBe('draft');
     expect(runner.ctx.sprint?.tickets).toHaveLength(0);
     expect(savedTasks).toHaveLength(0);
-    expect(saved.every((s) => s.status === 'draft' && s.tickets.length === 0)).toBe(true);
+    expect(savedSprints.every((s) => s.status === 'draft' && s.tickets.length === 0)).toBe(true);
   });
 });
