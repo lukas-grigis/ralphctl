@@ -207,11 +207,18 @@ const runOneWave = async <TCtx>(
   signal?.addEventListener('abort', onAbort, { once: true });
 
   const worker = async (): Promise<void> => {
-    while (!stop && next < wave.length) {
-      const i = next++;
-      const { run, settled } = startBranchRun(wave[i]!, base, config.onBranchRunner);
-      runs[i] = run;
-      classify(await settled);
+    try {
+      while (!stop && next < wave.length) {
+        const i = next++;
+        const { run, settled } = startBranchRun(wave[i]!, base, config.onBranchRunner);
+        runs[i] = run;
+        classify(await settled);
+      }
+    } catch (e) {
+      // A throwing hook rejects the wave at once; stop the sibling workers so none launches an
+      // orphan branch nobody awaits. Rethrown unchanged so an AbortError stays transparent.
+      stop = true;
+      throw e;
     }
   };
   await Promise.all(Array.from({ length: Math.min(cap, wave.length) }, worker));
