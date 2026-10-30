@@ -20,7 +20,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -30,9 +29,10 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
+import { pressUntil, waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { flat, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const CLOSED_ID = 'sprint-closed-fixture' as unknown as SprintId;
 const PEER_ID = 'sprint-peer-fixture' as unknown as SprintId;
@@ -56,10 +56,7 @@ const blockedTask = (): Task => {
   return r.value;
 };
 
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: CLOSED_ID } };
-
-/** Ink soft-wraps the toast, so assert against a whitespace-flattened frame. */
-const flat = (frame: string): string => frame.replace(/\s+/g, ' ');
+const initial = sprintDetailEntry(CLOSED_ID);
 
 describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen`', () => {
   it('is a no-op until r reloads, then finishes the reopen on a second u — matching the toast', async () => {
@@ -127,8 +124,9 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
 
     // `r` reload — the fix under test. Without it, this view keeps rendering the stale `done`
     // sprint forever (no poll). The header card's status chip is the reload's most legible tell.
-    result.stdin.write('r');
-    await waitForPredicate(() => flat(result.lastFrame() ?? '').includes('[REVIEW]'));
+    await pressUntil(result.stdin, 'r', () => flat(result.lastFrame() ?? '').includes('[REVIEW]'), {
+      label: 'the reload showed the reopened sprint',
+    });
 
     // Second `u`, in the SAME mounted view, no navigation away and back — the already-todo
     // short-circuit persists no task write, only the sprint hop.

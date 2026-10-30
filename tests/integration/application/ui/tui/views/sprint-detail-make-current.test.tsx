@@ -10,18 +10,14 @@
 
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const SPRINT_ID = 'sprint-make-current-id' as unknown as SprintId;
 
@@ -36,24 +32,7 @@ const makeSprint = (overrides: Partial<Sprint> = {}): Sprint =>
     ...overrides,
   }) as unknown as Sprint;
 
-const stubDeps = (sprint: Sprint): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: SPRINT_ID } };
+const initial = sprintDetailEntry(SPRINT_ID);
 
 /**
  * Intercept spy: patches `setSprint` on the selection context via Object.assign after mount.
@@ -85,7 +64,7 @@ describe('SprintDetailView — m key makes current', () => {
       <MakeSpy spy={setSprint}>
         <SprintDetailView />
       </MakeSpy>,
-      { deps: stubDeps(sprint), initial }
+      { deps: readOnlyDeps(sprint), initial }
     );
 
     await waitForViewReady(result, (f) => f.includes('Make Current Sprint'));
@@ -107,7 +86,7 @@ describe('SprintDetailView — m key makes current', () => {
       <MakeSpy spy={setSprint}>
         <SprintDetailView />
       </MakeSpy>,
-      { deps: stubDeps(sprint), initial }
+      { deps: readOnlyDeps(sprint), initial }
     );
 
     await waitForViewReady(result, (f) => f.includes('Other Key Sprint'));
@@ -130,7 +109,7 @@ describe('SprintDetailView — m key makes current', () => {
       <MakeSpy spy={setSprint}>
         <SprintDetailView />
       </MakeSpy>,
-      { deps: stubDeps(sprint), initial }
+      { deps: readOnlyDeps(sprint), initial }
     );
 
     await waitForViewReady(result, (f) => f.includes('Scoped Sprint'));
@@ -151,7 +130,7 @@ describe('SprintDetailView — m key makes current', () => {
     const sprint = makeSprint({ name: 'Already Current Sprint' });
 
     const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint),
+      deps: readOnlyDeps(sprint),
       initial,
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Already Current Sprint' },
     });
@@ -168,7 +147,7 @@ describe('SprintDetailView — m key makes current', () => {
     const sprint = makeSprint({ name: 'Selected Sprint' });
 
     const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint),
+      deps: readOnlyDeps(sprint),
       initial,
       // Pre-seed the selection to match the viewed sprint.
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Selected Sprint' },
@@ -187,7 +166,7 @@ describe('SprintDetailView — m key makes current', () => {
     const OTHER_SPRINT_ID = 'other-sprint-id' as unknown as SprintId;
 
     const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint),
+      deps: readOnlyDeps(sprint),
       initial,
       // Selection points to a DIFFERENT sprint.
       selection: { sprintId: OTHER_SPRINT_ID, sprintLabel: 'Other Sprint' },
@@ -205,7 +184,7 @@ describe('SprintDetailView — m key makes current', () => {
     const routedIds: string[] = [];
 
     const { result } = renderView(<SprintDetailView />, {
-      deps: stubDeps(sprint),
+      deps: readOnlyDeps(sprint),
       initial,
       onRoute: (entry) => {
         routedIds.push(entry.id);

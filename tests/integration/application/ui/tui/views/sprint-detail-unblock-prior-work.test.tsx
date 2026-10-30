@@ -9,7 +9,6 @@ import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -23,6 +22,7 @@ import { DOWN, ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_k
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { stashRunner } from '@tests/fixtures/stash-runner.ts';
 import { makeActiveSprint, makeProject, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { flat, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const sprint: Sprint = makeActiveSprint();
 const project = makeProject();
@@ -34,8 +34,6 @@ const blockedTask = (): Task => {
   if (!r.ok) throw new Error(r.error.message);
   return r.value;
 };
-
-const flat = (frame: string): string => frame.replace(/\s+/g, ' ');
 
 const setup = () => {
   const task = blockedTask();
@@ -65,7 +63,7 @@ const setup = () => {
     clock: () => IsoTimestamp.now(),
     logger: noopLogger,
   } as unknown as AppDeps;
-  const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: sprint.id } };
+  const initial = sprintDetailEntry(sprint.id);
   const { result } = renderView(
     <>
       <SprintDetailView />

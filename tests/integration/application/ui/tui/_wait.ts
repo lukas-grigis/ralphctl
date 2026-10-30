@@ -92,3 +92,24 @@ export const waitForPredicate = async (
     }
   }, opts);
 };
+
+/**
+ * Write an idempotent key until `predicate` holds. Ink re-subscribes `useInput` whenever a handler
+ * changes, and a key written in that gap is lost — under CPU contention a single `write` plus a
+ * wait can time out on a view that is perfectly healthy. Only for keys whose repeat is harmless
+ * (reload, refresh); never for toggles or submits.
+ */
+export const pressUntil = (
+  stdin: { readonly write: (data: string) => void },
+  key: string,
+  predicate: () => boolean,
+  opts: WaitForOptions & { readonly label?: string } = {}
+): Promise<void> =>
+  waitForPredicate(
+    () => {
+      if (predicate()) return true;
+      stdin.write(key);
+      return false;
+    },
+    { interval: 100, ...opts }
+  );

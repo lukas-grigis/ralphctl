@@ -33,6 +33,7 @@ import {
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -47,29 +48,12 @@ const makeSprint = (overrides: Partial<Sprint>): Sprint =>
     ...overrides,
   }) as unknown as Sprint;
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 describe('SprintDetailView — phase workspace', () => {
   it('draft sprint with no tickets suggests "Add tickets"', async () => {
     const sprint = makeSprint({ status: 'draft', tickets: [] });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Add tickets'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Next phase');
@@ -84,7 +68,7 @@ describe('SprintDetailView — phase workspace', () => {
         { id: 't2' as never, title: 'second', status: 'pending' } as never,
       ],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Refine 2 pending ticket(s)'));
     expect(result.lastFrame() ?? '').toContain('Refine 2 pending ticket(s)');
   });
@@ -114,7 +98,7 @@ describe('SprintDetailView — phase workspace', () => {
         repositoryId: 'r1' as never,
       } as never,
     ];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('Implement 2 resumable task(s)'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Implement 2 resumable task(s)');
@@ -131,7 +115,7 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'review',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('Open a pull request'));
     expect(result.lastFrame() ?? '').toContain('Open a pull request');
   });
@@ -453,7 +437,7 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'draft',
       tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('a add'));
     const frame = result.lastFrame() ?? '';
     // The hint strip advertises the ticket add/remove chords only while they are wired up.
@@ -468,7 +452,7 @@ describe('SprintDetailView — phase workspace', () => {
       status: 'active',
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('first'));
     const frame = result.lastFrame() ?? '';
     // Ticket CRUD is draft-only; on an active sprint the chords do nothing, so the footer must
@@ -529,7 +513,7 @@ describe('SprintDetailView — phase workspace', () => {
   it("shows 'p publish' hint when a ticket is focused", async () => {
     const ticket = makePendingTicket({ title: 'publish-me' });
     const sprint = { ...makeDraftSprint(), tickets: [ticket] } as unknown as Sprint;
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('publish-me'));
     expect(result.lastFrame() ?? '').toContain('p publish');
   });
@@ -551,7 +535,7 @@ describe('SprintDetailView — phase workspace', () => {
       steps: [],
       verificationCriteria: [],
     } as never;
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, [todoTask]), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, [todoTask]), initial });
     await waitForViewReady(result, (f) => f.includes('not-a-ticket'));
     result.stdin.write('j');
     await tick(40);
@@ -812,7 +796,7 @@ describe('SprintDetailView — phase workspace', () => {
       },
     };
     const deps = {
-      ...stubDeps(sprint, []),
+      ...readOnlyDeps(sprint, []),
       projectRepo: {
         async findById() {
           return Result.ok(makeProject());
