@@ -41,7 +41,8 @@ Evaluators tuned to skepticism; tuning standalone evaluator > making generator s
 - Reproduction (2026-08, defect-shaped tasks only): `src/application/flows/implement/leaves/reproduce.ts` —
   a fourth, narrower role that sits BEFORE the generator's first turn, once per task, guarded to
   `bugfix`-classified tasks. It writes and runs one failing test demonstrating the reported defect; the
-  harness re-runs the claimed command itself and only accepts the artifact when that re-run actually fails.
+  harness re-runs the claimed command itself and only accepts the artifact when that re-run fails on its own —
+  a pass, or a run killed on timeout or the output cap, proves nothing.
   Not a peer of the generator/evaluator split — it hands both of them a shared, harness-verified starting
   fixture (ORACLE-SWE, arXiv 2604.07789).
 
