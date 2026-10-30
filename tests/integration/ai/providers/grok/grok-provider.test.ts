@@ -121,6 +121,16 @@ describe('createGrokProvider', () => {
     expect(out.value.sessionId).toBe('01a047e3-cfea-7b83-8047-31c8c2a39cc8');
   });
 
+  it.each([
+    ['evaluator', '0'],
+    ['generator', undefined],
+  ] as const)('disables cross-session memory for the evaluator side only (%s)', async (role, expected) => {
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${END_LINE}\n`], exitCode: 0 }]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
+    await provider.generate(session({ role }));
+    expect(calls[0]!.env?.['GROK_MEMORY']).toBe(expected);
+  });
+
   it('validates the model before writing grok-prompt.md — an argv failure leaves no artifact', async () => {
     // Mirrors the copilot sibling: paying for an mkdir + atomic write for a spawn that never
     // happens would leave a stray grok-prompt.md on every attempt of a row pinned off-catalog.

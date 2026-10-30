@@ -127,6 +127,17 @@ describe('createClaudeProvider', () => {
     expect(calls[0]!.env?.['CLAUDE_CODE_EFFORT_LEVEL']).toBe('xhigh');
   });
 
+  it.each([
+    ['evaluator', '1'],
+    ['generator', undefined],
+  ] as const)('auto memory off for the evaluator side only (%s)', async (role, expected) => {
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-mem' });
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
+    await provider.generate(session({ role }));
+    expect(calls[0]!.env?.['CLAUDE_CODE_DISABLE_AUTO_MEMORY']).toBe(expected);
+  });
+
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
     const cap = createCapturingBus();
     const rateLimitScript: SpawnScript = {

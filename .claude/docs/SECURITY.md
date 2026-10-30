@@ -40,6 +40,14 @@ context) on by default in `claude -p`. Every headless claude spawn sets `CLAUDE_
 — whether a fork inherits `--disallowedTools` is unverified, and each fork re-bills the parent's
 context. Interactive handoffs leave the operator's own setting alone.
 
+Vendor memory on the evaluator side: Claude Code's auto memory, Codex memories and Grok's opt-in memory
+carry notes from one session into later ones (Claude and Grok share them across every worktree of a
+repo), so notes a generator writes would load into the evaluator that grades it. Every spawn with `role: 'evaluator'` (the evaluator
+turns and the best-of-N judge) turns it off — Claude `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, Codex
+`-c memories.use_memories=false -c memories.generate_memories=false`, Grok `GROK_MEMORY=0`. Copilot loads
+memory in prompt mode only with `--enable-memory`, which no adapter passes. The generator keeps the
+operator's memory; ralphctl's own learnings ledger stays the curated channel.
+
 OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
 create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
 and omitting it does NOT make the session read-only — a plain `run` still executes write and edit

@@ -55,8 +55,10 @@ const spawnJudge = async (
   const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  // READ_ONLY: the judge compares the two summaries only and never edits the repo.
+  // READ_ONLY: the judge compares the two summaries only and never edits the repo. It runs the
+  // evaluator row, and `role` keeps vendor memory out of it like any evaluator spawn.
   const session = signalsSession({
+    role: 'evaluator',
     permissions: READ_ONLY,
     cwd: opts.cwd,
     prompt: prompt.value,
