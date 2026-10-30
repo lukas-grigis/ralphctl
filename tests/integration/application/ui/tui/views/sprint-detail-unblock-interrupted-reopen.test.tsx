@@ -13,7 +13,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -25,6 +24,7 @@ import { renderView, waitForViewReady } from '@tests/integration/application/ui/
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { flat, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const REVIEW_ID = 'sprint-review-fixture' as unknown as SprintId;
 
@@ -38,9 +38,6 @@ const REVIEW_SPRINT = {
 } as unknown as Sprint;
 
 const strandedTask = (): Task => makeTodoTask({ name: 'stranded' });
-
-/** Ink soft-wraps the toast, so assert against a whitespace-flattened frame. */
-const flat = (frame: string): string => frame.replace(/\s+/g, ' ');
 
 describe('SprintDetailView — u on a todo task stranded on a review sprint', () => {
   it('reaches the already-todo short-circuit and finishes the review → active hop', async () => {
@@ -76,7 +73,7 @@ describe('SprintDetailView — u on a todo task stranded on a review sprint', ()
       logger: noopLogger,
     } as unknown as AppDeps;
 
-    const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: REVIEW_ID } };
+    const initial = sprintDetailEntry(REVIEW_ID);
     const { result } = renderView(<SprintDetailView />, { deps, initial });
     await waitForViewReady(result, (f) => f.includes('stranded'));
 

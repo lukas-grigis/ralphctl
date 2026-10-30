@@ -13,14 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { recordRunningAttemptEvaluation, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
@@ -28,21 +23,13 @@ import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeTodoTask, unwrap } from '@tests/fixtures/domain.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-attempt-hint-fixture' as unknown as SprintId;
 const HINT = 'v to open';
 
 const at = (minute: number): IsoTimestamp => `2026-08-17T09:${String(minute).padStart(2, '0')}:00.000Z` as IsoTimestamp;
-
-const unwrap = <T, E>(r: Result<T, E>): T => {
-  if (!r.ok) {
-    const err: unknown = r.error;
-    throw new Error(`fixture: ${err instanceof Error ? err.message : JSON.stringify(err)}`);
-  }
-  return r.value as T;
-};
 
 const makeSprint = (): Sprint =>
   ({
@@ -80,29 +67,11 @@ const taskWithCrashedFinalAttempt = (name: string): Task => {
 
 const singleEvaluatedAttemptTask = (name: string): Task => evaluatedAttempt(makeTodoTask({ name }), 1);
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 /** Renders the view, moves the cursor onto the single task row, and expands it. */
 const expandTask = async (task: Task): Promise<string> => {
-  const { result } = renderView(<SprintDetailView />, { deps: stubDeps(makeSprint(), [task]), initial });
+  const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(makeSprint(), [task]), initial });
   await waitForViewReady(result, (f) => f.includes(task.name));
 
   // The cursor starts on the ticket row; one step down lands on the task, `o` expands it.

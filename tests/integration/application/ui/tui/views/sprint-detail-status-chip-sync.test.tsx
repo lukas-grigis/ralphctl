@@ -14,7 +14,6 @@ import { Text } from 'ink';
 import { describe, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -26,6 +25,7 @@ import { renderView, waitForViewReady } from '@tests/integration/application/ui/
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const SPRINT_ID = 'sprint-chip-fixture' as unknown as SprintId;
 const PROJECT_ID = 'proj-chip-fixture' as unknown as ProjectId;
@@ -68,7 +68,7 @@ const deps = (): AppDeps =>
     logger: noopLogger,
   }) as unknown as AppDeps;
 
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: SPRINT_ID } };
+const initial = sprintDetailEntry(SPRINT_ID);
 
 /**
  * Reads the cached status straight off the selection context — the value the breadcrumb chip

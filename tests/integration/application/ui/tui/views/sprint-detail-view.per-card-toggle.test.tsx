@@ -28,6 +28,7 @@ import { ESC } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeApprovedTicket, makeDraftSprint } from '@tests/fixtures/domain.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -49,25 +50,7 @@ const makeSprintWithTickets = (tickets: readonly unknown[]): Sprint =>
     tickets,
   }) as unknown as Sprint;
 
-const stubReadOnlyDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 /**
  * Wait until the focus cursor lands on card #N (1-based). `ListCard` prefixes the focused card's
@@ -87,7 +70,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-a', 'alpha card', 'alpha-only-marker-line-in-description'),
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
-    const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand the first ticket (cursor starts at idx 0).
@@ -111,7 +94,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-a', 'alpha card', 'alpha-only-marker-line-in-description'),
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
-    const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Open card 0.
@@ -141,7 +124,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-a', 'alpha card', 'alpha-only-marker-line-in-description'),
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
-    const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand both cards.
@@ -178,7 +161,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
       makeTicket('ticket-c', 'charlie card', 'charlie-only-marker-line-in-description'),
     ]);
-    const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, []), initial });
     await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand only the first card.

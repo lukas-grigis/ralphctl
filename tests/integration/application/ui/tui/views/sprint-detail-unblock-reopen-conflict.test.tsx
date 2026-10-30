@@ -11,7 +11,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -24,6 +23,7 @@ import { renderView, waitForViewReady } from '@tests/integration/application/ui/
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { flat, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const CLOSED_ID = 'sprint-closed-fixture' as unknown as SprintId;
 const PEER_ID = 'sprint-peer-fixture' as unknown as SprintId;
@@ -78,10 +78,7 @@ const stubDeps = (updated: Task[], sprints: readonly Sprint[] = [CLOSED, PEER]):
   } as unknown as AppDeps;
 };
 
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: CLOSED_ID } };
-
-/** Ink soft-wraps the toast, so assert against a whitespace-flattened frame. */
-const flat = (frame: string): string => frame.replace(/\s+/g, ' ');
+const initial = sprintDetailEntry(CLOSED_ID);
 
 describe('SprintDetailView — u on a closed sprint whose reopen is refused', () => {
   it('says the task was unblocked AND why the sprint stayed closed', async () => {

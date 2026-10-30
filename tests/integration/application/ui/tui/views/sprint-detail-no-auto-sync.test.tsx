@@ -27,6 +27,7 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeDraftSprint } from '@tests/fixtures/domain.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-no-autosync' as unknown as SprintId;
 
@@ -41,24 +42,7 @@ const makeSprint = (overrides: Partial<Sprint> = {}): Sprint =>
     ...overrides,
   }) as unknown as Sprint;
 
-const stubDeps = (sprint: Sprint): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 /**
  * Spy component: wraps the view and records every `setSprint` call.
@@ -105,7 +89,7 @@ describe('SprintDetailView — no auto-sync', () => {
       >
         <SprintDetailView />
       </SpyOnSprint>,
-      { deps: stubDeps(sprint), initial }
+      { deps: readOnlyDeps(sprint), initial }
     );
 
     // Allow full async load and effect cycle to complete.
@@ -128,7 +112,7 @@ describe('SprintDetailView — no auto-sync', () => {
       >
         <SprintDetailView />
       </SpyOnSprint>,
-      { deps: stubDeps(sprint), initial }
+      { deps: readOnlyDeps(sprint), initial }
     );
 
     // Wait well past the async load resolution point.
@@ -140,7 +124,7 @@ describe('SprintDetailView — no auto-sync', () => {
 
   it('renders the sprint name in the title without auto-syncing', async () => {
     const sprint = makeSprint({ status: 'draft', name: 'Visible Sprint' });
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint), initial });
 
     await waitForViewReady(result, (f) => f.includes('Visible Sprint'));
     const frame = result.lastFrame() ?? '';
