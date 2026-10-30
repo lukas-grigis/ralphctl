@@ -219,10 +219,11 @@ const proposeReadinessUseCase = async (
  * adds only Claude-specific sections below it.
  */
 const AGENTS_MD_IMPORT = '@AGENTS.md\n';
+const CLAUDE_CODE = 'claude-code';
 
 /** The existing context body the proposal appends to, or undefined for a fresh file (an unreadable one counts as fresh). */
 const readExistingContext = async (tool: AssistantTool, state: ReadinessState): Promise<string | undefined> => {
-  if (isPresent(state) && state.artifacts.tool === 'claude-code') {
+  if (isPresent(state) && state.artifacts.tool === CLAUDE_CODE) {
     const { claudeMd, agentsMd } = state.artifacts;
     if (claudeMd === undefined && agentsMd !== undefined) return AGENTS_MD_IMPORT;
   }
@@ -248,8 +249,8 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
   if (!isPresent(state)) return undefined;
   const a = state.artifacts;
   switch (tool) {
-    case 'claude-code':
-      return a.tool === 'claude-code' ? pathOf(a.claudeMd) : undefined;
+    case CLAUDE_CODE:
+      return a.tool === CLAUDE_CODE ? pathOf(a.claudeMd) : undefined;
     case 'copilot':
       return a.tool === 'copilot' ? pathOf(a.copilotInstructions) : undefined;
     case 'codex':
