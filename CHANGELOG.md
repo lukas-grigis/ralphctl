@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Codex sessions can reach the network.** Codex blocks network access from shell commands by default, so a
+  Codex generator could not install declared dependencies or run checks that need the network. Headless Codex
+  sessions now get network access and live web search whenever the flow allows the network, and have both turned
+  off when it does not (PR drafting).
 - **Claude Code effort settings now always take effect.** A `CLAUDE_CODE_EFFORT_LEVEL` exported in your shell used
   to override every effort ralphctl picked — per-flow rows, presets and the escalation ladder — without any sign.
   ralphctl now sets it to the same level it passes as `--effort`.

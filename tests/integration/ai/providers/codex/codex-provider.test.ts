@@ -892,6 +892,22 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
   });
 
   it.each([
+    [true, ['sandbox_workspace_write.network_access=true', 'web_search="live"']],
+    [false, ['sandbox_workspace_write.network_access=false', 'web_search="disabled"']],
+  ] as const)(
+    'maps canAccessNetwork=%s onto sandbox network access and web search, fresh and resumed',
+    (network, expected) => {
+      const permissions = { ...READ_ONLY, canAccessNetwork: network };
+      for (const resume of [undefined, 'sess-abc' as unknown as SessionId]) {
+        const overrides = configOverrides(session({ permissions, ...(resume !== undefined ? { resume } : {}) }));
+        expect(
+          overrides.filter((c) => c.startsWith('sandbox_workspace_write.network') || c.startsWith('web_search'))
+        ).toEqual(expected);
+      }
+    }
+  );
+
+  it.each([
     ['evaluator', ['memories.use_memories=false', 'memories.generate_memories=false']],
     ['generator', []],
   ] as const)('turns memories off for the evaluator side only (%s)', (role, expected) => {

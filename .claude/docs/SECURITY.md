@@ -29,6 +29,12 @@ Codex can't fine-grained-deny edits on existing repo files. Use topology to cons
 `codex exec resume` accepts no `-s` / `--add-dir` and comes back read-only, so a resumed spawn
 re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
 Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
+Network follows the declared `canAccessNetwork` on fresh and resumed spawns alike:
+`-c sandbox_workspace_write.network_access=<bool>` (Codex defaults it to `false`, which made every shell
+install or fetch fail although READ_ONLY and FULL_AUTO both declare network access) plus `-c web_search="live"`,
+or `"disabled"` when the profile denies the network (create-pr). Because Codex cannot deny the shell, a
+READ_ONLY Codex session can now also reach the network from shell commands — the declared posture, not a new
+grant. The interactive Codex adapter takes no permission profile and keeps Codex's own defaults.
 
 Claude Code caveat: read-only sessions use `bypassPermissions` plus `--disallowedTools`, never
 `--permission-mode plan` — in `claude -p` plan mode asks for approval on every tool, reads included, and
