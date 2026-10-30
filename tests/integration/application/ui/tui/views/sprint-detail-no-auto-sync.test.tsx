@@ -97,7 +97,7 @@ describe('SprintDetailView — no auto-sync', () => {
     const sprint = makeSprint({ status: 'draft', name: 'No AutoSync Sprint' });
     const setSprintCalls: Array<{ id: SprintId | undefined; label: string | undefined }> = [];
 
-    const { result } = renderView(
+    renderView(
       <SpyOnSprint
         onSetSprint={(id, label) => {
           setSprintCalls.push({ id, label });
@@ -114,15 +114,13 @@ describe('SprintDetailView — no auto-sync', () => {
     // No auto-sync: setSprint MUST NOT have been called by the view on mount.
     const mountCalls = setSprintCalls.filter((c) => c.id !== undefined);
     expect(mountCalls).toHaveLength(0);
-
-    result.unmount();
   });
 
   it('does NOT call setSprint when the async load resolves', async () => {
     const sprint = makeSprint({ status: 'active', name: 'Active Sprint No Sync' });
     const setSprintCalls: Array<{ id: SprintId | undefined; label: string | undefined }> = [];
 
-    const { result } = renderView(
+    renderView(
       <SpyOnSprint
         onSetSprint={(id, label) => {
           setSprintCalls.push({ id, label });
@@ -138,8 +136,6 @@ describe('SprintDetailView — no auto-sync', () => {
 
     // Neither the initial sprintId-only call nor the name-bearing call should happen.
     expect(setSprintCalls).toHaveLength(0);
-
-    result.unmount();
   });
 
   it('renders the sprint name in the title without auto-syncing', async () => {
@@ -151,8 +147,6 @@ describe('SprintDetailView — no auto-sync', () => {
 
     // The view should still render correctly (sprint name appears).
     expect(frame).toContain('Visible Sprint');
-
-    result.unmount();
   });
 });
 
@@ -184,6 +178,5 @@ describe('SprintDetailView — setSprint is reachable via m key after redesign',
 
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Renderable Sprint');
-    result.unmount();
   });
 });

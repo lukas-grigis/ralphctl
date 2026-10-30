@@ -24,7 +24,7 @@ describe('askText validate through the real queue → PromptHost path', () => {
   it('blocks an empty submit with an inline error, then accepts a valid name', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     let settled = false;
     const answer = interactive.askText('Sprint name:', { validate: sprintNameProblem }).then((r) => {
@@ -44,7 +44,6 @@ describe('askText validate through the real queue → PromptHost path', () => {
     stdin.write('\r');
     const result = await answer;
     expect(result.ok && result.value).toBe('Kickoff');
-    unmount();
   });
 });
 
@@ -52,7 +51,7 @@ describe('askConfirm defaultValue through the real queue → PromptHost path', (
   it('↵ submits No when the confirm defaults to No', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     const answer = interactive.askConfirm({ message: 'Distill? [y/N]', defaultValue: false });
     await waitForPredicate(() => (lastFrame() ?? '').includes('Distill?'));
@@ -62,13 +61,12 @@ describe('askConfirm defaultValue through the real queue → PromptHost path', (
     stdin.write('\r');
     const result = await answer;
     expect(result.ok && result.value).toBe(false);
-    unmount();
   });
 
   it('a second confirm right after a No-default one opens on its own default (Yes)', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     const first = interactive.askConfirm({ message: 'First? [y/N]', defaultValue: false });
     const second = interactive.askConfirm({ message: 'Second?' });
@@ -83,6 +81,5 @@ describe('askConfirm defaultValue through the real queue → PromptHost path', (
     stdin.write('\r');
     const result = await second;
     expect(result.ok && result.value).toBe(true);
-    unmount();
   });
 });

@@ -137,7 +137,6 @@ describe('useListWindow', () => {
     expect(latest?.focusedIndex).toBeGreaterThanOrEqual(latest?.window.start ?? -1);
     expect(latest?.focusedIndex).toBeLessThan(latest?.window.end ?? -1);
     expect(latest?.window.hiddenAbove).toBeGreaterThan(0);
-    r.unmount();
   });
 
   it('Home jumps to the first item and End to the last', async () => {
@@ -155,7 +154,6 @@ describe('useListWindow', () => {
     await tick(20);
     expect(latest?.cursorId).toBe('r0');
     expect(latest?.focusedIndex).toBe(0);
-    r.unmount();
   });
 
   it('keeps focus on the same item id after the items reorder', async () => {
@@ -184,7 +182,6 @@ describe('useListWindow', () => {
     expect(latest?.cursorId).toBe('r3');
     expect(latest?.focusedIndex).toBe(0);
     expect(latest?.focusedItem?.id).toBe('r3');
-    r.unmount();
   });
 
   it('snaps to a nearby survivor when the focused item is evicted', async () => {
@@ -211,7 +208,6 @@ describe('useListWindow', () => {
     expect(latest?.focusedItem).toBeDefined();
     expect(latest?.cursorId).toBe('r4');
     expect(latest?.focusedIndex).toBe(3);
-    r.unmount();
   });
 
   it('Enter submits the focused item', async () => {
@@ -232,6 +228,5 @@ describe('useListWindow', () => {
     r.stdin.write('\r');
     await tick(20);
     expect(submitted.map((s) => s.id)).toEqual(['r2']);
-    r.unmount();
   });
 });

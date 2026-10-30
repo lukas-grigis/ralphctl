@@ -131,7 +131,7 @@ describe('EvaluationOverlay — wrapped rows are windowed as rows', () => {
     const critique = paragraph('crit', 200);
     await writeEvaluation(dataRoot, critique);
 
-    const { stdin, lastFrame, unmount } = render(<EvaluationHarness dataRoot={dataRoot} />);
+    const { stdin, lastFrame } = render(<EvaluationHarness dataRoot={dataRoot} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('crit000'));
     // Let the post-load render commit before typing: the scroll handler closes over the line
     // count, so a keystroke racing the first painted frame would still see the loading state's 0.
@@ -153,8 +153,6 @@ describe('EvaluationOverlay — wrapped rows are windowed as rows', () => {
     expect(scrolled).not.toContain('crit000');
     expect(scrolled).toMatch(/lines \d+[–-]/);
     expect(frameRows(scrolled)).toBeLessThanOrEqual(TERMINAL_ROWS);
-
-    unmount();
   });
 });
 
@@ -192,7 +190,7 @@ describe('ProgressOverlay — wrapped rows are windowed as rows', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgress(dataRoot, ['# Progress', '', paragraph('note', 200), ''].join('\n'));
 
-    const { stdin, lastFrame, unmount } = render(<ProgressHarness dataRoot={dataRoot} />);
+    const { stdin, lastFrame } = render(<ProgressHarness dataRoot={dataRoot} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('note000'));
     await tick(30);
 
@@ -209,7 +207,5 @@ describe('ProgressOverlay — wrapped rows are windowed as rows', () => {
     expect(scrolled).not.toContain('note000');
     expect(scrolled).toMatch(/lines \d+[–-]/);
     expect(frameRows(scrolled)).toBeLessThanOrEqual(TERMINAL_ROWS);
-
-    unmount();
   });
 });

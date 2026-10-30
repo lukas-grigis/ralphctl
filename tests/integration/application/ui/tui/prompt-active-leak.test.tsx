@@ -87,7 +87,7 @@ describe('promptActive claim suppresses global hotkeys', () => {
   it('typing "blinced" does not trigger the global "n" → flows navigation', async () => {
     probeIds.length = 0;
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(<Harness onSubmit={onSubmit} />);
+    const { stdin } = render(<Harness onSubmit={onSubmit} />);
     await tick(50); // give the claim effect time to run
     stdin.write('blinced');
     await tick();
@@ -97,13 +97,12 @@ describe('promptActive claim suppresses global hotkeys', () => {
     // Router must have stayed on 'home' throughout. ViewProbe records every render's id;
     // if `n` had leaked to useGlobalKeys, we'd see 'flows' here.
     expect(probeIds.every((id) => id === 'home')).toBe(true);
-    unmount();
   });
 
   it('typing matches global hotkeys for all four leak-prone letters', async () => {
     probeIds.length = 0;
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(<Harness onSubmit={onSubmit} />);
+    const { stdin } = render(<Harness onSubmit={onSubmit} />);
     await tick(50);
     // n=flows, s=settings, x=sessions, ! (shift+1) doesn't co-occur with text but cover the
     // letter-only ones explicitly.
@@ -113,6 +112,5 @@ describe('promptActive claim suppresses global hotkeys', () => {
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('nsxh');
     expect(probeIds.every((id) => id === 'home')).toBe(true);
-    unmount();
   });
 });

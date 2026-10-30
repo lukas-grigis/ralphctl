@@ -163,7 +163,7 @@ describe('ProgressOverlay — open / close', () => {
   it('opens on `g` when a sprint is selected and closes on esc', async () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nFirst line of activity.');
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait until the SeedSelection sentinel confirms the sprint selection effect committed.
     // Replaces the old `tick(50)` which raced the effect under full-suite load.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
@@ -183,13 +183,11 @@ describe('ProgressOverlay — open / close', () => {
     stdin.write(ESC);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
-
-    unmount();
   });
 
   it('`g` is a no-op on Home (no sprint loaded)', async () => {
     const dataRoot = await makeTmpRoot();
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={false} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={false} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('g');
     await tick(30);
@@ -197,7 +195,6 @@ describe('ProgressOverlay — open / close', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('UNDERLYING_VIEW');
     expect(frame).not.toContain('esc · g to close');
-    unmount();
   });
 
   it('`g` opens on a pinned run when the global selection is cleared', async () => {
@@ -206,9 +203,7 @@ describe('ProgressOverlay — open / close', () => {
     // global selection cleared) made `g` a silent no-op. The widened gate opens onto the pin.
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nPinned run activity.');
-    const { stdin, lastFrame, unmount } = render(
-      <Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />
-    );
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />);
     // Wait until the SeedSelection sentinel confirms the focused-run pin effect committed.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
 
@@ -219,7 +214,6 @@ describe('ProgressOverlay — open / close', () => {
     expect(opened).toContain('pinned-run');
     expect(opened).toContain('Pinned run activity.');
     expect(opened).not.toContain('UNDERLYING_VIEW');
-    unmount();
   });
 });
 
@@ -227,7 +221,7 @@ describe('ProgressOverlay — missing / empty file', () => {
   it('renders a friendly message when progress.md does not exist', async () => {
     const dataRoot = await makeTmpRoot();
     // No file written — overlay should NOT crash.
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
@@ -236,20 +230,18 @@ describe('ProgressOverlay — missing / empty file', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No progress file yet');
     expect(frame).not.toContain('Could not read');
-    unmount();
   });
 
   it('renders an empty-state message when progress.md exists but is empty', async () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '');
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitForPredicate(() => (lastFrame() ?? '').includes('exists but is empty'));
 
     expect(lastFrame() ?? '').toContain('exists but is empty');
-    unmount();
   });
 });
 
@@ -270,7 +262,7 @@ describe('ProgressOverlay — scrolling', () => {
   it('PgDn scrolls forward, PgUp scrolls back, bounds clamp', async () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, buildLongFile());
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
@@ -315,8 +307,6 @@ describe('ProgressOverlay — scrolling', () => {
     stdin.write('\x1b[5~');
     await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     expect(lastFrame() ?? '').toContain('HEAD-LINE');
-
-    unmount();
   });
 });
 
@@ -374,7 +364,7 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
   it('list cursor is unchanged after open + close cycle', async () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
-    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    const { stdin, lastFrame } = render(<HarnessWithCursor dataRoot={dataRoot} />);
     // Wait for SEEDED sentinel before interacting.
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
 
@@ -396,14 +386,12 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
     stdin.write(ESC);
     await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:'));
     expect(lastFrame() ?? '').toContain('CURSOR:2');
-
-    unmount();
   });
 
   it('keystrokes while the overlay is open do not move the hidden view cursor', async () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
-    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    const { stdin, lastFrame } = render(<HarnessWithCursor dataRoot={dataRoot} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:0'));
 
@@ -419,7 +407,5 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
     stdin.write(ESC);
     await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:'));
     expect(lastFrame() ?? '').toContain('CURSOR:0');
-
-    unmount();
   });
 });

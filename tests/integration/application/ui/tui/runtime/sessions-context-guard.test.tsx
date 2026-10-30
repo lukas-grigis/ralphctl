@@ -116,7 +116,6 @@ describe('sessions-context status-diff guard', () => {
     await drain(10);
     expect(renders - baseline).toBe(1);
     expect(r.lastFrame()).toBe('completed');
-    r.unmount();
   });
 
   it('useSession: ignores trace-only step notifies, re-renders once on a status change', async () => {
@@ -143,7 +142,6 @@ describe('sessions-context status-diff guard', () => {
     await drain(10);
     expect(renders - baseline).toBe(1);
     expect(r.lastFrame()).toBe('failed');
-    r.unmount();
   });
 
   it('useSession: re-renders on setPinnedSprint (no status change) but still swallows trace-only', async () => {
@@ -174,6 +172,5 @@ describe('sessions-context status-diff guard', () => {
     await drain(10);
     expect(renders - baseline).toBe(1);
     expect(r.lastFrame()).toBe('sprint-42');
-    r.unmount();
   });
 });

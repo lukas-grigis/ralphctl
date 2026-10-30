@@ -66,7 +66,7 @@ describe('useEditField', () => {
       },
     };
     let latest: UseEditFieldState | undefined;
-    const r = mount(queue, trigger, (api) => {
+    mount(queue, trigger, (api) => {
       latest = api;
     });
     // Wait one tick so the effect fires and enqueues the prompt.
@@ -79,7 +79,6 @@ describe('useEditField', () => {
     await flush();
     expect(saved).toBe('new name');
     expect(latest?.feedback).toBe('✓ saved');
-    r.unmount();
   });
 
   it('surfaces validate() errors as feedback without calling onSave', async () => {
@@ -99,7 +98,7 @@ describe('useEditField', () => {
       },
     };
     let latest: UseEditFieldState | undefined;
-    const r = mount(queue, trigger, (api) => {
+    mount(queue, trigger, (api) => {
       latest = api;
     });
     await flush();
@@ -107,7 +106,6 @@ describe('useEditField', () => {
     await flush();
     expect(called).toBe(false);
     expect(latest?.feedback).toMatch(/too short/);
-    r.unmount();
   });
 
   it('surfaces onSave errors as feedback', async () => {
@@ -119,14 +117,13 @@ describe('useEditField', () => {
       onSave: async () => Result.error(new ValidationError({ field: 'name', value: 'x', message: 'persist failed' })),
     };
     let latest: UseEditFieldState | undefined;
-    const r = mount(queue, trigger, (api) => {
+    mount(queue, trigger, (api) => {
       latest = api;
     });
     await flush();
     queue.resolveHead('new');
     await flush();
     expect(latest?.feedback).toMatch(/persist failed/);
-    r.unmount();
   });
 
   it('silently clears feedback on Esc cancel', async () => {
@@ -138,14 +135,13 @@ describe('useEditField', () => {
       onSave: async () => Result.ok(undefined),
     };
     let latest: UseEditFieldState | undefined;
-    const r = mount(queue, trigger, (api) => {
+    mount(queue, trigger, (api) => {
       latest = api;
     });
     await flush();
     queue.rejectHead(new Error('cancelled by user'));
     await flush();
     expect(latest?.feedback).toBeUndefined();
-    r.unmount();
   });
 
   it('re-throws an AbortError instead of silent-cancelling — operator cancellation must propagate', async () => {
@@ -159,7 +155,7 @@ describe('useEditField', () => {
       captured = useEditField();
       return <Text>probe</Text>;
     };
-    const r = render(
+    render(
       <UiStateProvider>
         <PromptQueueProvider value={queue}>
           <Capture />
@@ -188,7 +184,6 @@ describe('useEditField', () => {
     expect(rejection).toBeInstanceOf(AbortError);
     // No "cancelled" feedback chip on a propagated abort — it is not a user esc-cancel.
     expect(captured.feedback).toBeUndefined();
-    r.unmount();
   });
 
   it('enqueues a textarea prompt when kind is "long"', async () => {
@@ -199,13 +194,12 @@ describe('useEditField', () => {
       currentValue: 'multi\nline',
       onSave: async () => Result.ok(undefined),
     };
-    const r = mount(queue, trigger, () => {
+    mount(queue, trigger, () => {
       /* no-op */
     });
     await flush();
     expect(queue.head?.kind).toBe('textarea');
     queue.rejectHead(new Error('cancelled by user'));
     await flush();
-    r.unmount();
   });
 });

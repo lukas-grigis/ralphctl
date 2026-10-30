@@ -53,8 +53,6 @@ describe('TasksPanel commit-message rendering', () => {
     expect(frame).toContain('feat(web-ui): add confetti to landing page');
     // Body is hidden when collapsed.
     expect(frame).not.toContain('canvas-confetti burst');
-
-    r.unmount();
   });
 
   it('renders the collapsed disclosure caret when a body is present', () => {
@@ -62,7 +60,6 @@ describe('TasksPanel commit-message rendering', () => {
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('▸');
-    r.unmount();
   });
 
   it('omits the disclosure caret when the row carries no body (degenerate case)', () => {
@@ -74,7 +71,6 @@ describe('TasksPanel commit-message rendering', () => {
     expect(frame).toContain('fix: typo');
     expect(frame).not.toContain('▸');
     expect(frame).not.toContain('▾');
-    r.unmount();
   });
 
   it('Enter on the active (auto-expanded) card collapses it rather than expanding the commit row', async () => {
@@ -88,7 +84,6 @@ describe('TasksPanel commit-message rendering', () => {
     await tick(30);
     // After Enter the card is collapsed → subject hidden.
     expect(r.lastFrame() ?? '').not.toContain('feat(web-ui): add confetti to landing page');
-    r.unmount();
   });
 
   it('long body wraps cleanly within the available column width (truncate-end)', () => {
@@ -105,7 +100,6 @@ describe('TasksPanel commit-message rendering', () => {
       .map((l) => l.replace(ansiRe, '').length)
       .reduce((m, n) => Math.max(m, n), 0);
     expect(longest).toBeLessThanOrEqual(100);
-    r.unmount();
   });
 
   it('input is ignored when inputActive is false (card stays auto-expanded)', async () => {
@@ -116,6 +110,5 @@ describe('TasksPanel commit-message rendering', () => {
     await tick(30);
     // Enter is a no-op when inputActive is false — card stays expanded.
     expect(r.lastFrame() ?? '').toContain('feat(web-ui): add confetti to landing page');
-    r.unmount();
   });
 });

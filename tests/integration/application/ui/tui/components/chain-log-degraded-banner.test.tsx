@@ -39,7 +39,6 @@ describe('ChainLogDegradedBanner', () => {
     const bus = createInMemoryEventBus();
     const r = renderBanner(bus);
     expect(r.lastFrame() ?? '').toBe('');
-    r.unmount();
   });
 
   it('renders the warning strip after the first chain-log-degraded event', async () => {
@@ -56,7 +55,6 @@ describe('ChainLogDegradedBanner', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('chain log degraded');
     expect(frame).toContain('postmortem trace may be incomplete');
-    r.unmount();
   });
 
   it('stays latched — a second event does not clear or re-mount the banner', async () => {
@@ -85,7 +83,6 @@ describe('ChainLogDegradedBanner', () => {
     expect(after2).toContain('chain log degraded');
     expect(after2).toContain('postmortem trace may be incomplete');
     expect(after2).toBe(after1);
-    r.unmount();
   });
 
   it('ignores unrelated events on the bus', async () => {
@@ -101,6 +98,5 @@ describe('ChainLogDegradedBanner', () => {
     await flush();
 
     expect(r.lastFrame() ?? '').toBe('');
-    r.unmount();
   });
 });

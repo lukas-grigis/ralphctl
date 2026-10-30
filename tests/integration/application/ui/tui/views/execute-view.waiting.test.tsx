@@ -58,7 +58,6 @@ describe('WAITING state', () => {
     // The footer's doctor probe spins independently; only the run's own header row is under test.
     const headerRow = frame.split('\n').find((l) => l.includes('flow implement')) ?? '';
     expect(hasSpinnerFrame(headerRow)).toBe(false);
-    result.unmount();
   });
 
   it('Execute keeps the live spinner and [RUNNING] when only another run is waiting', async () => {
@@ -77,7 +76,6 @@ describe('WAITING state', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[RUNNING]');
     expect(frame).not.toContain('[WAITING]');
-    result.unmount();
   });
 
   it('the Sessions list row shows WAITING for the awaiting session only', async () => {
@@ -92,6 +90,5 @@ describe('WAITING state', () => {
     const lines = (result.lastFrame() ?? '').split('\n');
     expect(lines.find((l) => l.includes('Beta run'))).toContain('[WAITING]');
     expect(lines.find((l) => l.includes('Alpha run'))).toContain('[RUNNING]');
-    result.unmount();
   });
 });

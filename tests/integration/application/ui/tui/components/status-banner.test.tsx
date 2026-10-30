@@ -55,7 +55,6 @@ describe('StatusBanner', () => {
     const bus = createInMemoryEventBus();
     const r = renderBanner(bus);
     expect(r.lastFrame() ?? '').toBe('');
-    r.unmount();
   });
 
   it('renders the info tier with its glyph and dismiss hint', async () => {
@@ -75,7 +74,6 @@ describe('StatusBanner', () => {
       expect(frame).toContain('i ');
       expect(frame).toContain('press d to dismiss');
     });
-    r.unmount();
   });
 
   it('renders the warn tier with the warning glyph', async () => {
@@ -94,7 +92,6 @@ describe('StatusBanner', () => {
       expect(frame).toContain('Watchdog killed stuck process (90s idle)');
       expect(frame).toContain('⚠');
     });
-    r.unmount();
   });
 
   it('renders the error tier with the cross glyph', async () => {
@@ -113,7 +110,6 @@ describe('StatusBanner', () => {
       expect(frame).toContain('Setup script failed for /tmp/repo: pnpm install');
       expect(frame).toContain('✗');
     });
-    r.unmount();
   });
 
   it('stacks banners with error → warn → info order', async () => {
@@ -133,7 +129,6 @@ describe('StatusBanner', () => {
       expect(warnIdx).toBeGreaterThan(errIdx);
       expect(infoIdx).toBeGreaterThan(warnIdx);
     });
-    r.unmount();
   });
 
   it('collapses overflow past MAX_VISIBLE into a +N more row', async () => {
@@ -153,7 +148,6 @@ describe('StatusBanner', () => {
       expect(frame).not.toContain('fourth');
       expect(frame).toContain('+1 more');
     });
-    r.unmount();
   });
 
   it('banner-clear removes the matching id', async () => {
@@ -165,7 +159,6 @@ describe('StatusBanner', () => {
 
     bus.publish({ type: 'banner-clear', id: 'b1', at: IsoTimestamp.now() });
     await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
-    r.unmount();
   });
 
   it('re-publishing the same id replaces rather than stacking', async () => {
@@ -182,7 +175,6 @@ describe('StatusBanner', () => {
       // Not "+1 more" — same id replaced in place.
       expect(frame).not.toContain('more');
     });
-    r.unmount();
   });
 
   it('d dismisses the topmost (most-urgent) banner; lower-tier banners move up', async () => {
@@ -206,7 +198,6 @@ describe('StatusBanner', () => {
     // Error (topmost) dismissed; info remains.
     expect(frame).not.toContain('error line');
     expect(frame).toContain('info line');
-    r.unmount();
   });
 
   it('ignores unrelated events on the bus', async () => {
@@ -215,7 +206,6 @@ describe('StatusBanner', () => {
 
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: IsoTimestamp.now() });
     await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
-    r.unmount();
   });
 
   it('caps retained banners and evicts non-error entries first under sustained churn', async () => {
@@ -251,7 +241,6 @@ describe('StatusBanner', () => {
       expect(frame).not.toContain('noise 0 ');
       expect(frame).not.toContain('noise 10 ');
     });
-    r.unmount();
   });
 
   it('renders the optional cause beside the message', async () => {
@@ -271,6 +260,5 @@ describe('StatusBanner', () => {
       expect(frame).toContain('Rate limit — waiting 30s');
       expect(frame).toContain('attempt 2/4');
     });
-    r.unmount();
   });
 });

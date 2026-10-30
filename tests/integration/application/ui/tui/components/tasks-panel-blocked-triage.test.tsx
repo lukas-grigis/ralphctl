@@ -42,7 +42,6 @@ describe('TasksPanel blocked triage', () => {
     expect(frame).toContain('generator reported missing information');
     expect(frame).toContain('Which auth provider should tickets use?');
     expect(frame).toContain('a decision on the provider');
-    r.unmount();
   });
 
   it('renders only the reason line when no triage is supplied (unchanged pre-existing behaviour)', () => {
@@ -53,7 +52,6 @@ describe('TasksPanel blocked triage', () => {
 
     expect(frame).toContain('blocked upstream');
     expect(frame).not.toContain('unblocks');
-    r.unmount();
   });
 
   it('renders nothing at all for fields that are only control bytes', () => {
@@ -93,7 +91,6 @@ describe('TasksPanel blocked triage', () => {
     const frame = r.lastFrame() ?? '';
 
     expect(frame).not.toContain('Should this be collapsed-only hidden?');
-    r.unmount();
   });
 });
 

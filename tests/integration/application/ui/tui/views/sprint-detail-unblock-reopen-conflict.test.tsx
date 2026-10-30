@@ -107,7 +107,6 @@ describe('SprintDetailView — u on a closed sprint whose reopen is refused', ()
     expect(frame).toContain("'ralphctl sprint close sprint-peer-fixture'");
     expect(frame).toContain("'ralphctl sprint reopen sprint-closed-fixture'");
     expect(frame).toContain('u again');
-    result.unmount();
   });
 
   it('leads with the warning glyph, not the success tick', async () => {
@@ -125,7 +124,6 @@ describe('SprintDetailView — u on a closed sprint whose reopen is refused', ()
     const frame = flat(result.lastFrame() ?? '');
     expect(frame).toContain('⚠ unblocked "wedged"');
     expect(frame).not.toContain('✓ unblocked "wedged"');
-    result.unmount();
   });
 });
 
@@ -143,6 +141,5 @@ describe('SprintDetailView — u on a closed sprint that reopens', () => {
     const frame = flat(result.lastFrame() ?? '');
     expect(updated[0]?.status).toBe('todo');
     expect(frame).toContain('✓ unblocked "wedged" — sprint reopened done → active');
-    result.unmount();
   });
 });

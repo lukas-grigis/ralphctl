@@ -66,6 +66,5 @@ describe('flow steps liveness', () => {
     const after = r.lastFrame() ?? '';
     expect(after).toContain('step 3/3');
     expect(after).toContain('■ second-step');
-    r.unmount();
   });
 });

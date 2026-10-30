@@ -57,7 +57,7 @@ describe('useBucketedTasks — dependency-blocked cursor', () => {
   it('points the current-task readout at the running sibling, not the blocked task', () => {
     const bus = createInMemoryEventBus();
     let last: BucketedDerivation | undefined;
-    const r = render(<Probe bus={bus} onState={(d) => (last = d)} />);
+    render(<Probe bus={bus} onState={(d) => (last = d)} />);
 
     // Dependency-blocked tasks now resolve to the dedicated `blocked` bucket status, distinct
     // from the muted `skipped` rendering they used to share with a merely-pending task.
@@ -65,7 +65,6 @@ describe('useBucketedTasks — dependency-blocked cursor', () => {
     expect(last?.currentTask?.id).toBe(RUNNING);
     expect(last?.currentTaskName).toBe('The task actually running');
     expect(last?.currentSubStep).toBe('generator');
-    r.unmount();
   });
 
   it('reports no current task once every task has settled', () => {
@@ -87,12 +86,11 @@ describe('useBucketedTasks — dependency-blocked cursor', () => {
       last = derivation;
       return <Text>x</Text>;
     };
-    const r = render(<Settled />);
+    render(<Settled />);
 
     expect(last?.currentTask).toBeUndefined();
     // Only the task that genuinely finished counts as done — the blocked one is not a pass.
     expect(last?.tasksDone).toBe(1);
     expect(last?.tasksTotal).toBe(2);
-    r.unmount();
   });
 });

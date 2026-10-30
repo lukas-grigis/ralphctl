@@ -63,7 +63,6 @@ describe('HousekeepingView', () => {
     result.stdin.write(ENTER);
     await tick(40);
     expect(result.lastFrame() ?? '').toContain('nothing selected');
-    result.unmount();
   });
 
   it('keeps each candidate on one line with its cursor and checkbox at 60 columns', async () => {
@@ -80,7 +79,6 @@ describe('HousekeepingView', () => {
     // No blank spacer line between consecutive candidate rows.
     const first = lines.indexOf(rows[0] as string);
     expect(lines.slice(first, first + rows.length).every((l) => l.includes('[ ]'))).toBe(true);
-    result.unmount();
   });
 
   it('tells orphan memory rows apart at 60 columns: slug first, natural order', async () => {
@@ -101,7 +99,6 @@ describe('HousekeepingView', () => {
       .map((l) => /(ghost-\d+)/.exec(l)?.[1])
       .filter((t) => t !== undefined);
     expect(tails).toEqual(['ghost-1', 'ghost-2', 'ghost-10']);
-    result.unmount();
   });
 
   it('deletes one orphan sprint through ConfirmCard and leaves the other groups untouched', async () => {
@@ -125,7 +122,6 @@ describe('HousekeepingView', () => {
     expect(await exists(otherDir)).toBe(true);
     expect(await exists(memoryDir)).toBe(true);
     expect(await exists(runDir)).toBe(true);
-    result.unmount();
   });
 
   it('esc on the confirm keeps everything', async () => {
@@ -141,7 +137,6 @@ describe('HousekeepingView', () => {
     result.stdin.write(ESC);
     await waitForPredicate(() => !(result.lastFrame() ?? '').includes('Delete 1 item'));
     expect(await exists(targetDir)).toBe(true);
-    result.unmount();
   });
 
   const confirmFirstRow = async (result: ReturnType<typeof renderView>['result']): Promise<void> => {
@@ -210,6 +205,5 @@ describe('HousekeepingView', () => {
       label: 'ENTER reaching the re-activated list',
     });
     expect(purge).toHaveBeenCalledTimes(1);
-    result.unmount();
   });
 });

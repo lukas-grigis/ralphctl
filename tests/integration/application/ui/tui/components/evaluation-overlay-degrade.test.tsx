@@ -161,18 +161,17 @@ const expectVerdictLine = (frame: string): void => {
 describe('EvaluationOverlay — hard degrade rule', () => {
   it('legacy row with no recorded artifact path → verdict line + "no artifact recorded"', async () => {
     const dataRoot = await makeTmpRoot();
-    const { frame, unmount } = await openAndWaitFor(dataRoot, target(), 'No evaluation artifact was recorded');
+    const { frame } = await openAndWaitFor(dataRoot, target(), 'No evaluation artifact was recorded');
     expectVerdictLine(frame);
     expect(frame).toContain('No evaluation artifact was recorded for this attempt.');
     expect(frame).not.toContain(glyphs.cross);
-    unmount();
   });
 
   it('recorded path pointing into a pruned workspace → verdict line + "no longer on disk"', async () => {
     const dataRoot = await makeTmpRoot();
     // The sprint dir exists (tasks.json would live there); the implement workspace was pruned.
     await fs.mkdir(join(dataRoot, 'sprints', SPRINT_ID_STR), { recursive: true });
-    const { frame, unmount } = await openAndWaitFor(
+    const { frame } = await openAndWaitFor(
       dataRoot,
       target({ file: 'rounds/4/evaluator/evaluation.md' }),
       'no longer on disk'
@@ -180,19 +179,17 @@ describe('EvaluationOverlay — hard degrade rule', () => {
     expectVerdictLine(frame);
     expect(frame).toContain('rounds/4/evaluator/evaluation.md');
     expect(frame).not.toContain(glyphs.cross);
-    unmount();
   });
 
   it('sprint directory itself gone → verdict line, still no error card', async () => {
     const dataRoot = await makeTmpRoot();
-    const { frame, unmount } = await openAndWaitFor(
+    const { frame } = await openAndWaitFor(
       dataRoot,
       target({ file: 'rounds/1/evaluator/evaluation.md' }),
       'no longer on disk'
     );
     expectVerdictLine(frame);
     expect(frame).not.toContain(glyphs.cross);
-    unmount();
   });
 
   it('path climbing out of the workspace is refused WITHOUT a disk read', async () => {
@@ -200,28 +197,22 @@ describe('EvaluationOverlay — hard degrade rule', () => {
     // Plant a readable file exactly where a naive join would land, so a leak would be visible.
     const escaped = join(dataRoot, 'SECRET.md');
     await fs.writeFile(escaped, 'SECRET-CONTENT\n', 'utf8');
-    const { frame, unmount } = await openAndWaitFor(
+    const { frame } = await openAndWaitFor(
       dataRoot,
       target({ file: '../../../../SECRET.md' }),
       'No evaluation artifact was recorded'
     );
     expectVerdictLine(frame);
     expect(frame).not.toContain('SECRET-CONTENT');
-    unmount();
   });
 
   it('absolute path is refused WITHOUT a disk read', async () => {
     const dataRoot = await makeTmpRoot();
     const planted = join(dataRoot, 'ABSOLUTE.md');
     await fs.writeFile(planted, 'ABSOLUTE-CONTENT\n', 'utf8');
-    const { frame, unmount } = await openAndWaitFor(
-      dataRoot,
-      target({ file: planted }),
-      'No evaluation artifact was recorded'
-    );
+    const { frame } = await openAndWaitFor(dataRoot, target({ file: planted }), 'No evaluation artifact was recorded');
     expectVerdictLine(frame);
     expect(frame).not.toContain('ABSOLUTE-CONTENT');
-    unmount();
   });
 
   it('unparseable artifact body → verdict line, raw bytes, no error card', async () => {
@@ -230,11 +221,10 @@ describe('EvaluationOverlay — hard degrade rule', () => {
     const path = join(dataRoot, 'sprints', SPRINT_ID_STR, 'implement', TASK_ID, relative);
     await fs.mkdir(dirname(path), { recursive: true });
     await fs.writeFile(path, '<<<TRUNCATED WRITE', 'utf8');
-    const { frame, unmount } = await openAndWaitFor(dataRoot, target({ file: relative }), 'TRUNCATED WRITE');
+    const { frame } = await openAndWaitFor(dataRoot, target({ file: relative }), 'TRUNCATED WRITE');
     expectVerdictLine(frame);
     expect(frame).toContain('showing the raw file');
     expect(frame).toContain('TRUNCATED WRITE');
     expect(frame).not.toContain(glyphs.cross);
-    unmount();
   });
 });

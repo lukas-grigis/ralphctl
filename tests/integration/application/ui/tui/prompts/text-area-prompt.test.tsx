@@ -42,33 +42,27 @@ const bracketed = (payload: string): string => `${PASTE_START}${payload}${PASTE_
 describe('TextAreaPrompt', () => {
   it('appends typed characters to the buffer', async () => {
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('hello');
     await tick();
     expect(lastFrame()).toContain('hello');
-    unmount();
   });
 
   it('submits the buffer on plain Enter', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('one line');
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('one line');
-    unmount();
   });
 
   it('backslash + Enter inserts a newline instead of submitting', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('line1\\');
     await tick();
     stdin.write(ENTER);
@@ -79,25 +73,21 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('line1\nline2');
-    unmount();
   });
 
   it('preserves newlines in pasted content', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('a\nb\nc');
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('a\nb\nc');
-    unmount();
   });
 
   it('renders one row per line', async () => {
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('first\nsecond');
@@ -110,25 +100,19 @@ describe('TextAreaPrompt', () => {
     const firstRow = lines.findIndex((l) => l.includes('first'));
     const secondRow = lines.findIndex((l) => l.includes('second'));
     expect(secondRow).toBeGreaterThan(firstRow);
-    unmount();
   });
 
   it('cancels on Esc', async () => {
     const onCancel = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={() => undefined} onCancel={onCancel} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={() => undefined} onCancel={onCancel} />);
     stdin.write(ESC);
     await tick(150);
     expect(onCancel).toHaveBeenCalled();
-    unmount();
   });
 
   it('ctrl+u clears the buffer (including newlines)', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('line1\nline2');
     await tick();
     stdin.write(CTRL_U);
@@ -136,14 +120,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('');
-    unmount();
   });
 
   it('ctrl+w drops the previous word across line boundaries', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('line1\nhello world');
     await tick();
     stdin.write(CTRL_W);
@@ -151,34 +132,29 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('line1\nhello ');
-    unmount();
   });
 
   it('renders the configured escLabel in the hint row', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <TextAreaPrompt message="Description" escLabel="back" onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
     expect(lastFrame()).toContain('esc back');
-    unmount();
   });
 
   it('seeds the buffer from `initial` and submits it as-is', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <TextAreaPrompt message="Description" initial={'seeded\nvalue'} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('seeded\nvalue');
-    unmount();
   });
 
   it('ctrl+j inserts a newline at cursor', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('ab');
     await tick();
     stdin.write(LEFT);
@@ -188,14 +164,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('a\nb');
-    unmount();
   });
 
   it('left/right arrow moves cursor; backspace deletes char before cursor', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('abc');
     await tick();
     stdin.write(LEFT);
@@ -207,14 +180,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('bc');
-    unmount();
   });
 
   it('inserts typed char at cursor (mid-line insert)', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('ac');
     await tick();
     stdin.write(LEFT);
@@ -224,14 +194,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('abc');
-    unmount();
   });
 
   it('up arrow moves cursor to previous line at same column', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     // "abc\nde" — cursor at end (offset 6, col 2 on line 1).
     // After UP: col 2 on line 0 = offset 2 (pointing at 'c').
     // Backspace removes the char *before* the cursor = index 1 = 'b', leaving "ac\nde".
@@ -244,14 +211,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ac\nde');
-    unmount();
   });
 
   it('down arrow moves cursor to next line at same column', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     // "ab\ncde" — navigate to offset 1 (after 'a' on line 0), then DOWN.
     // DOWN from line 0 col 1 → line 1 col 1 = offset 4 (pointing at 'd').
     // Backspace removes char before cursor = offset 3 = 'c', leaving "ab\nde".
@@ -270,14 +234,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ab\nde');
-    unmount();
   });
 
   it('up/down snaps to end-of-line when target line is shorter', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     // "a\nbbbbb" — cursor at end of line 1 (col 5)
     // UP → line 0 has length 1, so cursor snaps to col 1 (end of "a")
     // Then typing 'X' inserts after 'a'.
@@ -290,14 +251,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('aX\nbbbbb');
-    unmount();
   });
 
   it('home / ctrl+a jumps to start of current line; end / ctrl+e to end', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('first\nsecond');
     await tick();
     stdin.write(HOME);
@@ -309,14 +267,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('first\nXsecond');
-    unmount();
   });
 
   it('ctrl+a / ctrl+e work as home/end aliases on current line', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('first\nsecond');
     await tick();
     stdin.write(CTRL_A);
@@ -328,14 +283,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('first\nXsecond');
-    unmount();
   });
 
   it('ctrl+w from mid-line deletes word before cursor only', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('line1\nhello world');
     await tick();
     // Move left 5 chars to put cursor before "world".
@@ -348,14 +300,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('line1\nworld');
-    unmount();
   });
 
   it('paste at cursor inserts multi-char content at the right position', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('ac');
     await tick();
     stdin.write(LEFT);
@@ -365,13 +314,12 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ab\nxc');
-    unmount();
   });
 
   it('follows the cursor with a window so a tall buffer keeps the cursor line on screen', async () => {
     // More lines than any plausible viewport (terminal rows default to 24 in the test harness).
     const body = Array.from({ length: 16 }, (_, i) => `L${String(i).padStart(2, '0')}`);
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <TextAreaPrompt
         message="Description"
         initial={body.join('\n')}
@@ -397,12 +345,11 @@ describe('TextAreaPrompt', () => {
     }
     expect(lastFrame()).toContain('L15');
     expect(lastFrame()).not.toContain('L00');
-    unmount();
   });
 
   it('PgUp / PgDn scroll the window by a screenful and clamp without wrapping', async () => {
     const body = Array.from({ length: 30 }, (_, i) => `L${String(i).padStart(2, '0')}`);
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <TextAreaPrompt
         message="Description"
         initial={body.join('\n')}
@@ -425,11 +372,10 @@ describe('TextAreaPrompt', () => {
     }
     expect(lastFrame()).toContain('L29');
     expect(lastFrame()).not.toContain('L00');
-    unmount();
   });
 
   it('renders a short buffer with every line, no scroll cue, and the leading marker', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <TextAreaPrompt
         message="Description"
         initial={'alpha\nbravo\ncharlie'}
@@ -445,14 +391,11 @@ describe('TextAreaPrompt', () => {
     // No hidden-content cue and no first-row slicing — identical to the pre-viewport rendering.
     expect(frame).not.toContain(glyphs.clipEllipsis);
     expect(frame).toContain(glyphs.arrowRight);
-    unmount();
   });
 
   it('ignores mouse SGR wheel reports instead of typing them into the buffer', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('hi');
     await tick();
     stdin.write(MOUSE_WHEEL_DOWN);
@@ -462,14 +405,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('hi');
-    unmount();
   });
 
   it('inserts a multi-line bracketed paste verbatim and does NOT submit on its line breaks', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write(bracketed('line1\r\nline2\r\nline3'));
     await tick();
     // The embedded newlines must not have triggered a submit.
@@ -477,27 +417,21 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('line1\nline2\nline3');
-    unmount();
   });
 
   it('normalizes \\r-delimited bracketed paste to \\n', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write(bracketed('a\rb\rc'));
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('a\nb\nc');
-    unmount();
   });
 
   it('does not submit when the pasted payload is a lone carriage return', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('ab');
     await tick();
     stdin.write(bracketed('\r'));
@@ -506,12 +440,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ab\n');
-    unmount();
   });
 
   it('never leaks bracketed-paste marker bytes into the buffer', async () => {
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(bracketed('clean'));
@@ -521,14 +454,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('clean');
-    unmount();
   });
 
   it('reassembles a bracketed paste split across stdin chunks', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write(`${PASTE_START}first\r`);
     await tick();
     stdin.write('second');
@@ -540,30 +470,24 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('first\nsecond\nthird');
-    unmount();
   });
 
   it('inserts a large bracketed paste (single chunk) and accepts Enter to submit', async () => {
     // Ink's inputParser assembles the full paste payload before emitting an event, so a large paste
     // that includes both PASTE_START and PASTE_END in one write is delivered as a single text block.
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     const bigBody = 'x'.repeat(1024); // 1 KB — verifies large content is inserted, not truncated
     stdin.write(bracketed(bigBody));
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(bigBody);
-    unmount();
   });
 
   it('inserts a bracketed paste at the cursor position', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('ac');
     await tick();
     stdin.write(LEFT);
@@ -573,14 +497,11 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ab\nxc');
-    unmount();
   });
 
   it('fallback: a single-chunk \\r paste (no bracketed markers) is normalized to \\n', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     // No markers — simulates a terminal that does not honour mode 2004 delivering one chunk.
     stdin.write('alpha\r\nbeta');
     await tick();
@@ -588,19 +509,15 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('alpha\nbeta');
-    unmount();
   });
 
   it('genuine Enter still submits the buffer', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
-      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
-    );
+    const { stdin } = render(<TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />);
     stdin.write('typed');
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('typed');
-    unmount();
   });
 });

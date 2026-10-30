@@ -48,7 +48,6 @@ describe('SessionsView — interrupted runs', () => {
     expect(frame).toContain('[INTERRUPTED]');
     expect(frame).toContain('d dismiss');
     expect(frame).toContain('resume on Home');
-    result.unmount();
   });
 
   it('d dismisses the record and the row goes away', async () => {
@@ -58,7 +57,6 @@ describe('SessionsView — interrupted runs', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('dismissed the interrupted Implement run'));
     expect(dismiss).toHaveBeenCalledWith(['dead-1']);
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('No sessions yet'));
-    result.unmount();
   });
 
   it('↵ sends the operator Home, where the resume is offered', async () => {
@@ -66,6 +64,5 @@ describe('SessionsView — interrupted runs', () => {
     await waitForViewReady(result, (f) => f.includes('interrupted'));
     result.stdin.write('\r');
     await waitForPredicate(() => routeIds().at(-1) === 'home');
-    result.unmount();
   });
 });

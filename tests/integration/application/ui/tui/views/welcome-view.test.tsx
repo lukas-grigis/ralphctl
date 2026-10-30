@@ -192,7 +192,7 @@ describe('WelcomeView — first-run UX', () => {
     } as unknown as AppDeps;
 
     const routes: ViewEntry[] = [];
-    const { result: welcomeResult } = renderView(<WelcomeView />, {
+    renderView(<WelcomeView />, {
       deps,
       initial: { id: 'welcome' },
       onRoute: (e) => routes.push(e),
@@ -200,7 +200,6 @@ describe('WelcomeView — first-run UX', () => {
     await waitForPredicate(() => routes.at(-1)?.id === 'home');
 
     expect(routes.at(-1)?.id).toBe('home');
-    welcomeResult.unmount();
   });
 
   it('surfaces a "Failed to save settings" message when persistence fails', async () => {

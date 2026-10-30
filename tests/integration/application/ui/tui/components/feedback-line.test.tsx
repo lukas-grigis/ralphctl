@@ -21,7 +21,6 @@ describe('FeedbackLine — structured form', () => {
     const r = render(<FeedbackLine text={undefined} />);
     await tick(20);
     expect(r.lastFrame()).toBe('');
-    r.unmount();
   });
 
   it('success tone includes the check glyph', async () => {
@@ -30,7 +29,6 @@ describe('FeedbackLine — structured form', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.check);
     expect(frame).toContain('all good');
-    r.unmount();
   });
 
   it('error tone includes the cross glyph', async () => {
@@ -39,7 +37,6 @@ describe('FeedbackLine — structured form', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.cross);
     expect(frame).toContain('something went wrong');
-    r.unmount();
   });
 
   it('info tone includes the refresh glyph', async () => {
@@ -48,7 +45,6 @@ describe('FeedbackLine — structured form', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.refresh);
     expect(frame).toContain('reloading…');
-    r.unmount();
   });
 });
 
@@ -58,7 +54,6 @@ describe('FeedbackLine — legacy plain-string form', () => {
     await tick(20);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('plain message');
-    r.unmount();
   });
 
   it('renders a string with a leading cross glyph', async () => {
@@ -67,6 +62,5 @@ describe('FeedbackLine — legacy plain-string form', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.cross);
     expect(frame).toContain('error happened');
-    r.unmount();
   });
 });

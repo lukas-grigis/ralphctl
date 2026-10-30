@@ -57,8 +57,6 @@ describe('TasksPanel render caps', () => {
     // The running row (the last leaf) is the anchor and stays visible; the head is windowed away.
     expect(frame).toContain('leaf-200');
     expect(frame).not.toContain('leaf-000');
-
-    r.unmount();
   });
 
   it('renders the resume-from-aborted banner under the header when recovering is set', () => {
@@ -140,7 +138,6 @@ describe('TasksPanel render caps', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={true} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).not.toContain('resumed from aborted');
-    r.unmount();
   });
 
   it('omits the parenthetical cause when cause is unknown (legacy data path)', () => {
@@ -174,6 +171,5 @@ describe('TasksPanel render caps', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('resumed from aborted 1');
     expect(frame).not.toContain('(unknown)');
-    r.unmount();
   });
 });

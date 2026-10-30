@@ -46,7 +46,6 @@ describe('ActionMenu keys', () => {
     r.stdin.write(' ');
     await tick(30);
     expect(beta).toHaveBeenCalledTimes(1);
-    r.unmount();
   });
 
   it('space after ↓ in the same stdin chunk selects the moved-to row', async () => {
@@ -62,6 +61,5 @@ describe('ActionMenu keys', () => {
     await tick(30);
     expect(beta).toHaveBeenCalledTimes(1);
     expect(alpha).not.toHaveBeenCalled();
-    r.unmount();
   });
 });

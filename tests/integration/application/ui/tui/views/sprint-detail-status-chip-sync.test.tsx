@@ -102,6 +102,5 @@ describe('SprintDetailView — breadcrumb status chip', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('chip=active'), {
       label: 'the cached status picked up the loaded sprint status',
     });
-    result.unmount();
   });
 });

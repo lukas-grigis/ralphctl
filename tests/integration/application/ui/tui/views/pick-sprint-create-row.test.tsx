@@ -128,8 +128,6 @@ describe('PickSprintView — + Create row', () => {
     if (createLineIdx !== -1 && alphaGroupLineIdx !== -1) {
       expect(createLineIdx).toBeLessThan(alphaGroupLineIdx);
     }
-
-    result.unmount();
   });
 
   it('shows a gating message or disables create row when no project is selected', async () => {
@@ -158,8 +156,6 @@ describe('PickSprintView — + Create row', () => {
     expect(hasExecuteView).toBe(false);
     // Optionally: gating message (not required if it's just a no-op).
     void hasGatingMessage;
-
-    result.unmount();
   });
 
   it('pressing Enter on the create row while a project is selected launches create-sprint', async () => {
@@ -194,7 +190,5 @@ describe('PickSprintView — + Create row', () => {
     // Both are acceptable outcomes; at minimum the view must render without error.
     expect(frame).toBeTruthy();
     void routedAway;
-
-    result.unmount();
   });
 });

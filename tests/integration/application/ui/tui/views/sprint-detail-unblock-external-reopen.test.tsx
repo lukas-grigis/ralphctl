@@ -139,6 +139,5 @@ describe('SprintDetailView — u after an out-of-process `ralphctl sprint reopen
     expect(secondToast).toContain('sprint reopened review → active');
     expect(updated).toHaveLength(1); // no second task write — confirms the short-circuit path ran
     expect(onDisk.status).toBe('active');
-    result.unmount();
   });
 });

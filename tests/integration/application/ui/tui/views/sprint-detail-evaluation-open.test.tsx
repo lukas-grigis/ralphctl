@@ -115,7 +115,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('TARGET:wire the migration'));
 
     expect(result.lastFrame() ?? '').toContain('TARGET:wire the migration:1:failed:rounds/2/evaluator/evaluation.md');
-    result.unmount();
   });
 
   it('hands over a target with no file for a legacy row that recorded no artifact path', async () => {
@@ -130,7 +129,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
 
     // The chord still opens — the overlay owns the degrade, not the view.
     expect(result.lastFrame() ?? '').toContain('TARGET:legacy task:1:failed:no-file');
-    result.unmount();
   });
 
   it('is inert while the cursor is on a ticket row', async () => {
@@ -142,7 +140,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('v');
     await tick(60);
     expect(result.lastFrame() ?? '').toContain('TARGET:none');
-    result.unmount();
   });
 
   it('is inert on a task whose attempts never reached the evaluator', async () => {
@@ -154,7 +151,6 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('v');
     await tick(60);
     expect(result.lastFrame() ?? '').toContain('TARGET:none');
-    result.unmount();
   });
 
   it('advertises the chord in the static action bar', async () => {
@@ -165,6 +161,5 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     const { result } = renderDetail([task]);
     await waitForViewReady(result, (f) => f.includes('wire the migration'));
     expect(result.lastFrame() ?? '').toContain('v evaluation');
-    result.unmount();
   });
 });

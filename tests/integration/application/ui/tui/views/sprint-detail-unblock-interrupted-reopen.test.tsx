@@ -95,6 +95,5 @@ describe('SprintDetailView — u on a todo task stranded on a review sprint', ()
     expect(updateCalls).toHaveLength(0);
     expect(savedSprints).toHaveLength(1);
     expect(savedSprints[0]?.status).toBe('active');
-    result.unmount();
   });
 });

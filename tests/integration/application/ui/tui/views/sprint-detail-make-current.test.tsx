@@ -97,8 +97,6 @@ describe('SprintDetailView — m key makes current', () => {
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
     expect(calledId).toBe(SPRINT_ID);
     expect(calledLabel).toBe('Make Current Sprint');
-
-    result.unmount();
   });
 
   it('does NOT call setSprint when a key other than m/n is pressed', async () => {
@@ -118,8 +116,6 @@ describe('SprintDetailView — m key makes current', () => {
     await tick(40);
 
     expect(setSprint).not.toHaveBeenCalled();
-
-    result.unmount();
   });
 
   it('n reseats the selection onto the viewed sprint before opening Flows', async () => {
@@ -146,8 +142,6 @@ describe('SprintDetailView — m key makes current', () => {
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
     expect(calledId).toBe(SPRINT_ID);
     expect(calledLabel).toBe('Scoped Sprint');
-
-    result.unmount();
   });
 
   it('n does NOT reseat when the viewed sprint is already current', async () => {
@@ -168,8 +162,6 @@ describe('SprintDetailView — m key makes current', () => {
     await tick(40);
 
     expect(result.lastFrame() ?? '').not.toContain('✓ now on');
-
-    result.unmount();
   });
 
   it('shows a · current badge in the header when the sprint is the current selection', async () => {
@@ -188,8 +180,6 @@ describe('SprintDetailView — m key makes current', () => {
     // The current badge must appear in the header area.
     // Acceptable patterns: "· current", "current", "(current)", "✓ current"
     expect(frame).toMatch(/·\s*current|\(current\)|current sprint/i);
-
-    result.unmount();
   });
 
   it('does NOT show a · current badge when the sprint is NOT the current selection', async () => {
@@ -208,8 +198,6 @@ describe('SprintDetailView — m key makes current', () => {
 
     // The current badge must NOT appear when a different sprint is selected.
     expect(frame).not.toMatch(/·\s*current/i);
-
-    result.unmount();
   });
 
   it('m key is a view-local key (does not globally navigate)', async () => {
@@ -231,7 +219,5 @@ describe('SprintDetailView — m key makes current', () => {
     // 'm' must not navigate to a different view.
     const routedAwayFromDetail = routedIds.some((id) => id !== 'sprint-detail');
     expect(routedAwayFromDetail).toBe(false);
-
-    result.unmount();
   });
 });

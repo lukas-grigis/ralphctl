@@ -60,7 +60,6 @@ describe('MemoryPressureBanner', () => {
     const bus = createInMemoryEventBus();
     const r = renderBanner(bus);
     expect(r.lastFrame() ?? '').toBe('');
-    r.unmount();
   });
 
   it('renders warning copy and heap percent on warning severity', async () => {
@@ -74,7 +73,6 @@ describe('MemoryPressureBanner', () => {
       expect(frame).toContain('consider aborting and restarting');
       expect(frame).toContain('memory pressure');
     });
-    r.unmount();
   });
 
   it('renders critical copy and heap percent on critical severity', async () => {
@@ -88,7 +86,6 @@ describe('MemoryPressureBanner', () => {
       expect(frame).toContain('auto-cleared in-memory buffers');
       expect(frame).toContain('memory critical');
     });
-    r.unmount();
   });
 
   it('collapses back to nothing on recovered severity', async () => {
@@ -102,7 +99,6 @@ describe('MemoryPressureBanner', () => {
     // Then recover — banner must disappear.
     bus.publish(makeEvent('recovered'));
     await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
-    r.unmount();
   });
 
   it('renders formatMb detail string — bytes converted to MB', async () => {
@@ -113,7 +109,6 @@ describe('MemoryPressureBanner', () => {
     bus.publish(makeEvent('warning', 0.87, 104_857_600, 120_000_000));
     // formatMb rounds to 0 decimal places.
     await waitFor(() => expect(r.lastFrame() ?? '').toContain('100 MB'));
-    r.unmount();
   });
 
   it('ignores unrelated bus events', async () => {
@@ -122,7 +117,6 @@ describe('MemoryPressureBanner', () => {
 
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: IsoTimestamp.now() });
     await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
-    r.unmount();
   });
 
   it('subsequent events update the banner (warning → critical transition)', async () => {
@@ -141,7 +135,6 @@ describe('MemoryPressureBanner', () => {
       expect(frame).toContain('memory critical');
       expect(frame).toContain('auto-cleared in-memory buffers');
     });
-    r.unmount();
   });
 
   it('subscribe is cleaned up on unmount (no lingering listeners)', async () => {
