@@ -29,42 +29,32 @@ import { waitFor, waitForPredicate } from '@tests/integration/application/ui/tui
 import { renderView, waitForViewReady, type HarnessApi } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Types `name`, accepts the default slug, skips the description, enters `repoPath`, accepts the
-// default repo name and confirms.
+// default repo name and confirms. Each key waits for the next step to render, so the caller only
+// has to wait for the outcome of the final confirm.
 const walkWizard = async (result: HarnessApi['result'], name: string, repoPath: string): Promise<void> => {
+  const frame = (): string => result.lastFrame() ?? '';
+  const advanceTo = async (key: string, next: string): Promise<void> => {
+    result.stdin.write(key);
+    await waitFor(() => expect(frame()).toContain(next));
+  };
+
   // Match the prompt's literal copy — the view renders "Project display name".
   await waitForViewReady(result, (f) => f.includes('Project display name'));
-
   result.stdin.write(name);
-  await tick(60);
-  result.stdin.write(ENTER);
-  await tick(200);
+  await waitFor(() => expect(frame()).toContain(name));
+  await advanceTo(ENTER, 'Project slug');
+  await advanceTo(ENTER, 'Description');
+  await advanceTo(ENTER, 'Repository directory');
 
-  // Slug — accept the kebab-case default.
-  result.stdin.write(ENTER);
-  await tick(200);
-
-  // Description — skip.
-  result.stdin.write(ENTER);
-  await tick(200);
-
-  // Repo path picker — `t` drops into a text-entry overlay preseeded with the cwd; clear it and
-  // type the path for determinism.
-  result.stdin.write('t');
-  await tick(80);
+  // `t` drops the picker into a text-entry overlay preseeded with the cwd; clear it and type the
+  // path for determinism.
+  await advanceTo('t', 'Path');
   result.stdin.write(CTRL_U);
-  await tick(40);
   result.stdin.write(repoPath);
-  await tick(40);
+  await waitFor(() => expect(frame()).toContain(repoPath));
+  await advanceTo(ENTER, 'Repository name');
+  await advanceTo(ENTER, 'Save this project?');
   result.stdin.write(ENTER);
-  await tick(250);
-
-  // Repo name — accept default (basename of path).
-  result.stdin.write(ENTER);
-  await tick(200);
-
-  // Confirm. Default focus is Yes.
-  result.stdin.write(ENTER);
-  await tick(300);
 };
 
 describe('CreateProjectView — wizard e2e', () => {
@@ -87,8 +77,8 @@ describe('CreateProjectView — wizard e2e', () => {
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
     await walkWizard(result, 'Mainline', join(root, 'main-repo'));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
 
-    expect(save).toHaveBeenCalledTimes(1);
     const saved = save.mock.calls[0]?.[0];
     expect(saved).toBeDefined();
     expect(saved?.displayName).toBe('Mainline');
@@ -106,8 +96,8 @@ describe('CreateProjectView — wizard e2e', () => {
 
       const { result } = renderView(<CreateProjectView />, { deps: app.deps, initial: { id: 'create-project' } });
       await walkWizard(result, 'Mainline', join(root, 'main-repo'));
+      await waitFor(() => expect(result.lastFrame()).toContain("slug 'mainline' is already used by another project"));
 
-      expect(result.lastFrame()).toContain("slug 'mainline' is already used by another project");
       expect(await fs.readdir(app.projectsDir)).toHaveLength(1);
 
       result.unmount();
@@ -174,9 +164,13 @@ describe('CreateProjectView — failure steps always have an exit', () => {
       expect(result.lastFrame()).toContain('main-repo');
       result.stdin.write(ENTER);
 
-      await waitFor(async () => expect(await fs.readdir(app.projectsDir)).toHaveLength(2));
-      const listed = await app.deps.projectRepo.list();
-      const created = listed.ok ? listed.value.find((p) => p.slug === 'mainline-two') : undefined;
+      // Poll the repo, not the directory: readdir also counts the atomic write's temp file.
+      let created: Project | undefined;
+      await waitFor(async () => {
+        const listed = await app.deps.projectRepo.list();
+        created = listed.ok ? listed.value.find((p) => p.slug === 'mainline-two') : undefined;
+        expect(created).toBeDefined();
+      });
       expect(created?.displayName).toBe('Mainline');
       expect(String(created?.repositories[0]?.path)).toContain('main-repo');
     } finally {
