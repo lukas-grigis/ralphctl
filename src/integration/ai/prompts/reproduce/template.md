@@ -103,6 +103,13 @@ Choose the smallest test that demonstrates the defect exactly as reported — no
 narrower one. Add it to an existing relevant test file when one fits naturally; otherwise create a new
 test file following the project's own conventions.
 
+Assert the behaviour the report or done criteria state — the expected value, exception, or output — not
+only that the result differs from today's wrong value: a test that only rejects the current output also
+accepts a wrong fix. Do not assert what the report does not require (formatting or ordering it never
+mentions, a particular helper or call sequence) — that rejects a correct fix written another way. If the
+defect is a hang, bound it with a timeout inside the test so it fails instead of hanging — a run the
+harness has to kill (timeout or runaway output) is not accepted as a reproduction.
+
 ### Phase 3 — Run it and capture the failure
 
 Run the new test in isolation using the project's own test runner. Confirm it fails, and confirm the
