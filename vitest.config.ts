@@ -64,6 +64,7 @@ export default defineConfig({
           // pinning it suite-wide would silently run every test through the fallback path and
           // neuter `tasks-panel-no-color.test.tsx`, which sets it per-test on purpose.
           env: { FORCE_COLOR: '0' },
+          unstubEnvs: true,
           pool: 'forks',
           // One file at a time within this project; non-TUI tests still parallelise.
           fileParallelism: false,
@@ -80,6 +81,7 @@ export default defineConfig({
           exclude: ['tests/integration/application/ui/tui/**'],
           // Same colour pin as the `tui` project — CLI-output assertions are plain-substring too.
           env: { FORCE_COLOR: '0' },
+          unstubEnvs: true,
           pool: 'forks',
           // E2E tests under `tests/e2e/cli/` spawn real child processes (git / gh / glab /
           // provider CLIs) inside the in-process CLI run, and pay full module-import cost on
