@@ -193,11 +193,11 @@ through `update` too and applies to the sprint as it is on disk.
 `deriveHeadlineTaskKind` — the task name decides when it matches a keyword, so a passing "fix" in a
 feature's description does not buy the extra spawn; once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
 writes and runs one failing test demonstrating the reported defect; the harness re-runs the claimed
-command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run actually
-fails — a reproduction that passes proves nothing. The validated test path, run command, and the
-session's own list of relevant existing tests then ride into every generator and evaluator turn of that
-task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
-claimed command that turns out to pass on re-run all degrade silently to today's behaviour — no
+command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run fails on its
+own — a pass, or a run killed on timeout or the output cap, proves nothing. The validated test path,
+run command, and the session's own list of relevant existing tests then ride into every generator and
+evaluator turn of that task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
+claimed command that passes (or is killed) on re-run all degrade silently to today's behaviour — no
 reproduction context, task proceeds unaffected. The same holds for the session's bounded "could not
 reproduce" exit (`reproduced: false` plus a `reason`): the leaf logs a warning, the task card shows
 "not reproduced — <reason>", and no re-run happens. The accepted artifact is also saved to
