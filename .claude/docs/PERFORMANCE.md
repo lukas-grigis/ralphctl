@@ -114,8 +114,11 @@ cold fallback is what makes that safe.
   attempt budget — nudges happen before the turn is recorded. See `contract/_engine/corrective-retry.ts`.
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
-  critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an
-  escalation rung on a stall the generator would have broken on its own. Must be ≤ `maxTurns` — the plateau window can
+  critique-Jaccard shift can exempt a round from counting. The default (3) is the smallest value that gives
+  the generator one round with the change-approach line from `dimension-trajectory.ts` (it fires at a stall
+  of `plateauThreshold − 1`) before the attempt escalates; at 2 the attempt plateaus before that line can
+  reach a generator prompt. Engineering judgment, not measured — see the rejected row in
+  RESEARCH-REFERENCES.md. Must be ≤ `maxTurns` — the plateau window can
   never fill within a single attempt when the turn budget runs out first (escalation and nudge
   would be permanently unreachable). A violating PERSISTED pair self-heals at parse time
   (threshold clamps down to the turn budget, floors permitting) rather than failing the load —

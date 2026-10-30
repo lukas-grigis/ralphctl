@@ -44,8 +44,9 @@ detail beyond what `CLAUDE.md` carries.
 | RESEARCH-REFERENCES.md  | Adding or checking a research citation, re-auditing sources on a model bump, or before re-proposing a previously rejected technique          |
 
 **Why no auto-imports?** Empirical studies of in-the-wild context files (arXiv 2509.14744, 2511.12884) find
-they are typically small and shallow — median 1 H1, ~5-7 H2 sections, a few hundred words — and Gloaguen et
-al. (arXiv 2602.11988) measure that redundant always-loaded context raises cost without improving success.
+they are typically shallow — median 1 H1, ~5-7 H2 sections, a few hundred words (which 2511.12884
+nonetheless characterises as long and hard to read) — and Gloaguen et al. (arXiv 2602.11988) measure that
+redundant always-loaded context raises cost without improving success.
 `CLAUDE.md` is therefore held to a house budget of ≤300 lines and ≤7 H2 sections. Auto-importing every
 reference doc would inflate the baseline budget by ~1 kLoC for content most sessions never touch.
 
