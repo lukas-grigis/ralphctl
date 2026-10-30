@@ -1,3 +1,4 @@
+import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { InteractiveProviderDeps } from '@src/integration/ai/providers/_engine/interactive-provider-deps.ts';
 import { createInteractiveProvider } from '@src/integration/ai/providers/_engine/run-interactive-session.ts';
@@ -11,7 +12,7 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
  *
  *   claude --add-dir <cwd> --add-dir <dirname(outputFile)> [--add-dir <extra>...]
  *          --model <model> --permission-mode acceptEdits --session-id <uuid>
- *          [--effort <level>] <pointer at promptFile>
+ *          [--effort <level>] <pointer at promptFile>     env: [CLAUDE_CODE_EFFORT_LEVEL=<level>]
  *
  * The prompt slot carries a pointer at the rendered prompt file, never its body — see
  * `_engine/prompt-pointer.ts`. `--add-dir` mounts the file's directory, so the pointer always
@@ -32,6 +33,8 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
       modelCatalogLabel: 'Claude',
       isKnownModel: isClaudeModel,
       supportsSessionId: true,
+      // `CLAUDE_CODE_EFFORT_LEVEL` outranks `--effort`; pinned to the same level so an exported value can't override it.
+      buildEnv: (input) => Result.ok(input.effort !== undefined ? { CLAUDE_CODE_EFFORT_LEVEL: input.effort } : {}),
       buildArgs: (input, { promptArg, roots, sessionId }) => [
         ...roots.flatMap((p) => ['--add-dir', p]),
         '--model',
@@ -39,8 +42,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
         '--permission-mode',
         'acceptEdits',
         ...(sessionId !== undefined ? ['--session-id', sessionId] : []),
-        // Forward the resolved effort verbatim — the CLI rejects unknown levels itself, so
-        // re-validating here would only duplicate its catalog (mirrors the headless adapter).
+        // Forwarded verbatim; the CLI rejects unknown levels itself.
         ...(input.effort !== undefined ? ['--effort', input.effort] : []),
         promptArg,
       ],

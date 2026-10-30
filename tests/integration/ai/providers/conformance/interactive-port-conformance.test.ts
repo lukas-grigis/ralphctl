@@ -243,9 +243,9 @@ describe.each(ROWS)('InteractiveAiProvider conformance — $provider', (row) => 
     const call = fake.calls[0]!;
     const inArgv = call.args.join('\x00').includes(EFFORT);
     expect(inArgv).toBe(PROVIDER_TRAITS[row.provider].effortForwarding.interactive);
-    // An adapter that "supports" effort by routing it through the environment would pass the argv
-    // check while doing something the declaration does not describe.
-    expect(Object.values(call.env ?? {}).join('\x00')).not.toContain(EFFORT);
+    // The environment may only mirror the flag (claude pins CLAUDE_CODE_EFFORT_LEVEL, which outranks
+    // it); effort routed through the environment alone is something the declaration does not describe.
+    if (!inArgv) expect(Object.values(call.env ?? {}).join('\x00')).not.toContain(EFFORT);
   });
 
   it('leaves an omitted effort out of argv entirely', async () => {

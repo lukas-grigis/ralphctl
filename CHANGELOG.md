@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude Code effort settings now always take effect.** A `CLAUDE_CODE_EFFORT_LEVEL` exported in your shell used
+  to override every effort ralphctl picked — per-flow rows, presets and the escalation ladder — without any sign.
+  ralphctl now sets it to the same level it passes as `--effort`.
+
 ### Changed
 
 - **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other

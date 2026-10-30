@@ -280,9 +280,11 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     const { fake, promise } = await run({ effort: EFFORT });
     await promise;
 
-    expect(fake.calls[0]!.args.join(' ').includes(EFFORT)).toBe(
-      PROVIDER_TRAITS[row.provider].effortForwarding.headless
-    );
+    const call = fake.calls[0]!;
+    const inArgv = call.args.join(' ').includes(EFFORT);
+    expect(inArgv).toBe(PROVIDER_TRAITS[row.provider].effortForwarding.headless);
+    // The overlay may only mirror the flag — see the interactive suite.
+    if (!inArgv) expect(Object.values(call.env ?? {}).join('\x00')).not.toContain(EFFORT);
   });
 
   it('leaves an omitted effort out of argv entirely', async () => {
