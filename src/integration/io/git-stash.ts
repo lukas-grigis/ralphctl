@@ -2,7 +2,12 @@ import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DiffStat } from '@src/domain/value/diff-stat.ts';
-import { GIT_BULK_TIMEOUT_MS, runGitChecked, type GitRunner } from '@src/integration/io/git-runner.ts';
+import {
+  GIT_BULK_TIMEOUT_MS,
+  runGitChecked,
+  type GitRunner,
+  type GitRunOptions,
+} from '@src/integration/io/git-runner.ts';
 import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 
 /**
@@ -161,26 +166,55 @@ const sumDiffStat = (files: readonly StashFileStat[], partial: boolean): DiffSta
   return partial ? { ...base, partial: true } : base;
 };
 
+/** `git stash show <flags> <ref>`; when `--include-untracked` is rejected, the tracked-only output marked partial. */
+const showStash = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  flags: readonly string[],
+  ref: string,
+  opts?: GitRunOptions
+): Promise<Result<{ readonly stdout: string; readonly partial: boolean }, StorageError>> => {
+  const full = await runGitChecked(
+    runner,
+    cwd,
+    ['stash', 'show', ...flags, '--include-untracked', ref],
+    'stash show',
+    opts
+  );
+  if (full.ok) return Result.ok({ stdout: full.value.stdout, partial: false });
+  const tracked = await runGitChecked(runner, cwd, ['stash', 'show', ...flags, ref], 'stash show', opts);
+  if (!tracked.ok) return Result.error(tracked.error);
+  return Result.ok({ stdout: tracked.value.stdout, partial: true });
+};
+
 /** Numstat of one stash entry; when `--include-untracked` is rejected, the tracked-only stat marked partial. */
 const showStashNumstat = async (
   runner: GitRunner,
   cwd: AbsolutePath,
   ref: string
 ): Promise<Result<{ readonly stat: DiffStat; readonly files: StashFileStat[] }, StorageError>> => {
-  const full = await runGitChecked(
-    runner,
-    cwd,
-    ['stash', 'show', '--numstat', '--include-untracked', ref],
-    'stash show'
+  const shown = await showStash(runner, cwd, ['--numstat'], ref);
+  if (!shown.ok) return Result.error(shown.error);
+  const files = parseNumstat(shown.value.stdout);
+  return Result.ok({ stat: sumDiffStat(files, shown.value.partial), files });
+};
+
+/** Un-mutexed: every `stash@{N}` ref whose subject names `message`, newest first. */
+const listStashRefsFor = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string
+): Promise<Result<string[], StorageError>> => {
+  const list = await runGitChecked(runner, cwd, ['stash', 'list', '--format=%gd%x1f%s'], 'stash list');
+  if (!list.ok) return Result.error(list.error);
+  return Result.ok(
+    list.value.stdout
+      .split('\n')
+      .map((line) => line.split('\x1f'))
+      .flatMap(([ref, subject]) =>
+        ref !== undefined && subject !== undefined && stashEntryMatchesMessage(subject, message) ? [ref] : []
+      )
   );
-  if (full.ok) {
-    const files = parseNumstat(full.value.stdout);
-    return Result.ok({ stat: sumDiffStat(files, false), files });
-  }
-  const tracked = await runGitChecked(runner, cwd, ['stash', 'show', '--numstat', ref], 'stash show');
-  if (!tracked.ok) return Result.error(tracked.error);
-  const files = parseNumstat(tracked.value.stdout);
-  return Result.ok({ stat: sumDiffStat(files, true), files });
 };
 
 /**
@@ -194,19 +228,40 @@ export const gitStashInspect = (
   message: string
 ): Promise<Result<StashInspection, StorageError>> =>
   withStashMutex(async () => {
-    const list = await runGitChecked(runner, cwd, ['stash', 'list', '--format=%gd%x1f%s'], 'stash list');
-    if (!list.ok) return Result.error(list.error);
-
-    const refs = list.value.stdout
-      .split('\n')
-      .map((line) => line.split('\x1f'))
-      .flatMap(([ref, subject]) =>
-        ref !== undefined && subject !== undefined && stashEntryMatchesMessage(subject, message) ? [ref] : []
-      );
-    const [ref] = refs;
+    const refs = await listStashRefsFor(runner, cwd, message);
+    if (!refs.ok) return Result.error(refs.error);
+    const [ref] = refs.value;
     if (ref === undefined) return Result.ok({ entries: 0 });
 
     const shown = await showStashNumstat(runner, cwd, ref);
     if (!shown.ok) return Result.error(shown.error);
-    return Result.ok({ entries: refs.length, newest: { ref, ...shown.value } });
+    return Result.ok({ entries: refs.value.length, newest: { ref, ...shown.value } });
+  });
+
+/**
+ * Pinned so the user's git config can't break `git apply`: `color.ui=always` would inject ANSI
+ * escapes, `diff.noprefix` / `diff.mnemonicPrefix` would drop or rename the `a/` `b/` prefixes,
+ * and `diff.external` would swap in a non-patch diff.
+ */
+const PATCH_FLAGS = ['-p', '--binary', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/'] as const;
+
+/**
+ * `git apply`-able patch of the newest stash entry under `message`, or `undefined` when none
+ * matches. Resolved and shown inside one mutex section, like {@link gitStashInspect}; when
+ * `--include-untracked` is rejected the tracked-only patch comes back marked `partial`.
+ */
+export const gitStashPatch = (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string
+): Promise<Result<{ readonly patch: string; readonly partial: boolean } | undefined, StorageError>> =>
+  withStashMutex(async () => {
+    const refs = await listStashRefsFor(runner, cwd, message);
+    if (!refs.ok) return Result.error(refs.error);
+    const [ref] = refs.value;
+    if (ref === undefined) return Result.ok(undefined);
+
+    const shown = await showStash(runner, cwd, PATCH_FLAGS, ref, { timeoutMs: GIT_BULK_TIMEOUT_MS });
+    if (!shown.ok) return Result.error(shown.error);
+    return Result.ok({ patch: shown.value.stdout, partial: shown.value.partial });
   });

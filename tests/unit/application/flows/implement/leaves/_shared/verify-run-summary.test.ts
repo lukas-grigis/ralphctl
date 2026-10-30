@@ -194,4 +194,59 @@ describe('composeVerifyBlocks', () => {
     expect(preVerifyOutput).toContain('FIRST_ERROR');
     expect(preVerifyOutput).toContain('LAST_LINE');
   });
+
+  describe('set-aside patch note in retry feedback', () => {
+    const SPRINT = absolutePath('/tmp/sprint');
+    /** Reader that only knows the given files; everything else is missing (`undefined`). */
+    const readerOf =
+      (files: Record<string, string>) =>
+      (path: unknown): Promise<string | undefined> =>
+        Promise.resolve(files[String(path)]);
+    const patchFor = (task: InProgressTask, n: number): string =>
+      `/tmp/sprint/logs/rejected-diff/${String(task.id)}/attempt-${String(n)}.patch`;
+
+    it('names the prior attempt patch, framed as optional and unverified, when the file exists', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain('FAILED (exit 1)');
+      expect(retryFeedback).toContain('not in the working tree');
+      expect(retryFeedback).toContain(`\`git apply ${patchFor(task, 1)}\``);
+      expect(retryFeedback).toContain('unverified lead');
+    });
+
+    it('leaves the retry feedback byte-identical when no patch file exists', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(readerOf({}), SPRINT, task.id, task);
+      expect(retryFeedback).toBe(formatRetryFeedback(task, undefined));
+    });
+
+    it('ignores a patch file for a different attempt number', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 2)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).not.toContain('set that attempt');
+    });
+
+    it('adds no note when the prior post-verify was green, even if a stale patch exists', async () => {
+      const task = settleAndRetry(
+        withRun(makeInProgressTaskWithRunningAttempt(), postRun({ exitCode: 0, outcome: 'success' }))
+      );
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toBe('');
+    });
+  });
 });

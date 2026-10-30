@@ -24,6 +24,22 @@ export const verifyLogPath = (
   attemptN: number
 ): Result<AbsolutePath, ValidationError> => AbsolutePath.parse(verifyLogPathString(sprintDir, taskId, phase, attemptN));
 
+/**
+ * `<sprintDir>/logs/rejected-diff/<task-id>/attempt-<N>.patch` — where the red-verify retry
+ * quarantine saves the diff it set aside. Shared by the writer and the retry prompt's reader.
+ */
+export const rejectedDiffPatchPath = (
+  sprintDir: AbsolutePath,
+  taskId: TaskId,
+  attemptN: number
+): Result<AbsolutePath, ValidationError> =>
+  AbsolutePath.parse(
+    join(String(sprintDir), 'logs', 'rejected-diff', String(taskId), `attempt-${String(attemptN)}.patch`)
+  );
+
+/** Engineering budget, not a measured number: a bigger diff is a poor lead and bloats the sprint dir. */
+export const REJECTED_DIFF_PATCH_MAX_BYTES = 256 * 1024;
+
 /** Best-effort persist of the full untruncated verify output — failures warn, never abort the chain. */
 export const persistVerifyLog = async (
   deps: { readonly eventBus: EventBus; readonly clock: () => IsoTimestamp; readonly writeFile?: WriteFile },
