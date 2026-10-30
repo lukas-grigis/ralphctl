@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -47,6 +47,10 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
   if (!r.ok) throw new Error(`buildClaudeArgs failed: ${r.error.message}`);
   return r.value;
 };
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('createClaudeProvider', () => {
   it('happy path: captures sessionId and returns ProviderOutput WITHOUT writing signals.json (AI Write tool owns it)', async () => {
@@ -108,6 +112,19 @@ describe('createClaudeProvider', () => {
     expect(calls[0]!.env?.['CLAUDE_CODE_FORK_SUBAGENT']).toBe('0');
     // The override rides on the inherited environment rather than replacing it.
     expect(calls[0]!.env?.['PATH']).toBe(process.env['PATH']);
+  });
+
+  it('pins CLAUDE_CODE_EFFORT_LEVEL to the --effort level, overriding an inherited value', async () => {
+    // The env var outranks `--effort` (code.claude.com/docs/en/model-config), so an operator's
+    // exported value would otherwise silently replace every effort ralphctl resolves.
+    vi.stubEnv('CLAUDE_CODE_EFFORT_LEVEL', 'low');
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-effort' });
+    const { spawn, calls } = makeProviderSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: createCapturingBus().bus, spawn });
+    await provider.generate(session({ effort: 'xhigh' }));
+    const args = calls[0]!.args;
+    expect(args[args.indexOf('--effort') + 1]).toBe('xhigh');
+    expect(calls[0]!.env?.['CLAUDE_CODE_EFFORT_LEVEL']).toBe('xhigh');
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
