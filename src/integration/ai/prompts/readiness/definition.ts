@@ -44,6 +44,8 @@ export interface ReadinessPromptParams {
    * AI reads format conventions before it sees the output shape.
    */
   readonly targetFileConventions: string;
+  /** Which context files the target CLI loads by itself — see {@link TARGET_CLI_LOADS}. */
+  readonly targetCliLoads: string;
   /**
    * Output contract section — rendered from the readiness `AiOutputContract` by
    * `renderContractSectionFor(readinessOutputContract)`. Tells the AI to write `signals.json`
@@ -71,6 +73,24 @@ export const wireTagFor = (tool: AssistantTool): string => PROVIDER_TRAITS[provi
  */
 export const conventionsPartialName = (tool: AssistantTool): string =>
   PROVIDER_TRAITS[providerForTool(tool)].conventionsPartial;
+
+/**
+ * Which context files each target CLI loads by itself, so the model restates none of them and carries
+ * over the rules from one the CLI never reads. Sources (fetched 2026-10-30):
+ * code.claude.com/docs/en/memory, github/docs `add-custom-instructions.md` (Copilot CLI),
+ * openai/codex `agents_md.rs` + `config.schema.json`, sst/opencode `rules.mdx`,
+ * xai-org/grok-build `12-project-rules.md`.
+ */
+const TARGET_CLI_LOADS: Readonly<Record<AssistantTool, string>> = {
+  'claude-code':
+    'Claude Code loads `CLAUDE.md` and `.claude/rules/`, and `AGENTS.md` only while no `CLAUDE.md` exists — a `CLAUDE.md` pulls `AGENTS.md` in with an `@AGENTS.md` import line.',
+  copilot:
+    'Copilot CLI loads `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together, with no precedence between them.',
+  codex:
+    'Codex loads `AGENTS.md` (or `AGENTS.override.md`) and never `CLAUDE.md`, and by default reads at most 32 KiB of project instructions in total.',
+  opencode: 'OpenCode loads `AGENTS.md`, and `CLAUDE.md` only while no `AGENTS.md` exists.',
+  grok: 'Grok loads `AGENTS.md`, `CLAUDE.md`, and every file under `.grok/rules/`, `.claude/rules/` and `.cursor/rules/`.',
+};
 
 /**
  * Readiness prompt definition.
@@ -113,6 +133,10 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
       placeholder: 'TARGET_FILE_CONVENTIONS',
       description:
         'Per-provider style guide for the target context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md). Loaded from the matching conventions partial.',
+    },
+    targetCliLoads: {
+      placeholder: 'TARGET_CLI_LOADS',
+      description: 'One line naming the context files the target CLI loads by itself.',
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -244,6 +268,7 @@ export const buildReadinessPrompt = async (
     existingContextFile: renderExistingContextFile(input.existingContextFile),
     detectedArtefacts: renderDetectedArtefacts(collectArtefactPaths(input.probedState)),
     targetFileConventions: conventionsResult.value.trim(),
+    targetCliLoads: TARGET_CLI_LOADS[input.currentTool],
     outputContractSection: input.outputContractSection,
   });
 };

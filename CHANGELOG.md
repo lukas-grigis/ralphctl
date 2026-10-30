@@ -23,6 +23,14 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Readiness keeps your `AGENTS.md` rules working under Claude Code.** In a repository with an `AGENTS.md` and no
+  `CLAUDE.md`, the proposed `CLAUDE.md` now starts with an `@AGENTS.md` import and adds only Claude-specific
+  sections. Before, it copied the whole `AGENTS.md` body, and the two files drifted apart. Claude Code stops
+  reading `AGENTS.md` once a `CLAUDE.md` exists, so the import is what keeps those rules loaded.
+- **Readiness knows which context files each CLI reads.** Codex never reads `CLAUDE.md`, and OpenCode ignores it
+  once an `AGENTS.md` exists, so readiness for those tools now carries the rules from your `CLAUDE.md` into the
+  proposed `AGENTS.md` instead of leaving them out. For Copilot and Grok, which read every file, it still avoids
+  repeating them.
 - **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
   one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
   `ralphctl` is unchanged.

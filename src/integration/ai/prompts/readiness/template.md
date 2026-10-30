@@ -42,6 +42,7 @@ bottom of this prompt.
 <target_file_conventions>
 {{TARGET_FILE_CONVENTIONS}}
 </target_file_conventions>
+<target_cli_loads>{{TARGET_CLI_LOADS}}</target_cli_loads>
 </inputs>
 
 <constraints>
@@ -50,9 +51,11 @@ bottom of this prompt.
 `Cargo.toml`, `go.mod`, `Makefile`, `mise.toml`, `.tool-versions`, `.github/workflows/*.yml`, `README.md`,
 top-level `scripts/` entries, `flake.nix`. Also read other tools' context files and onboarding docs when
 present — `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/`, `.grok/rules/`,
-`.claude/rules/`, `CONTRIBUTING.md` — and do not restate or contradict them; when they disagree with a
-manifest, mention it in a `note`. Do not read source trees, test directories, vendored or generated
-directories. Do not write any file other than `signals.json` in `<outputDir>`.
+`.claude/rules/`, `CONTRIBUTING.md`. `<target_cli_loads>` names the ones the `{{CURRENT_TOOL}}` CLI loads by
+itself: do not restate or contradict those; from a context file it does not load, carry over the rules that
+still apply, since its sessions never see that file. When they disagree with a manifest, mention it in a
+`note`. Do not read source trees, test directories, vendored or generated directories. Do not write any file
+other than `signals.json` in `<outputDir>`.
 
 **Evidence requirement.** For each tech-stack claim in the context file body, quote the file that
 establishes it (e.g. `"build": "tsup src/index.ts"` from `package.json` → `## Build & Run` bullet).
