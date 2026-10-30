@@ -26,9 +26,11 @@ leaves an effort-capable provider on its CLI's built-in default, which moves bet
 models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function.
-Claude Code ranks the `CLAUDE_CODE_EFFORT_LEVEL` env var above `--effort`, so both Claude adapters set it to
-the resolved level on every spawn that carries one — an operator's exported value would otherwise silently
-override every row, preset and escalation rung. With no resolved effort the inherited value is left alone.
+Claude Code ranks the `CLAUDE_CODE_EFFORT_LEVEL` env var above `--effort`, so the headless Claude adapter sets
+it to the resolved level on every spawn that carries one — an operator's exported value would otherwise silently
+override every row, preset and escalation rung. With no resolved effort the inherited value is left alone. The
+interactive adapter passes only `--effort`: the env var also outranks an in-session `/effort` or `/model` pick,
+so pinning it would lock the operator out of changing effort mid-session.
 **Per-model narrowing:** every layer is then clamped to the row's MODEL when the catalog knows its effort
 list — `CLAUDE_MODEL_EFFORT_LEVELS` (`settings-models/claude.ts`: `claude-haiku-4-5` has no effort,
 `claude-sonnet-4-6` no `xhigh`), `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),

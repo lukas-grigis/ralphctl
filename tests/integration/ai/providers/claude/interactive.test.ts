@@ -87,7 +87,7 @@ describe('createInteractiveClaudeProvider', () => {
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
-  it('forwards the resolved effort as --effort <level> and CLAUDE_CODE_EFFORT_LEVEL, and omits both when unset', async () => {
+  it('forwards the resolved effort as --effort <level>, and omits the flag when unset', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -106,8 +106,6 @@ describe('createInteractiveClaudeProvider', () => {
     const effortIndex = args.indexOf('--effort');
     expect(effortIndex).toBeGreaterThanOrEqual(0);
     expect(args[effortIndex + 1]).toBe('high');
-    // The env var outranks the flag, so an operator's exported value would otherwise win.
-    expect(calls[0]!.env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: 'high' });
 
     const withoutEffort = provider.run({
       cwd: CWD,
@@ -118,7 +116,6 @@ describe('createInteractiveClaudeProvider', () => {
     emitExit(0);
     await withoutEffort;
     expect(calls[1]!.args).not.toContain('--effort');
-    expect(calls[1]!.env).toEqual({});
   });
 
   it('auto-mounts dirname(outputFile) and dirname(promptFile) so framework-controlled writes never prompt', async () => {
