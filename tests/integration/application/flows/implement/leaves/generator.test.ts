@@ -847,7 +847,7 @@ describe('generatorLeaf', () => {
     });
   });
 
-  // Select-K prior-attempt summaries (arXiv 2604.16529) — the current task's own settled attempt
+  // Select-K prior-attempt summaries (arXiv 2604.16529, PDR half) — the current task's own settled attempt
   // history, distinct from `priorLearnings` (cross-sprint) and `priorEpisodes` (sibling tasks).
   // Unlike those two, this section is round-relevant context, so it rides BOTH the full prompt
   // (round 1) and the continuation prompt (round 2+) — see `buildGeneratorPrompt`'s `sharedValues`.

@@ -22,12 +22,14 @@ import { replaceTask } from '@src/application/flows/implement/leaves/_shared/rep
 import { foldSignalTexts } from '@src/application/flows/implement/leaves/_shared/signal-texts.ts';
 
 /**
- * Selection cascade over the candidates a best-of-N attempt sampled — the escalation-map ablation
- * order (execution filter, then dedupe, then judge; every stage removed costs 1.8-2.8pp — arXiv
- * 2507.23370, Trae):
+ * Selection cascade over the candidates a best-of-N attempt sampled — adapted from arXiv
+ * 2507.23370 (Trae), whose order is dedupe, then regression-test filter, then selector + majority
+ * vote (each component removed costs 1.8-2.8pp in its ablation); ralphctl runs the execution
+ * filter first, then dedupe, then judge:
  *
  *   1. Discard candidates whose verify attribution is `'regressed'` — the harness's own execution
- *      filter, applied first (the paper's highest-yield stage).
+ *      filter, applied first here (a ralphctl ordering choice; in Trae's ablation regression
+ *      testing is the smallest single pruning contributor).
  *   2. Dedupe identical diffs by content hash — two candidates that converged on the same patch
  *      are one candidate for judging purposes.
  *   3. Zero survivors → apply nothing; the attempt proceeds with a clean tree and the evaluator
@@ -36,7 +38,7 @@ import { foldSignalTexts } from '@src/application/flows/implement/leaves/_shared
  *      (winner of 1-vs-2 meets 3, and so on — at most n-1 comparisons, each judged twice with
  *      the order swapped; disagreement is a tie), each verdict a one-shot AI
  *      session over the CANDIDATES' compact structured summaries only, never raw diffs (arXiv
- *      2604.16529 — RTV). A judge session that fails to produce a valid signal falls back to the
+ *      2604.16529, RTV). A judge session that fails to produce a valid signal falls back to the
  *      verification-quality ordering (attribution rank, then fewest changed files) — logged,
  *      never fatal to the attempt.
  *

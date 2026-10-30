@@ -30,8 +30,9 @@ import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/be
  * Best-of-N execution — the escalation policy's opt-in top-of-ladder remedy (see
  * `business/task/escalation-policy.ts`'s `'best-of-n'` decision). When a task's granted attempt
  * runs, this composite REPLACES round 1's normal generator phase with a candidate-sampling loop
- * (arXiv 2604.16529: harness-level N-candidate selection) + a selection cascade (arXiv 2507.23370:
- * Trae's ablation order — execution filter, then dedupe, then judge), applies the winning diff,
+ * (arXiv 2604.16529, RTV: harness-level N-candidate selection) + a selection cascade (adapted from
+ * arXiv 2507.23370, Trae — whose own order is dedupe, then regression-test filter, then selector
+ * agent; ralphctl runs the execution filter first, then dedupe, then judge), applies the winning diff,
  * then hands off to round 1's NORMAL evaluator turn and — for rounds 2+, if the round-1 evaluator
  * doesn't reach a terminal verdict — the SAME `generatorLeaf` / `evaluatorLeaf` every other attempt
  * uses. No bespoke settle logic: the attempt rejoins `finalize-gen-eval` / `settle-attempt` exactly

@@ -235,7 +235,7 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 
 **Where it lives.**
 
-- `plateauThreshold` (2–5, patient default 3): `src/application/chain/run/iteration-config.ts`
+- `plateauThreshold` (2–5, default 3 — leaves one in-loop change-approach round; see PERFORMANCE.md): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
 - **One detector, calibrated.** The calibrated predicate (`business/task/plateau-detection.ts`)
