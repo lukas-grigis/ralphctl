@@ -74,7 +74,6 @@ describe('HelpOverlay', () => {
     }
 
     expect(found, 'the Lists section should be reachable by scrolling').toBe(true);
-    r.unmount();
   });
 
   it('documents Home/End keys in the Lists section (not g/G) — scroll to reveal them', async () => {
@@ -97,7 +96,6 @@ describe('HelpOverlay', () => {
     }
 
     expect(found, 'Home and End key labels should appear in the HelpOverlay after scrolling').toBe(true);
-    r.unmount();
   });
 
   it('shows a scroll footer when content overflows and scrolls on ↓/↑', async () => {
@@ -120,8 +118,6 @@ describe('HelpOverlay', () => {
     await tick(30);
     const frameBack = r.lastFrame() ?? '';
     expect(frameBack).toMatch(/lines 1–/);
-
-    r.unmount();
   });
 
   it('moves by a full page on PgDn', async () => {
@@ -137,8 +133,6 @@ describe('HelpOverlay', () => {
     // After PgDn, offset > 0 so first displayed line is > 1.
     expect(frameAfter).not.toMatch(/lines 1–/);
     expect(frameAfter).toMatch(/lines \d+–\d+ of \d+/);
-
-    r.unmount();
   });
 
   it('keeps the card inside the terminal and the footer counter honest', async () => {
@@ -150,8 +144,6 @@ describe('HelpOverlay', () => {
     const parsed = parseFrame(r.lastFrame() ?? '');
     expect(parsed.height).toBeLessThanOrEqual(STUB_TERMINAL_ROWS);
     expect(parsed.body).toHaveLength(parsed.last - parsed.first + 1);
-
-    r.unmount();
   });
 
   it('spaces sections with a real blank row — one before each title except the first', async () => {
@@ -177,7 +169,6 @@ describe('HelpOverlay', () => {
     }
 
     expect(checked, 'the Lists section title should scroll into view below the first row').toBe(true);
-    r.unmount();
   });
 
   it('scrolls all the way to the last row', async () => {
@@ -194,7 +185,5 @@ describe('HelpOverlay', () => {
     expect(parsed.last).toBe(parsed.total);
     expect(parsed.body).toHaveLength(parsed.last - parsed.first + 1);
     expect(parsed.height).toBeLessThanOrEqual(STUB_TERMINAL_ROWS);
-
-    r.unmount();
   });
 });

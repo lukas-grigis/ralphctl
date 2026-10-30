@@ -54,7 +54,7 @@ describe('useTaskRoundTracker', () => {
   it('records the latest round per task across publishes', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 1, totalCap: 5, at: NOW });
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 2, totalCap: 5, at: NOW });
@@ -78,13 +78,12 @@ describe('useTaskRoundTracker', () => {
       resumed: false,
       roundInAttempt: 1,
     });
-    r.unmount();
   });
 
   it('never regresses the round high-water on a late-arriving older event', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 3, totalCap: 5, at: NOW });
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 2, totalCap: 5, at: NOW });
@@ -99,7 +98,6 @@ describe('useTaskRoundTracker', () => {
       resumed: false,
       roundInAttempt: 1,
     });
-    r.unmount();
   });
 
   it('resets roundInAttempt to 1 when a new attempt continues the global round counter', async () => {
@@ -108,7 +106,7 @@ describe('useTaskRoundTracker', () => {
     // not attempt 1, round 2 (which the old division heuristic produced).
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 1, totalCap: 5, at: NOW });
     // No round-2-of-attempt-1 event — attempt 1 crashed. Attempt 2 opens at global round 2.
@@ -123,13 +121,12 @@ describe('useTaskRoundTracker', () => {
       resumed: false,
       roundInAttempt: 1,
     });
-    r.unmount();
   });
 
   it('carries the budgeted attempt number and the resumed flag off the event', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     // Raw attempt 2 after a free stop: the budget still counts it as attempt 1.
     bus.publish({
@@ -145,26 +142,24 @@ describe('useTaskRoundTracker', () => {
     await drain();
 
     expect(last.get('t1')).toMatchObject({ attemptN: 2, budgetedAttemptN: 1, resumed: true });
-    r.unmount();
   });
 
   it('ignores other AppEvent types', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     bus.publish({ type: 'chain-started', chainId: 'c1', flowId: 'implement', at: NOW });
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: NOW });
     await drain();
 
     expect(last.size).toBe(0);
-    r.unmount();
   });
 
   it('coalesces a burst of publishes in one window into a single React commit', async () => {
     const bus = createInMemoryEventBus();
     let renders = 0;
-    const r = render(<Probe bus={bus} onRender={() => (renders += 1)} />);
+    render(<Probe bus={bus} onRender={() => (renders += 1)} />);
 
     // Let the mount effect attach the subscription before flooding.
     await drain(5);
@@ -186,14 +181,13 @@ describe('useTaskRoundTracker', () => {
     const commits = renders - baseline;
     expect(commits).toBeGreaterThanOrEqual(1);
     expect(commits).toBeLessThanOrEqual(2);
-    r.unmount();
   });
 
   it('does not allocate a new Map (no phantom render) when an entire batch is stale', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
     let renders = 0;
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} onRender={() => (renders += 1)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} onRender={() => (renders += 1)} />);
 
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 3, totalCap: 5, at: NOW });
     await drain();
@@ -212,13 +206,12 @@ describe('useTaskRoundTracker', () => {
     // Commit-bailout is bounded: returning identical state lets React bail, though it may re-run the
     // render function at most once before doing so (documented behaviour) — never a storm.
     expect(renders - rendersAfterFirst).toBeLessThanOrEqual(1);
-    r.unmount();
   });
 
   it('caps retained tasks at TASK_ROUND_CAP and drops the oldest on a single-window overflow', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     const overflow = 50;
     const total = TASK_ROUND_CAP + overflow;
@@ -240,13 +233,12 @@ describe('useTaskRoundTracker', () => {
     expect(last.has(`task-${String(overflow - 1)}`)).toBe(false);
     expect(last.has(`task-${String(overflow)}`)).toBe(true);
     expect(last.has(`task-${String(total - 1)}`)).toBe(true);
-    r.unmount();
   });
 
   it('evicts the oldest entries via the Map-level LRU when a later batch pushes past the cap', async () => {
     const bus = createInMemoryEventBus();
     let last: Rounds = new Map();
-    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+    render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
 
     // Batch 1: fill to (cap - 10) distinct tasks, each comfortably under the per-window buffer cap
     // so nothing is buffer-dropped — the Map accumulates 490 entries.
@@ -285,7 +277,6 @@ describe('useTaskRoundTracker', () => {
     expect(last.has('a-10')).toBe(true); // 11th-oldest survives
     expect(last.has('b-0')).toBe(true); // newest all retained
     expect(last.has('b-19')).toBe(true);
-    r.unmount();
   });
 
   it('releases the bus subscription on unmount so post-unmount publishes are ignored', async () => {

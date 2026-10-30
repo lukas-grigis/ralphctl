@@ -96,8 +96,6 @@ describe('CreateProjectView — wizard e2e', () => {
     expect(saved?.repositories).toHaveLength(1);
     expect(saved?.repositories[0]?.name).toBe('main-repo');
     expect(String(saved?.repositories[0]?.path)).toContain('main-repo');
-
-    result.unmount();
   });
 
   it('rejects a slug already held by a stored project and writes nothing', async () => {

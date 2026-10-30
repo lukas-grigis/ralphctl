@@ -40,7 +40,7 @@ describe('useEventBusBuffer', () => {
     const bus = createInMemoryEventBus();
 
     let lastCount = -1;
-    const r = render(<Probe bus={bus} onSubscribeCount={(c) => (lastCount = c)} />);
+    render(<Probe bus={bus} onSubscribeCount={(c) => (lastCount = c)} />);
 
     bus.publish({ type: 'chain-completed', chainId: 'c1', at: NOW });
     bus.publish({ type: 'chain-completed', chainId: 'c2', at: NOW });
@@ -54,6 +54,5 @@ describe('useEventBusBuffer', () => {
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: NOW });
     await new Promise((res) => setTimeout(res, 60));
     expect(lastCount).toBe(3);
-    r.unmount();
   });
 });

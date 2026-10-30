@@ -27,21 +27,19 @@ describe('useResumeLaunch', () => {
   it('launches implement and then dismisses the stale records', async () => {
     launchRef.launch.mockResolvedValue(true);
     const dismissStale = vi.fn(() => Promise.resolve());
-    const { resume, unmount } = mount(dismissStale);
+    const { resume } = mount(dismissStale);
     resume();
     await tick();
     expect(launchRef.launch).toHaveBeenCalledWith('implement');
     expect(dismissStale).toHaveBeenCalledOnce();
-    unmount();
   });
 
   it('keeps the records when the launch was cancelled or refused', async () => {
     launchRef.launch.mockResolvedValue(false);
     const dismissStale = vi.fn(() => Promise.resolve());
-    const { resume, unmount } = mount(dismissStale);
+    const { resume } = mount(dismissStale);
     resume();
     await tick();
     expect(dismissStale).not.toHaveBeenCalled();
-    unmount();
   });
 });

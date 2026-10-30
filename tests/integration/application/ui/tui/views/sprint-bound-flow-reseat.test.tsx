@@ -195,7 +195,7 @@ describe('Sprint-bound flow reseat — failure paths', () => {
 
 describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
   it('setSprint from reseat wiring updates sprintId and sprintLabel in selection context', async () => {
-    const { seeds, unmount } = mountSelectionSpy();
+    const { seeds } = mountSelectionSpy();
 
     const { runner, emit } = makeFakeRunner();
 
@@ -213,12 +213,10 @@ describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
     const last = seeds[seeds.length - 1];
     expect(last?.sprintId).toBe(SPRINT_A);
     expect(last?.sprintLabel).toBe('Alpha Sprint');
-
-    unmount();
   });
 
   it('status from reseat wiring reaches the setSprint call', async () => {
-    const { seeds, unmount } = mountSelectionSpy();
+    const { seeds } = mountSelectionSpy();
 
     const { runner, emit } = makeFakeRunner();
     let capturedStatus: string | undefined = 'not-set';
@@ -231,12 +229,10 @@ describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
     emit({ type: 'completed', ctx: { sprint: { id: SPRINT_A, name: 'Alpha Sprint', status: 'draft' } } });
 
     expect(capturedStatus).toBe('draft');
-
-    unmount();
   });
 
   it('aborted event leaves selection unchanged', async () => {
-    const { seeds, unmount } = mountSelectionSpy();
+    const { seeds } = mountSelectionSpy();
     const initialLength = seeds.length;
 
     const { runner, emit } = makeFakeRunner();
@@ -246,6 +242,5 @@ describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
 
     expect(seeds.length).toBe(initialLength);
     expect(setSprint).not.toHaveBeenCalled();
-    unmount();
   });
 });

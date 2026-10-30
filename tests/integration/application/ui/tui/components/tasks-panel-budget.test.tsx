@@ -93,7 +93,5 @@ describe('TasksPanel render budget', () => {
     // unrelated reason (e.g. broken rendering) would silently pass the ceilings.
     expect(frame).toContain('leaf-0499');
     expect(frame).not.toContain('leaf-0000');
-
-    r.unmount();
   });
 });

@@ -71,7 +71,6 @@ describe('ExecuteView', () => {
     // No plan on the fake runner, so there is no projection to show Steps for — the Tasks panel
     // is the fallback. Plan-bearing sessions are covered in execute-view-flow-steps.test.tsx.
     expect(frame).toContain('Tasks');
-    result.unmount();
   });
 
   it.each([
@@ -91,7 +90,6 @@ describe('ExecuteView', () => {
     const stamp = (result.lastFrame() ?? '').split('\n').find((l) => l.includes('▣')) ?? '';
     expect(stamp).toContain(`${label} — ready to go · abc123`.replace(/^create sprint/i, 'Create Sprint'));
     expect(stamp.toLowerCase().split(label.toLowerCase()).length - 1).toBe(1);
-    result.unmount();
   });
 
   it('renders the ResultCard with the completed verdict once the session settles', async () => {
@@ -115,7 +113,6 @@ describe('ExecuteView', () => {
     expect(frame).toContain('Next steps');
     // Press ↵ to return — the not-running hint routes Home.
     expect(frame).toContain('home');
-    result.unmount();
   });
 
   it('yields the page-scroll keys to the Tasks cursor — ↑/↓/PgDn never scroll the Execute page', async () => {
@@ -161,7 +158,6 @@ describe('ExecuteView', () => {
     await waitForViewReady(result, (f) => f.includes('not found in the registry'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('not found in the registry');
-    result.unmount();
   });
 
   it('round-counter never decreases when generator entries evict from the trace ring buffer', async () => {
@@ -227,7 +223,6 @@ describe('ExecuteView', () => {
     // The monotonic ref must hold the count at 5 even though only 2 generator entries remain
     // in the trace.
     expect(frame2).toMatch(/round 5/);
-    result.unmount();
   });
 
   it('renders explicit generator + evaluator lines when the two implement models differ', async () => {
@@ -255,7 +250,6 @@ describe('ExecuteView', () => {
     expect(frame).toContain('generator');
     expect(frame).toContain('evaluator');
     expect(frame).not.toContain('(eval)');
-    result.unmount();
   });
 
   it('renders explicit generator + evaluator lines even when both implement models match', async () => {
@@ -283,7 +277,6 @@ describe('ExecuteView', () => {
     expect(frame).toContain('evaluator');
     expect(frame).not.toContain('→');
     expect(frame).not.toContain('(eval)');
-    result.unmount();
   });
 
   it('Enter on a completed session resets to Home even when the session has a pinned sprint', async () => {
@@ -308,7 +301,6 @@ describe('ExecuteView', () => {
     await waitForPredicate(() => routeIds().includes('home'));
     expect(routeIds()).toContain('home');
     expect(routeIds()).not.toContain('sprint-detail');
-    result.unmount();
   });
 
   it('Enter after a run goes Home; the converged selection (not the pre-focus pick) survives the exit', async () => {
@@ -368,7 +360,6 @@ describe('ExecuteView', () => {
     expect(routeEntries.some((e) => e.id === 'sprint-detail')).toBe(false);
     // The converged selection (A) survives the exit — it is not reverted to the pre-focus pick.
     expect(seenSprintIds.at(-1)).toBe(sprintA);
-    result.unmount();
   });
 
   it('focusing a session pinned to a different sprint converges the global selection onto it', async () => {
@@ -426,7 +417,6 @@ describe('ExecuteView', () => {
     // with A; the fence is that it CONVERGES to B and stays there, not that A never appears.
     await waitForPredicate(() => seenSprintIds.at(-1) === sprintB);
     expect(seenSprintIds.at(-1)).toBe(sprintB);
-    result.unmount();
   });
 
   it('convergence updates the live selection but does not persist it to disk', async () => {
@@ -475,7 +465,6 @@ describe('ExecuteView', () => {
     expect(seenSprintIds.at(-1)).toBe(sprintA);
     // … but never handed to the persistence callback.
     expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ sprintId: sprintA }));
-    result.unmount();
   });
 
   it('never converges onto a pinned sprint that is closed or removed', async () => {
@@ -522,7 +511,6 @@ describe('ExecuteView', () => {
     // The pin resolved to `done` — the selection must stay on the live sprint, not the stale pin.
     expect(seenSprintIds.at(-1)).toBe(liveSprintId);
     expect(seenSprintIds).not.toContain(staleSprintId);
-    result.unmount();
   });
 
   it('two sessions pinned to different sprints each show their own sprint context in the breadcrumb', async () => {
@@ -558,7 +546,6 @@ describe('ExecuteView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Alpha');
     expect(frame).toContain('Project One');
-    result.unmount();
   });
 
   it('cancel-whole-flow calls taskRepo with the pinned sprint id, not the global selection sprint', async () => {
@@ -604,7 +591,6 @@ describe('ExecuteView', () => {
     result.stdin.write('2');
     await waitForPredicate(() => findById.mock.calls.length > 0);
     expect(findById).toHaveBeenCalledWith(sprintA, TASK as unknown as TaskId);
-    result.unmount();
   });
 
   it('mutes the TasksPanel cursor while the cancel-scope overlay is open', async () => {
@@ -679,7 +665,6 @@ describe('ExecuteView', () => {
     result.stdin.write('j');
     await waitForPredicate(() => cursorOnSecond(result.lastFrame() ?? ''));
     expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(true);
-    result.unmount();
   });
 
   it('shows the stale-sprint fallback and drops baseline-health surfaces when the pinned sprint is done', async () => {
@@ -705,7 +690,6 @@ describe('ExecuteView', () => {
     expect(frame).toContain('Sprint no longer available');
     // BaselineHealthChip always renders the word "baseline" — when stale it must be absent.
     expect(frame).not.toContain('baseline');
-    result.unmount();
   });
 
   it('derives the section title from the flowId (audit 1-C)', async () => {
@@ -769,7 +753,6 @@ describe('ExecuteView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint no longer available');
     expect(frame).not.toContain('baseline');
-    result.unmount();
   });
 
   it('focused-run context shows the pinned sprint and project in the breadcrumb while the execute view is mounted', async () => {
@@ -794,6 +777,5 @@ describe('ExecuteView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Pinned');
     expect(frame).toContain('Project Alpha');
-    result.unmount();
   });
 });

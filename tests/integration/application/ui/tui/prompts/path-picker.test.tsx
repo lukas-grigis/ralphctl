@@ -30,7 +30,7 @@ describe('PathPickerPrompt', () => {
   });
 
   it('renders the initial cwd and the visible directories', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <PathPickerPrompt message="Pick" initial={root} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
@@ -40,24 +40,22 @@ describe('PathPickerPrompt', () => {
     expect(frame).toContain('bravo/');
     expect(frame).not.toContain('.hidden');
     expect(frame).not.toContain('note.txt');
-    unmount();
   });
 
   it('[Select this directory] commits the current cwd on Enter (cursor defaults here)', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <PathPickerPrompt message="Pick" initial={root} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     await tick();
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(root);
-    unmount();
   });
 
   it('navigates into a subdirectory and selects it', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <PathPickerPrompt message="Pick" initial={root} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     await tick();
@@ -68,18 +66,16 @@ describe('PathPickerPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(join(root, 'alpha'));
-    unmount();
   });
 
   it('Esc cancels', async () => {
     const onCancel = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <PathPickerPrompt message="Pick" initial={root} onSubmit={() => undefined} onCancel={onCancel} />
     );
     await tick();
     stdin.write(ESC);
     await tick(150);
     expect(onCancel).toHaveBeenCalled();
-    unmount();
   });
 });

@@ -80,7 +80,6 @@ describe('SprintsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sprints yet');
     expect(frame).toContain('Pick a project first');
-    result.unmount();
   });
 
   it('renders one row per sprint with name, status, ticket count', async () => {
@@ -92,7 +91,6 @@ describe('SprintsView', () => {
     expect(frame).toContain('spring');
     expect(frame).toMatch(/DRAFT/i);
     expect(frame).toContain('1 sprint(s)');
-    result.unmount();
   });
 
   it('publishes c / d / r hints to the status bar', async () => {
@@ -107,7 +105,6 @@ describe('SprintsView', () => {
     // overlay's Lists section only and must never be repeated in a per-view hint strip.
     expect(frame).toContain('↑/↓ move');
     expect(frame).not.toContain('j/k');
-    result.unmount();
   });
 
   it('hides the e rename hint when the focused sprint is done (rename guards status !== done)', async () => {
@@ -119,7 +116,6 @@ describe('SprintsView', () => {
     // a dead key — hint and handler share one source of truth.
     expect(frame).toContain('Shipped Sprint');
     expect(frame).not.toContain('e rename');
-    result.unmount();
   });
 
   it("pressing 'e' on a done sprint flashes a reason instead of a silent no-op", async () => {
@@ -131,7 +127,6 @@ describe('SprintsView', () => {
     const frame = result.lastFrame() ?? '';
     // Someone who found `e` via `?` should learn why it's inert, not be left guessing.
     expect(frame).toContain("done sprints can't be renamed");
-    result.unmount();
   });
 
   it("pressing 'e' opens an Ink text prompt prefilled with the sprint name and saves on resolve", async () => {
@@ -165,7 +160,6 @@ describe('SprintsView', () => {
     expect(save).toHaveBeenCalledTimes(1);
     const renamed = save.mock.calls[0]?.[0];
     expect(renamed?.name).toBe('Misspelled Sprint');
-    result.unmount();
   });
 
   it('rename re-reads the sprint before saving, so a status change made meanwhile survives', async () => {
@@ -197,7 +191,6 @@ describe('SprintsView', () => {
     const saved = save.mock.calls[0]?.[0];
     expect(saved?.name).toBe('Misspelled Sprint');
     expect(saved?.status).toBe('review');
-    result.unmount();
   });
 
   it("shows 'u unblock (N)' hint when the focused sprint has stuck tasks", async () => {
@@ -241,7 +234,6 @@ describe('SprintsView', () => {
     // appear in the frame (they are part of the same hint even if line-wrapped).
     expect(frame).toContain('unblock');
     expect(frame).toContain('(1)');
-    result.unmount();
   });
 
   it("drops the previous sprint's stuck tasks when focus moves to a sprint whose tasks have not loaded", async () => {
@@ -283,7 +275,6 @@ describe('SprintsView', () => {
     await waitForViewReady(result, (f) => f.includes('Alpha Sprint') && f.includes('Beta Sprint') && f.includes('(1)'));
     result.stdin.write(DOWN);
     await waitForPredicate(() => !(result.lastFrame() ?? '').includes('(1)'));
-    result.unmount();
   });
 
   it('pressing u on a sprint with stuck tasks calls unblockTaskUseCase and shows feedback', async () => {
@@ -333,7 +324,6 @@ describe('SprintsView', () => {
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
     expect(frame).toMatch(/unblocked 1 task/);
-    result.unmount();
   });
 
   it('pressing u on a CLOSED sprint reports that the sprint stayed closed', async () => {
@@ -398,7 +388,6 @@ describe('SprintsView', () => {
     expect(frame).toContain("'ralphctl sprint close sprint-a-peer'");
     expect(frame).toContain("'ralphctl sprint reopen sprint-z-closed'");
     expect(frame).toContain('then r to reload, then u again');
-    result.unmount();
   });
 
   it('pressing u on a CLOSED sprint with no live peer reports that the sprint reopened', async () => {
@@ -447,7 +436,6 @@ describe('SprintsView', () => {
     const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
     expect(frame).toContain('unblocked 1 task in "Closed Sprint" — sprint reopened done → active');
     expect(frame).not.toContain('stayed closed');
-    result.unmount();
   });
 
   it('bulk-unblocks a lone todo task stranded on a review sprint (interrupted reopen)', async () => {
@@ -490,7 +478,6 @@ describe('SprintsView', () => {
 
     const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
     expect(frame).toContain('unblocked 1 task in "Review Sprint" — sprint reopened review → active');
-    result.unmount();
   });
 
   it("pressing u refreshes the row's own '· N blocked' badge, not just the footer hint", async () => {
@@ -543,7 +530,6 @@ describe('SprintsView', () => {
     // the toast text itself is "unblocked 1 task", which contains the substring "blocked".)
     await waitForPredicate(() => !(result.lastFrame() ?? '').includes('1 blocked'));
     expect(result.lastFrame() ?? '').not.toContain('1 blocked');
-    result.unmount();
   });
 
   it('pressing u builds a settled in_progress task back to todo (crash-recovery path)', async () => {
@@ -589,7 +575,6 @@ describe('SprintsView', () => {
     await waitForPredicate(() => updateCalls.length === 1);
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
-    result.unmount();
   });
 
   it('renders sprints newest-first (most recently created at the top)', async () => {
@@ -604,7 +589,6 @@ describe('SprintsView', () => {
     expect(frame).toContain('Newer Sprint');
     expect(frame).toContain('Older Sprint');
     expect(frame.indexOf('Newer Sprint')).toBeLessThan(frame.indexOf('Older Sprint'));
-    result.unmount();
   });
 
   it('renders newest-first when scoped to a project too', async () => {
@@ -619,7 +603,6 @@ describe('SprintsView', () => {
     await waitForViewReady(result, (f) => f.includes('Newer Scoped') && f.includes('Older Scoped'));
     const frame = result.lastFrame() ?? '';
     expect(frame.indexOf('Newer Scoped')).toBeLessThan(frame.indexOf('Older Scoped'));
-    result.unmount();
   });
 
   it('renders a single sprint without error', async () => {
@@ -629,7 +612,6 @@ describe('SprintsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Solo Sprint');
     expect(frame).toContain('1 sprint(s)');
-    result.unmount();
   });
 
   it('windows the list: a sprint past the viewport becomes visible after End focuses it', async () => {
@@ -654,7 +636,6 @@ describe('SprintsView', () => {
     // and the newest has scrolled off the top.
     expect(after).toContain('Sprint 01');
     expect(after).not.toContain('Sprint 08');
-    result.unmount();
   });
 
   it('renders the empty state for a project with no sprints', async () => {
@@ -667,6 +648,5 @@ describe('SprintsView', () => {
     await waitForViewReady(result, (f) => f.includes('No sprints yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sprints yet');
-    result.unmount();
   });
 });

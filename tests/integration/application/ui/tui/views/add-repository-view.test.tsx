@@ -71,7 +71,5 @@ describe('AddRepositoryView — wizard e2e', () => {
     const added = saved?.repositories[saved.repositories.length - 1];
     expect(added?.name).toBe('extra-repo');
     expect(String(added?.path)).toContain('extra-repo');
-
-    result.unmount();
   });
 });

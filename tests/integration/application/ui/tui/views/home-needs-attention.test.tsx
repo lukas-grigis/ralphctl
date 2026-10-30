@@ -91,7 +91,6 @@ describe('Home — needs attention', () => {
     expect(frame.indexOf('NEEDS ATTENTION')).toBeLessThan(frame.indexOf('WORK'));
     // The cursor lands on it, so its resume hint is on screen.
     expect(frame).toContain('↵ resumes Implement');
-    result.unmount();
   });
 
   it('shows nothing interrupted while another live process owns the sprint', async () => {
@@ -99,7 +98,6 @@ describe('Home — needs attention', () => {
     await waitForViewReady(result, (f) => f.includes('WORK'));
     await new Promise((r) => setTimeout(r, 80));
     expect(result.lastFrame() ?? '').not.toContain('[INTERRUPTED]');
-    result.unmount();
   });
 
   it('lists a run parked on a prompt as [WAITING] and opens it', async () => {
@@ -124,7 +122,6 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[WAITING] Refine — Mainline');
     expect(frame).toContain('NEEDS ATTENTION');
-    result.unmount();
   });
 
   it("keeps counting a [WAITING] run's age while Home stays open", async () => {
@@ -176,7 +173,6 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Start a flow');
     expect(frame).toContain('ralphctl');
-    result.unmount();
   });
 
   it('shows every menu group when the terminal is tall enough', async () => {
@@ -185,6 +181,5 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     for (const group of ['WORK', 'OBSERVE', 'SYSTEM']) expect(frame).toContain(group);
     expect(frame).toContain('Housekeeping');
-    result.unmount();
   });
 });

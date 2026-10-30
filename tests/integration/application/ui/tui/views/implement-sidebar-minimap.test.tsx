@@ -80,7 +80,7 @@ const makeDescriptor = (): SessionDescriptor => ({
 describe('ImplementSidebar — navigation only', () => {
   it('renders section headers (Baseline, Steps, Tasks) in sidebar — model meta removed', () => {
     const descriptor = makeDescriptor();
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={40}
         sidebarTaskNavRows={8}
@@ -117,13 +117,11 @@ describe('ImplementSidebar — navigation only', () => {
 
     // TokenBudgetCard renders at the bottom (no usage data yet → empty-state placeholder)
     expect(frame).toContain('Tokens');
-
-    unmount();
   });
 
   it('highlights the focusedTaskId row with actionCursor glyph', () => {
     const descriptor = makeDescriptor();
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -145,13 +143,11 @@ describe('ImplementSidebar — navigation only', () => {
     expect(focusedLine).toBeDefined();
     // The ▸ glyph (actionCursor) should appear somewhere in the frame
     expect(frame).toContain('▸');
-
-    unmount();
   });
 
   it('highlight follows a different focusedTaskId (cursor tracking)', () => {
     const descriptor = makeDescriptor();
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -171,8 +167,6 @@ describe('ImplementSidebar — navigation only', () => {
     const focusedLine = lines.find((l) => l.includes('Refactor service layer'));
     expect(focusedLine).toBeDefined();
     expect(frame).toContain('▸');
-
-    unmount();
   });
 
   it('does NOT capture keyboard input (passive — no useInput in sidebar)', () => {
@@ -180,7 +174,7 @@ describe('ImplementSidebar — navigation only', () => {
     // We verify it by pressing j/k keys and confirming the highlight does NOT change
     // (sidebar cursor is read-only from focusedTaskId prop).
     const descriptor = makeDescriptor();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, stdin } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -201,8 +195,6 @@ describe('ImplementSidebar — navigation only', () => {
 
     // Frame should be identical: passive sidebar doesn't respond to keystrokes
     expect(frameAfter).toBe(frameBefore);
-
-    unmount();
   });
 
   it('keeps a failed step to one truncated row — its message never wraps the narrow column', () => {
@@ -222,7 +214,7 @@ describe('ImplementSidebar — navigation only', () => {
         },
       ] as unknown as SessionDescriptor['trace'],
     });
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -246,8 +238,6 @@ describe('ImplementSidebar — navigation only', () => {
     expect(messageRow).toContain('…');
     expect(frame).not.toContain('mindvaults');
     for (const line of frame.split('\n')) expect(line.length).toBeLessThanOrEqual(100);
-
-    unmount();
   });
 });
 
@@ -258,7 +248,7 @@ describe('ImplementSidebar — navigation only', () => {
 describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
   it('renders the empty-state token card when no usage data is supplied', () => {
     const descriptor = makeDescriptor();
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -276,7 +266,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
     expect(frame).toContain('Tokens');
     // Empty-state placeholder visible
     expect(frame).toContain('no usage data');
-    unmount();
   });
 
   it('renders cumulative token data (claude -p style) — no absurd bar', () => {
@@ -288,7 +277,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
       cacheReadTokens: 2_244_000,
       contextWindow: 200_000,
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -311,7 +300,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
     expect(frame).not.toContain('9176567%');
     // The context bar (filled blocks ███) must not appear for cumulative data
     expect(frame).not.toMatch(/█{5,}/);
-    unmount();
   });
 
   it('renders plausible single-call context bar (Copilot style)', () => {
@@ -322,7 +310,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
       outputTokens: 5_000,
       contextWindow: 200_000,
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <ImplementSidebar
         sidebarWidth={36}
         sidebarTaskNavRows={8}
@@ -339,7 +327,6 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
     const frame = lastFrame() ?? '';
     // 40k / 200k = 20% — renders context bar
     expect(frame).toContain('20%');
-    unmount();
   });
 });
 
@@ -349,7 +336,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
 
 describe('TasksPanel — all-completed expansion seed (REQ-3)', () => {
   it('expands the last task card when all tasks are completed', () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <TasksPanel
         bucketed={ALL_COMPLETED}
         running={false}
@@ -370,12 +357,10 @@ describe('TasksPanel — all-completed expansion seed (REQ-3)', () => {
     // First two tasks stay collapsed (their notes should NOT appear)
     expect(frame).not.toContain('note from task-aaa');
     expect(frame).not.toContain('note from task-bbb');
-
-    unmount();
   });
 
   it('expands the last task on mount even when running=true and all tasks are completed', () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <TasksPanel
         bucketed={ALL_COMPLETED}
         running={true}
@@ -386,8 +371,6 @@ describe('TasksPanel — all-completed expansion seed (REQ-3)', () => {
 
     // Last task note should be visible (card is expanded)
     expect(frame).toContain('note from task-ccc');
-
-    unmount();
   });
 });
 
@@ -459,8 +442,6 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     expect(frameAfter).not.toContain('[nav]');
     expect(frameAfter).not.toContain('[tasks]');
     expect(frameBefore.includes('Baseline')).toBe(frameAfter.includes('Baseline'));
-
-    result.unmount();
   });
 
   it('renders HeaderCard with sprint title in the wide layout (user ask #1: header restored)', async () => {
@@ -480,7 +461,5 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     expect(frame).toContain('Band Test Sprint');
     // The TokenBudgetCard is in the sidebar (user ask #2)
     expect(frame).toContain('Tokens');
-
-    result.unmount();
   });
 });

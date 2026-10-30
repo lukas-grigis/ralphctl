@@ -58,7 +58,6 @@ describe('TasksPanel — dependency-blocked task', () => {
 
     expect(frame).toContain('Blocked upstream task');
     expect(frame).toContain('skipped');
-    r.unmount();
   });
 
   it('anchors the auto-expanded active card on the running task, not the blocked one', () => {
@@ -69,6 +68,5 @@ describe('TasksPanel — dependency-blocked task', () => {
     // while the blocked card's stay collapsed.
     expect(frame).toContain('Generate');
     expect(frame).not.toContain('Check dependencies');
-    r.unmount();
   });
 });

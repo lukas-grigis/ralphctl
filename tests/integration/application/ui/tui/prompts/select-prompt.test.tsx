@@ -19,18 +19,17 @@ const options: ReadonlyArray<Choice<unknown>> = [
 describe('SelectPrompt', () => {
   it('Enter submits the first option by default', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('alpha');
-    unmount();
   });
 
   it('Space does NOT submit (Enter is the sole submit key)', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(' ');
@@ -40,12 +39,11 @@ describe('SelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('alpha');
-    unmount();
   });
 
   it('↓ then Enter submits the next option', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(DOWN);
@@ -53,12 +51,11 @@ describe('SelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('bravo');
-    unmount();
   });
 
   it('j twice then k once lands on bravo', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('j');
@@ -70,12 +67,11 @@ describe('SelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('bravo');
-    unmount();
   });
 
   it('G then Enter submits the last option', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('G');
@@ -83,11 +79,10 @@ describe('SelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('charlie');
-    unmount();
   });
 
   it('renders all option labels in the initial frame', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
@@ -95,14 +90,13 @@ describe('SelectPrompt', () => {
     expect(frame).toContain('Alpha');
     expect(frame).toContain('Bravo');
     expect(frame).toContain('Charlie');
-    unmount();
   });
 
   it('arrows still navigate options when the message body overflows', async () => {
     const onSubmit = vi.fn();
     const longBody = Array.from({ length: 30 }, (_, i) => `body line ${String(i + 1)}`).join('\n');
     const message = `Pick one\n\n${longBody}`;
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <SelectPrompt message={message} options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     await tick();
@@ -116,12 +110,11 @@ describe('SelectPrompt', () => {
     const frame = lastFrame() ?? '';
     expect(frame).not.toContain('scroll body');
     expect(frame).toContain('PgUp/PgDn page');
-    unmount();
   });
 
   it('Esc cancels', async () => {
     const onCancel = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={() => undefined} onCancel={onCancel} />
     );
     stdin.write(UP); // no-op at top
@@ -129,6 +122,5 @@ describe('SelectPrompt', () => {
     stdin.write(ESC);
     await tick(150);
     expect(onCancel).toHaveBeenCalled();
-    unmount();
   });
 });

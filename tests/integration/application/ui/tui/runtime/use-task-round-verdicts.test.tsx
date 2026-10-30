@@ -31,7 +31,7 @@ describe('useTaskRoundVerdicts', () => {
   it('folds attributed task-round-evaluated events and ignores the rest', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TaskVerdicts> = new Map();
-    const r = render(<Probe bus={bus} onState={(v) => (last = v)} />);
+    render(<Probe bus={bus} onState={(v) => (last = v)} />);
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 1, totalCap: 5, at: NOW });
     bus.publish({
       type: 'task-round-evaluated',
@@ -62,7 +62,6 @@ describe('useTaskRoundVerdicts', () => {
       headline: 'wrong',
     });
     expect(last.size).toBe(1);
-    r.unmount();
   });
 
   it('keeps one bus subscription across re-renders', () => {
@@ -78,6 +77,5 @@ describe('useTaskRoundVerdicts', () => {
     const r = render(<Probe bus={bus} onState={() => undefined} />);
     for (let i = 0; i < 4; i++) r.rerender(<Probe bus={bus} onState={() => undefined} />);
     expect(subscribes).toBe(1);
-    r.unmount();
   });
 });

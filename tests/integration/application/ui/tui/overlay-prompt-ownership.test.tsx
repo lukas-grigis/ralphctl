@@ -81,7 +81,7 @@ describe('prompt arriving behind an open overlay', () => {
     const queue = createPromptQueue();
     const resolve = vi.fn();
     const reject = vi.fn();
-    const { stdin, lastFrame, unmount } = mount(queue);
+    const { stdin, lastFrame } = mount(queue);
     await tick();
     stdin.write('?');
     await tick();
@@ -96,13 +96,12 @@ describe('prompt arriving behind an open overlay', () => {
     stdin.write(ENTER);
     await tick();
     expect(resolve).toHaveBeenCalledOnce();
-    unmount();
   });
 
   it('keeps keys off the hidden prompt while the overlay is open', async () => {
     const queue = createPromptQueue();
     const resolve = vi.fn();
-    const { stdin, unmount } = mount(queue);
+    const { stdin } = mount(queue);
     await tick();
     stdin.write('?');
     await tick();
@@ -111,6 +110,5 @@ describe('prompt arriving behind an open overlay', () => {
     stdin.write(ENTER);
     await tick();
     expect(resolve).not.toHaveBeenCalled();
-    unmount();
   });
 });

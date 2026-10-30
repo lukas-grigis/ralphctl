@@ -92,7 +92,6 @@ describe('PickSprintView — blocked rollup badge', () => {
     // The Sprints-list separator, not an icon — same shape `pending` / `approved` use there.
     expect(line).toContain(`${glyphs.bullet} 2 blocked`);
     expect(line).not.toContain(glyphs.warningGlyph);
-    result.unmount();
   });
 
   it('omits the badge entirely when nothing is blocked', async () => {
@@ -109,6 +108,5 @@ describe('PickSprintView — blocked rollup badge', () => {
     await waitFor(() => expect(detailLine(result.lastFrame() ?? '')).toContain('ticket'));
 
     expect(detailLine(result.lastFrame() ?? '')).not.toContain('blocked');
-    result.unmount();
   });
 });

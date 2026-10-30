@@ -37,7 +37,6 @@ describe('display-clip marker — single-line trim (audit-[03])', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain(glyphs.clipEllipsis);
     expect(frame).not.toContain(longName); // The full string never renders.
-    r.unmount();
   });
 
   it('omits the marker when content fits within the budget', () => {
@@ -48,7 +47,6 @@ describe('display-clip marker — single-line trim (audit-[03])', () => {
     // No clip marker because nothing was clipped — operator must NOT see a stray ellipsis
     // suggesting hidden content.
     expect(frame).not.toContain(glyphs.clipEllipsis);
-    r.unmount();
   });
 });
 
@@ -98,7 +96,6 @@ describe('display-clip marker — multi-line collapse (audit-[03])', () => {
     expect(frame).toMatch(/\(2\)/);
     // Hidden tail must NOT render verbatim — that's the whole point of the collapse.
     expect(frame).not.toContain('Hidden in collapsed view #1');
-    r.unmount();
   });
 
   it('omits the collapse marker when the criteria list fits inside the 3-line window', () => {
@@ -117,6 +114,5 @@ describe('display-clip marker — multi-line collapse (audit-[03])', () => {
     expect(frame).toContain('Second criterion');
     // No collapse marker because nothing was hidden.
     expect(frame).not.toContain(glyphs.collapseExpand);
-    r.unmount();
   });
 });

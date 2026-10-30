@@ -91,7 +91,6 @@ describe('SessionsView', () => {
     await waitForViewReady(result, (f) => f.includes('No sessions yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sessions yet');
-    result.unmount();
   });
 
   it('lists a registered session with its title and flow id', async () => {
@@ -114,7 +113,6 @@ describe('SessionsView', () => {
     expect(frame).toContain('1 session(s)');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
-    result.unmount();
   });
 
   it('keeps the cursor on the same session id after the list reorders (L7)', async () => {
@@ -140,8 +138,6 @@ describe('SessionsView', () => {
     setList([c, a, b]);
     await waitForPredicate(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
-
-    result.unmount();
   });
 
   it('snaps the cursor to a survivor after the focused session is evicted, and focus targets the cursor row (L7)', async () => {
@@ -177,7 +173,5 @@ describe('SessionsView', () => {
     result.stdin.write('\r');
     await waitForPredicate(() => routed.length > 0);
     expect(routed.at(-1)).toBe('s-c');
-
-    result.unmount();
   });
 });

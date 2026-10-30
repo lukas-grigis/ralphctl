@@ -128,8 +128,6 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await waitForPredicate(() => focusedCardLine(result.lastFrame() ?? '').includes(FIRST_BLOCKED), {
       label: 'third B wraps back to the first blocked task',
     });
-
-    result.unmount();
   });
 
   it('hands the arrow keys to jump-mode movement once a jump has engaged', async () => {
@@ -177,8 +175,6 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await waitForPredicate(() => focusedCardLine(result.lastFrame() ?? '').includes(ONLY_TICKET), {
       label: 'Home jumps back to the first row',
     });
-
-    result.unmount();
   });
 
   it('stays inert when nothing is blocked', async () => {
@@ -204,6 +200,5 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await tick(50);
 
     expect(focusedCardLine(result.lastFrame() ?? '')).toBe(before);
-    result.unmount();
   });
 });

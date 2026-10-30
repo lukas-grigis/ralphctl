@@ -47,8 +47,6 @@ describe('TasksPanel windowing', () => {
     // Overflow cue reports the hidden count; nothing is hidden below (window reaches the end).
     expect(frame).toContain('3 more above');
     expect(frame).not.toContain('more below');
-
-    r.unmount();
   });
 
   it('renders every card with no cues when the budget meets or exceeds the task count', () => {
@@ -59,8 +57,6 @@ describe('TasksPanel windowing', () => {
     for (let i = 0; i < 6; i++) expect(frame).toContain(`T${String(i)}X`);
     expect(frame).not.toContain('more above');
     expect(frame).not.toContain('more below');
-
-    r.unmount();
   });
 
   it('is unbounded when no maxTasks is supplied (isolated-render parity)', () => {
@@ -71,7 +67,5 @@ describe('TasksPanel windowing', () => {
     for (let i = 0; i < 6; i++) expect(frame).toContain(`T${String(i)}X`);
     expect(frame).not.toContain('more above');
     expect(frame).not.toContain('more below');
-
-    r.unmount();
   });
 });

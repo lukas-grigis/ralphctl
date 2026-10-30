@@ -51,7 +51,6 @@ describe('SprintsView removal', () => {
       return frame.includes('removed Doomed Sprint') && frame.includes('No sprints yet');
     });
     expect(await exists(sprintDir)).toBe(false);
-    result.unmount();
   });
 
   it('Yes while another process holds a flow lock shows the refusal and keeps the sprint', async () => {

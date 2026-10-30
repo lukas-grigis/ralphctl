@@ -95,33 +95,27 @@ const Harness = ({
 describe('Home destination chords', () => {
   it('`h` lands on home from a first-run session whose launch entry was welcome', async () => {
     let current: ViewEntry = { id: 'welcome' };
-    const { stdin, unmount } = render(
-      <Harness initial={current} onRoute={(e) => (current = e)} probe={<GlobalKeysProbe />} />
-    );
+    const { stdin } = render(<Harness initial={current} onRoute={(e) => (current = e)} probe={<GlobalKeysProbe />} />);
     await tick(50);
     stdin.write('h');
     await tick();
 
     expect(current.id).toBe('home');
-    unmount();
   });
 
   it('`h` lands on home when the launch entry was the create-project wizard', async () => {
     let current: ViewEntry = { id: 'create-project' };
-    const { stdin, unmount } = render(
-      <Harness initial={current} onRoute={(e) => (current = e)} probe={<GlobalKeysProbe />} />
-    );
+    const { stdin } = render(<Harness initial={current} onRoute={(e) => (current = e)} probe={<GlobalKeysProbe />} />);
     await tick(50);
     stdin.write('h');
     await tick();
 
     expect(current.id).toBe('home');
-    unmount();
   });
 
   it('`D` (detach) lands on home rather than re-mounting the first-run launch entry', async () => {
     let current: ViewEntry = { id: 'welcome' };
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <Harness initial={current} onRoute={(e) => (current = e)} probe={<ExecuteInputProbe />} />
     );
     await tick(50);
@@ -129,6 +123,5 @@ describe('Home destination chords', () => {
     await tick();
 
     expect(current.id).toBe('home');
-    unmount();
   });
 });

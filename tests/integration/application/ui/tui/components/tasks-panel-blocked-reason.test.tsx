@@ -28,7 +28,6 @@ describe('TasksPanel blocked-reason', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('blocked upstream');
     expect(frame).toContain('prerequisite not done');
-    r.unmount();
   });
 
   it('shows no reason line when none is supplied', () => {
@@ -36,6 +35,5 @@ describe('TasksPanel blocked-reason', () => {
     const r = render(<TasksPanel bucketed={bucketed} running={false} />);
     const frame = r.lastFrame() ?? '';
     expect(frame).not.toContain('prerequisite not done');
-    r.unmount();
   });
 });

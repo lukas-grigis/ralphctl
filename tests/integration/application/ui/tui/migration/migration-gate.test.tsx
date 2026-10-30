@@ -100,7 +100,6 @@ describe('MigrationGate', () => {
     expect(frame).toContain('1 project');
     expect(frame).toContain('a backup is taken first');
     expect(frame).not.toContain('full backup');
-    r.unmount();
   });
 
   it('"Not now" resolves skipped WITHOUT calling apply', async () => {
@@ -112,7 +111,6 @@ describe('MigrationGate', () => {
     await tick();
     expect(h.resolved).toEqual(['skipped']);
     expect(h.apply).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('esc also declines without applying', async () => {
@@ -124,7 +122,6 @@ describe('MigrationGate', () => {
     await tick(60);
     expect(h.resolved).toEqual(['skipped']);
     expect(h.apply).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('"Migrate now" happy path calls apply and resolves migrated', async () => {
@@ -137,7 +134,6 @@ describe('MigrationGate', () => {
     await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual(['migrated']);
-    r.unmount();
   });
 
   it('enter on the (default) Migrate-now cursor applies', async () => {
@@ -150,7 +146,6 @@ describe('MigrationGate', () => {
     await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual(['migrated']);
-    r.unmount();
   });
 
   it("'failed' names the downgrade version ONLY when the marker records one; continuing resolves failed-continue", async () => {
@@ -175,7 +170,6 @@ describe('MigrationGate', () => {
     r.stdin.write(ENTER);
     await waitForPredicate(() => h.resolved.length > 0);
     expect(h.resolved).toEqual(['failed-continue']);
-    r.unmount();
   });
 
   it("'failed' OMITS the npm downgrade line when no prior version is recorded (never guesses)", async () => {
@@ -192,7 +186,6 @@ describe('MigrationGate', () => {
     // A wrong downgrade command would be actively harmful — the line must be absent entirely.
     expect(frame).not.toContain('npm install -g ralphctl@');
     expect(frame).toContain('/bk');
-    r.unmount();
   });
 
   it('NO-OP dry-run (nothing planned, nothing to merge) silently stamps + resolves migrated — no splash', async () => {
@@ -205,7 +198,6 @@ describe('MigrationGate', () => {
     expect(h.apply).not.toHaveBeenCalled();
     expect(h.resolved).toEqual(['migrated']);
     expect(r.lastFrame() ?? '').not.toContain('renamed for readability');
-    r.unmount();
   });
 
   it("'failed' + q quits instead of continuing", async () => {
@@ -221,7 +213,6 @@ describe('MigrationGate', () => {
     await waitForPredicate(() => h.quit.mock.calls.length > 0);
     expect(h.quit).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual([]);
-    r.unmount();
   });
 
   it("'lock-held' proceeds on tolerant readers", async () => {
@@ -235,7 +226,6 @@ describe('MigrationGate', () => {
     r.stdin.write(ENTER);
     await waitForPredicate(() => h.resolved.length > 0);
     expect(h.resolved).toEqual(['skipped']);
-    r.unmount();
   });
 
   it('dry-run with problems shows the issue and never applies', async () => {
@@ -250,6 +240,5 @@ describe('MigrationGate', () => {
     await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).not.toHaveBeenCalled();
     expect(h.resolved).toEqual(['skipped']);
-    r.unmount();
   });
 });

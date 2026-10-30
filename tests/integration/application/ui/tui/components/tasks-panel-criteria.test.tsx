@@ -60,8 +60,6 @@ describe('TasksPanel verification-criteria summary', () => {
     // collapse marker — expand affordance available via `e`) surfaces the overflow count.
     expect(frame).not.toContain('Document the feature in README');
     expect(frame).toContain('▼ more (1)');
-
-    r.unmount();
   });
 
   it('expands the full criteria block when `e` is pressed while the panel owns input', async () => {
@@ -85,7 +83,6 @@ describe('TasksPanel verification-criteria summary', () => {
 
     expect(frame).toContain('Hidden in collapsed view');
     expect(frame).toContain('press e to collapse');
-    r.unmount();
   });
 
   it('omits the criteria block entirely when the task has no criteria declared', async () => {
@@ -95,7 +92,6 @@ describe('TasksPanel verification-criteria summary', () => {
 
     expect(frame).not.toContain('criteria');
     expect(frame).not.toContain('press e to expand');
-    r.unmount();
   });
 
   it('does NOT fabricate per-criterion attribution when criterion count equals dimension count', async () => {
@@ -134,6 +130,5 @@ describe('TasksPanel verification-criteria summary', () => {
     // The verdict is the single authoritative status — never the leaked bucketed `failed` signal.
     expect(frame).toContain('passed');
     expect(frame).not.toMatch(/eval\s+failed/);
-    r.unmount();
   });
 });

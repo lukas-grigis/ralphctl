@@ -169,7 +169,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     const bucketed = makeBucketed();
     const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -193,14 +193,13 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     expect(frame).toContain('Tokens');
     // Cumulative token data: "session: N (cumulative)" label (user ask #6).
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('renders empty-state placeholder when no tokenUsage provided', () => {
     const descriptor = makeDescriptor();
     const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -216,7 +215,6 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Tokens');
-    unmount();
   });
 
   it('task minimap displays both tasks', () => {
@@ -224,7 +222,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     const bucketed = makeBucketed();
     const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -243,7 +241,6 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     // Both task names appear (truncated to sidebarWidth budget)
     expect(frame).toContain('Implement auth');
     expect(frame).toContain('Add rate limit');
-    unmount();
   });
 });
 
@@ -318,36 +315,32 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
   };
 
   it('Ask #1 — HeaderCard renders at the top', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     expect(frame).toContain('Visual Test Sprint');
     expect(frame).toContain('3m00s');
     expect(frame).toContain('claude-opus-4');
-    unmount();
   });
 
   it('Ask #2 — TokenBudgetCard in the sidebar (cumulative label, not clipped)', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     expect(frame).toContain('Tokens');
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('Ask #3 — long cross-task note ellides (full 240-char string absent from frame)', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     // The full note must not appear verbatim
     expect(frame).not.toContain(LONG_NOTE);
     // The beginning of the note should be visible (truncated)
     expect(frame).toContain('cross-task-note:');
-    unmount();
   });
 
   it('Ask #4 — active task shows its step tree with pending steps', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     // ◇ glyph from glyphs.phasePending — rendered for unexecuted leaves
     expect(frame).toContain('◇');
     expect(frame).toContain('Generate');
     expect(frame).toContain('Commit');
-    unmount();
   });
 });
 
@@ -415,31 +408,27 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
   };
 
   it('Ask #1 — HeaderCard at top (xxl breakpoint)', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('Visual Test Sprint');
     expect(frame).toContain('3m00s');
-    unmount();
   });
 
   it('Ask #2 — TokenBudgetCard in sidebar at xxl (cumulative label)', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('Tokens');
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('Ask #3 — long note ellides at xxl width', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).not.toContain(LONG_NOTE);
     expect(frame).toContain('cross-task-note:');
-    unmount();
   });
 
   it('Ask #4 — step tree visible at xxl', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('◇');
     expect(frame).toContain('Commit');
-    unmount();
   });
 });
 

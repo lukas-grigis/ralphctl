@@ -120,8 +120,6 @@ describe('TasksPanelHost — Esc collapse-before-pop', () => {
     expect(frame).not.toContain(LIVE_SIGNAL_TEXT);
     // The route did NOT pop — the claim kept the global handler's router.pop() from firing.
     expect(frame).toContain('ROUTE:sessions:2');
-
-    result.unmount();
   });
 
   it('Esc with no expanded card pops the route as before', async () => {
@@ -139,8 +137,6 @@ describe('TasksPanelHost — Esc collapse-before-pop', () => {
     result.stdin.write(ESC);
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
     expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
-
-    result.unmount();
   });
 
   it('unmounting while expanded releases the claim (no stale claim blocking Esc elsewhere)', async () => {
@@ -157,7 +153,5 @@ describe('TasksPanelHost — Esc collapse-before-pop', () => {
     result.stdin.write(ESC);
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
     expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
-
-    result.unmount();
   });
 });

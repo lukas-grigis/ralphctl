@@ -177,7 +177,7 @@ describe('EvaluationOverlay — open / close', () => {
   it('opens on `v` and renders the parsed verdict, critique and dimensions', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
 
     stdin.write('v');
@@ -192,14 +192,12 @@ describe('EvaluationOverlay — open / close', () => {
     expect(opened).toContain('No regression test for the legacy row.');
     // True modal — the underlying view is hidden while it is up.
     expect(opened).not.toContain('UNDERLYING_VIEW');
-
-    unmount();
   });
 
   it('closes on esc', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
@@ -207,13 +205,12 @@ describe('EvaluationOverlay — open / close', () => {
     stdin.write(ESC);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').not.toContain('esc · v to close');
-    unmount();
   });
 
   it('closes on a second `v` — the same key toggles, like the progress overlay', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
@@ -221,7 +218,6 @@ describe('EvaluationOverlay — open / close', () => {
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').not.toContain('correctness: passed');
-    unmount();
   });
 });
 
@@ -229,7 +225,7 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
   it('renders an empty-state message when the artifact exists but is empty', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, '   \n');
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('exists but is empty'));
@@ -240,7 +236,6 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     expect(frame).toContain('eval');
     expect(frame).toContain('failed');
     expect(frame).toContain('attempt 2');
-    unmount();
   });
 
   it('surfaces the read error without an error card when the path is not a readable file', async () => {
@@ -248,7 +243,7 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     // A directory where the artifact should be — `readFile` fails with EISDIR, which is the
     // portable stand-in for the permission-denied case (chmod is a no-op under a root CI user).
     await fs.mkdir(artifactPath(dataRoot), { recursive: true });
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('Could not read the evaluation file.'));
@@ -256,13 +251,12 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Could not read the evaluation file.');
     expect(frame).toContain('attempt 2');
-    unmount();
   });
 
   it('falls back to the raw file when the content parses to nothing recognisable', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, 'RAW-GARBAGE-LINE\nsecond raw line\n');
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('RAW-GARBAGE-LINE'));
@@ -271,7 +265,6 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     expect(frame).toContain('showing the raw file');
     expect(frame).toContain('RAW-GARBAGE-LINE');
     expect(frame).toContain('second raw line');
-    unmount();
   });
 });
 
@@ -288,7 +281,7 @@ describe('EvaluationOverlay — windowing', () => {
   it('bounds the frame and pages forward with PgDn', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, hugeDocument());
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-DIMENSION'));
@@ -303,19 +296,16 @@ describe('EvaluationOverlay — windowing', () => {
     stdin.write(PAGE_DOWN);
     await waitForPredicate(() => !(lastFrame() ?? '').includes('HEAD-DIMENSION'));
     expect(lastFrame() ?? '').toMatch(/lines \d+[–-]/);
-
-    unmount();
   });
 
   it('shows no pagination footer for a document that fits the viewport', async () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
-    const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
+    const { stdin, lastFrame } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
     await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
     await tick(20);
     expect(lastFrame() ?? '').not.toMatch(/lines \d+[–-]/);
-    unmount();
   });
 });

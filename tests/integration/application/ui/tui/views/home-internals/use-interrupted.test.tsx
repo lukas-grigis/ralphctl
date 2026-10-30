@@ -58,19 +58,17 @@ const mount = (
 
 describe('useInterrupted — cross-process ownership', () => {
   it('flags the running attempt once no other live process owns the sprint', async () => {
-    const { state, unmount } = mount(undefined);
+    const { state } = mount(undefined);
     await tick();
     expect(state()?.tasks.map((t) => t.taskId)).toEqual([task.id]);
     expect(state()?.ownedElsewhere).toBe(false);
-    unmount();
   });
 
   it('flags nothing while another live ralphctl process works the sprint', async () => {
-    const { state, unmount } = mount({ pid: 4321, via: 'run-record' });
+    const { state } = mount({ pid: 4321, via: 'run-record' });
     await tick();
     expect(state()?.tasks).toEqual([]);
     expect(state()?.ids.size).toBe(0);
     expect(state()?.ownedElsewhere).toBe(true);
-    unmount();
   });
 });

@@ -41,7 +41,7 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
   it('opens pre-checked to `initial` and ENTER round-trips exactly those values', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Skills for this run:', OPTIONS, { initial: ['a', 'c'] });
     await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
@@ -59,13 +59,12 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect([...result.value].sort()).toEqual(['a', 'c']);
-    unmount();
   });
 
   it('space on a disabled row is a no-op and select-all excludes disabled rows', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Pick:', OPTIONS, { initial: [] });
     await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
@@ -80,13 +79,12 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect([...result.value].sort()).toEqual(['a', 'b', 'c']);
-    unmount();
   });
 
   it('omitted initial opens with nothing checked (backward compatibility)', async () => {
     const queue = createPromptQueue();
     const interactive = createInkInteractivePrompt(queue);
-    const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
+    const { stdin, lastFrame } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Pick:', OPTIONS);
     await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
@@ -99,6 +97,5 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toEqual([]);
-    unmount();
   });
 });

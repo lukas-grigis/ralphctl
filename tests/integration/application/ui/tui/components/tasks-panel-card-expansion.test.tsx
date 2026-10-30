@@ -54,8 +54,6 @@ describe('TasksPanel card collapse / expand', () => {
     expect(frame).not.toContain('task-1 first change');
     expect(frame).not.toContain('task-1 second change');
     expect(frame).toContain('task-2 active change');
-
-    r.unmount();
   });
 
   it('expands a focused collapsed card on Enter', async () => {
@@ -69,7 +67,6 @@ describe('TasksPanel card collapse / expand', () => {
 
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('task-1 second change');
-    r.unmount();
   });
 
   it('Esc collapses a manually-expanded card', async () => {
@@ -84,7 +81,6 @@ describe('TasksPanel card collapse / expand', () => {
     r.stdin.write(ESC);
     await tick(40);
     expect(r.lastFrame() ?? '').not.toContain('task-1 second change');
-    r.unmount();
   });
 
   it('Esc on the active card collapses it (auto-expand is a seed, not a permanent lock)', async () => {
@@ -95,7 +91,6 @@ describe('TasksPanel card collapse / expand', () => {
     r.stdin.write(ESC);
     await tick(40);
     expect(r.lastFrame() ?? '').not.toContain('task-2 active change');
-    r.unmount();
   });
 
   it('Enter on an expanded card (with no row anchor) collapses it', async () => {
@@ -106,7 +101,6 @@ describe('TasksPanel card collapse / expand', () => {
     r.stdin.write(ENTER);
     await tick(40);
     expect(r.lastFrame() ?? '').not.toContain('task-2 active change');
-    r.unmount();
   });
 
   it('Enter on an expanded then collapsed card re-expands it (toggle)', async () => {
@@ -118,7 +112,6 @@ describe('TasksPanel card collapse / expand', () => {
     r.stdin.write(ENTER);
     await tick(40);
     expect(r.lastFrame() ?? '').toContain('task-2 active change');
-    r.unmount();
   });
 
   it('when the active task transitions to a new id, the new id auto-expands', async () => {
@@ -145,7 +138,6 @@ describe('TasksPanel card collapse / expand', () => {
     await tick(40);
     // New active task auto-expanded → its stream shows.
     expect(r.lastFrame() ?? '').toContain('task-3 active change');
-    r.unmount();
   });
 
   it('shows a focus caret on the cursored card', async () => {
@@ -157,6 +149,5 @@ describe('TasksPanel card collapse / expand', () => {
     // The cursor caret should appear somewhere in the frame; non-cursored card doesn't carry one
     // by definition. A loose smoke check is enough — exact column count varies with terminal width.
     expect(frame).toContain('›');
-    r.unmount();
   });
 });
