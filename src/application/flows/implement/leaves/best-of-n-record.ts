@@ -119,7 +119,7 @@ const DIFFSTAT_MAX_FILES = 12;
  * Compose one candidate's compact structured summary — what was attempted (signals), the
  * verification outcome/attribution, and a diffstat. Bounded mechanical composition (arXiv
  * 2508.21433), fed to the pairwise judge tournament as the compact structured substrate the
- * judge compares (arXiv 2604.16529 — judges compare summaries, never raw diffs/transcripts).
+ * judge compares (arXiv 2604.16529, RTV — judges compare summaries, never raw diffs/transcripts).
  * Pure. No I/O.
  */
 export const composeCandidateSummary = (input: {

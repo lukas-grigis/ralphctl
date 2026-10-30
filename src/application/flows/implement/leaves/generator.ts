@@ -259,7 +259,7 @@ const buildGeneratorPrompt = async (
   const { input } = args;
   const priorCritique = latestCritique(args.task);
   const plateauBreak = isPlateauBreakAttempt(args.task);
-  // Select-K prior-attempt summaries (arXiv 2604.16529) — unlike priorLearnings/priorEpisodes
+  // Select-K prior-attempt summaries (arXiv 2604.16529, PDR half) — unlike priorLearnings/priorEpisodes
   // (session-scoped, full-prompt-only), which attempts already happened on THIS task is
   // round-relevant context, so it rides both branches below. '' when no prior attempt on the
   // task has settled yet (round 1 of attempt 1), which collapses the placeholder cleanly.

@@ -267,8 +267,9 @@ const toCommitSubject = (attempt: Attempt | undefined, commitSubject: string | u
 
 /**
  * Compose the `### Continuation state` block from harness-held `Attempt` / `RecoveryContext` data
- * ONLY (research grounding: arXiv 2606.02875 — bounded, DERIVED continuation contracts, not
- * model-written prose).
+ * ONLY (research grounding: arXiv 2606.02875 — bounded continuation contracts with fixed fields,
+ * some of which the paper fills deterministically from checkpoint metadata; ralphctl derives ALL
+ * of them from harness state, no model-written prose).
  */
 const buildContinuationState = (
   attempt: Attempt | undefined,

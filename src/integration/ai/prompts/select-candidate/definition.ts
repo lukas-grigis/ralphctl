@@ -19,7 +19,8 @@ const CANDIDATE_SOURCE = 'the candidate sessions (the Verify outcome and Diff li
  * likely to be a correct, complete, maintainable solution — judging evidence over confidence,
  * penalising unverified claims.
  *
- * Research grounding: arXiv 2604.16529 (Meta, Parallel-Distill-Refine) — pairwise comparison
+ * Research grounding: arXiv 2604.16529 (Kim et al., Meta, "Scaling Test-Time Compute for
+ * Agentic Coding" — its Recursive Tournament Voting, RTV, selection half) — pairwise comparison
  * over compact structured summaries is the measured selection mechanism; judges compare
  * summaries, never raw transcripts. The session is deliberately given NO repository access — the
  * prompt instructs it to judge from the two summaries alone, mirroring the paper's setup.
