@@ -20,12 +20,9 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { AskConfirmInput, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -37,6 +34,7 @@ import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { createReviewFlow, type CreateReviewFlowOpts } from '@src/application/flows/review/flow.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) {
@@ -57,21 +55,6 @@ const findElement = <TCtx>(el: Element<TCtx>, target: string): Element<TCtx> | u
     if (hit !== undefined) return hit;
   }
   return undefined;
-};
-
-const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
-  let current = initial;
-  const repo = withUpdate({
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-  return { repo, current: () => current };
 };
 
 const staticTaskRepo = (tasks: readonly Task[]): TaskRepository =>

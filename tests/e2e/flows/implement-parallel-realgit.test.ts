@@ -29,12 +29,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
@@ -68,6 +66,7 @@ import { createParallelImplementElement } from '@src/application/flows/implement
 import { type ImplementWavePlan, planImplementWaves } from '@src/application/flows/implement/flow.ts';
 import { renderTaskGraphIssue } from '@src/domain/entity/task-graph.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { inMemorySprintRepo, inMemoryExecutionRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 /**
  * Unwrap a wave plan in a test that asserts the happy path. A scheduling failure here means the
@@ -126,83 +125,6 @@ function runTests(): void {
   const SPRINT_BRANCH = generateBranchName(E2E_SPRINT_ID);
   const FAKE_PROJECT_ID = 'proj-parallel-realgit';
   const FAKE_PROJECT_SLUG = slug('proj-parallel-realgit');
-
-  // ─── In-memory repository fakes ───────────────────────────────────────────
-  const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
-    let current: Sprint = initial;
-    return {
-      repo: {
-        async findById(id: SprintId) {
-          if (current.id === id) return Result.ok(current);
-          return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-        },
-        async save(sprint: Sprint) {
-          current = sprint;
-          return Result.ok(undefined);
-        },
-        async list() {
-          return Result.ok([current]);
-        },
-      } as unknown as SprintRepository,
-      current: () => current,
-    };
-  };
-
-  const inMemoryExecutionRepo = (
-    initial: SprintExecution
-  ): { repo: SprintExecutionRepository; current: () => SprintExecution } => {
-    let current = initial;
-    return {
-      repo: {
-        async findById(id: SprintId) {
-          if (current.sprintId === id) return Result.ok(current);
-          return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-        },
-        async save(next: SprintExecution) {
-          current = next;
-          return Result.ok(undefined);
-        },
-        async remove() {
-          return Result.ok(undefined);
-        },
-      } as unknown as SprintExecutionRepository,
-      current: () => current,
-    };
-  };
-
-  const inMemoryTaskRepo = (
-    initial: readonly Task[]
-  ): { repo: TaskRepository; tasks: () => readonly Task[]; saveAlls: ReadonlyArray<readonly Task[]> } => {
-    let store: Task[] = [...initial];
-    const saveAlls: Array<readonly Task[]> = [];
-    return {
-      repo: {
-        async findBySprintId() {
-          return Result.ok(store as readonly Task[]);
-        },
-        async findById(_sprintId: SprintId, taskId: TaskId) {
-          const t = store.find((tt) => tt.id === taskId);
-          if (t === undefined) return Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
-          return Result.ok(t);
-        },
-        async update(_sprintId: SprintId, task: Task) {
-          const idx = store.findIndex((t) => t.id === task.id);
-          if (idx >= 0) store[idx] = task;
-          else store = [...store, task];
-          return Result.ok(undefined);
-        },
-        async saveAll(_sprintId: SprintId, tasks: readonly Task[]) {
-          store = [...tasks];
-          saveAlls.push(tasks);
-          return Result.ok(undefined);
-        },
-      } as unknown as TaskRepository,
-      tasks: () => store,
-      get saveAlls() {
-        return saveAlls;
-      },
-    };
-  };
 
   // ─── Real-file-writing fake AI provider ───────────────────────────────────
   /**
