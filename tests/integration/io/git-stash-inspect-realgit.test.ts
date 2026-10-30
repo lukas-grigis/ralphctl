@@ -139,6 +139,29 @@ describe('gitStashPatch (real git)', () => {
     expect([...(await fs.readFile(join(project.path, 'logo.bin')))]).toEqual([0, 1, 2, 0, 255, 0, 3]);
   });
 
+  it('stays git apply-able under a user config that colours or unprefixes diffs', async () => {
+    await project.git('config', 'color.ui', 'always');
+    await project.git('config', 'diff.noprefix', 'true');
+    await project.writeFile('a.txt', 'one\nTWO\nthree\n');
+    await project.writeFile('src/new.ts', 'export const x = 1;\n');
+    await fs.writeFile(join(project.path, 'logo.bin'), Buffer.from([0, 1, 2, 0, 255, 0, 3]));
+    expect((await gitStashPush(runner, cwd, MSG)).ok).toBe(true);
+
+    const result = await gitStashPatch(runner, cwd, MSG);
+    if (!result.ok) throw result.error;
+    const patch = result.value?.patch ?? '';
+    expect(patch).not.toContain('\x1b[');
+    expect(patch).toContain('diff --git a/a.txt b/a.txt');
+    const patchFile = join(project.path, '.git', 'rejected.patch');
+    await fs.writeFile(patchFile, patch);
+    await project.git('apply', '--check', patchFile);
+    await project.git('apply', patchFile);
+
+    expect(await project.readFile('a.txt')).toBe('one\nTWO\nthree\n');
+    expect(await project.readFile('src/new.ts')).toBe('export const x = 1;\n');
+    expect([...(await fs.readFile(join(project.path, 'logo.bin')))]).toEqual([0, 1, 2, 0, 255, 0, 3]);
+  });
+
   it('returns undefined when no entry matches', async () => {
     const result = await gitStashPatch(runner, cwd, MSG);
     expect(result.ok && result.value).toBeUndefined();
