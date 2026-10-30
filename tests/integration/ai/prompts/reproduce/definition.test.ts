@@ -90,6 +90,12 @@ describe('reproduce template — reproduction-only guidance', () => {
     expect(body).toMatch(/not a setup error, an import error/i);
   });
 
+  it('asks for an assertion on the stated behaviour and a self-bounded hang', async () => {
+    const body = await renderedBody();
+    expect(body).toMatch(/differs\s+from\s+today's\s+wrong\s+value/i);
+    expect(body).toMatch(/bound\s+it\s+with\s+a\s+timeout\s+inside\s+the\s+test/i);
+  });
+
   it('requires exactly one new test, preferring an existing relevant file', async () => {
     const body = await renderedBody();
     expect(body).toMatch(/exactly one new test/i);
