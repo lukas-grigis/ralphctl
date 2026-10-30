@@ -38,11 +38,12 @@ into the scratchpad. Read-only git is fine. Commit only when the delegation asks
 - Every occurrence of a key is replaced, so reusing a key mid-sentence repeats the whole value there.
 - Partials are inserted verbatim in one pass and never re-scanned: a placeholder inside a `_partials/*.md`
   body ships as a literal. Keep placeholders in the flow template.
-- Each flow's `definition.ts` declares the exact parameter set, and
-  `tests/integration/ai/prompts/<flow>/definition.test.ts` pins placeholder-to-parameter parity in both
-  directions. Adding a placeholder is a `definition.ts` change plus its test, not just a `.md` edit.
-- A new template joins `BUNDLED_PROMPT_TEMPLATES` in `_engine/bundled-templates.ts` and gets its own
-  `definition.test.ts`; parity tests fail the suite otherwise.
+- Each flow's `definition.ts` declares the exact parameter set, and `placeholder-parity.test.ts` pins
+  placeholder-to-parameter parity in both directions for every def in `tests/fixtures/prompt-defs.ts`.
+  Adding a placeholder is a `definition.ts` change, not just a `.md` edit.
+- A new template joins `BUNDLED_PROMPT_TEMPLATES` in `_engine/bundled-templates.ts`, is registered in
+  `tests/fixtures/prompt-defs.ts` and gets its own `definition.test.ts`; `template-coverage.test.ts` fails
+  the suite otherwise.
 - `ls _partials` and `ls _engine` are the live inventories.
 
 ## Signals

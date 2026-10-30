@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
@@ -6,7 +5,6 @@ import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildSelectCandidatePrompt,
   selectCandidatePromptDef,
@@ -50,39 +48,6 @@ const CANDIDATE_B =
   'Attempted: added a manual regex check. Verification: not run. Files: src/routes/exports.ts, src/middleware/auth.ts.';
 
 describe('selectCandidatePromptDef — completeness', () => {
-  it('every placeholder in select-candidate/template.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/select-candidate/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(selectCandidatePromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(selectCandidatePromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in select-candidate/template.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/select-candidate/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(selectCandidatePromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(selectCandidatePromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('expectedSignals advertises candidate-selection only', () => {
     expect(selectCandidatePromptDef.expectedSignals).toEqual(['candidate-selection']);
   });

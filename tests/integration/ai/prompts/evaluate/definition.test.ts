@@ -6,7 +6,6 @@ import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import { buildEvaluatePrompt, evaluatePromptDef } from '@src/integration/ai/prompts/evaluate/definition.ts';
 
@@ -52,39 +51,6 @@ const makeTaskWith = (overrides: {
 const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
 
 describe('evaluatePromptDef — completeness', () => {
-  it('every placeholder in evaluate.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/evaluate/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(evaluatePromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in evaluate.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/evaluate/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(evaluatePromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(evaluatePromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('declares the single `evaluation` signal type for both passed and failed verdicts', () => {
     expect(evaluatePromptDef.expectedSignals).toEqual(['evaluation']);
   });

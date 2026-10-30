@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
 import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
@@ -6,7 +5,6 @@ import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import { buildReproducePrompt, reproducePromptDef } from '@src/integration/ai/prompts/reproduce/definition.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
@@ -43,39 +41,6 @@ const makeTaskWith = (overrides: {
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
 
 describe('reproducePromptDef — completeness', () => {
-  it('every placeholder in reproduce/template.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/reproduce/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(reproducePromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(reproducePromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in reproduce/template.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/reproduce/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(reproducePromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(reproducePromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('expectedSignals advertises reproduction and note only', () => {
     expect(reproducePromptDef.expectedSignals).toEqual(['reproduction', 'note']);
   });
