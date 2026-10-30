@@ -51,7 +51,7 @@ export interface IterationConfig {
    */
   readonly skipPreVerifyOnFreshSetup: boolean;
   /**
-   * Opt-in best-of-N candidate count for the escalation ladder's top-of-ladder remedy — above the
+   * Best-of-N candidate count for the escalation ladder's top-of-ladder remedy — above the
    * same-model nudge (0 or 2-4; `undefined`/`0` disables it; the settings default is 2). Mirrors
    * `settings.harness.bestOfNCandidates`; see that field's JSDoc in `domain/entity/settings.ts` for
    * the cost caveat (each granted attempt spawns N full generator sessions) and the research
