@@ -11,14 +11,29 @@ import type { InProgressTask } from '@src/domain/entity/task.ts';
  *    the regression it must fix first.
  *
  * Both blocks pair the structured `VerifyRun` metadata (command / exit / duration / outcome) with
- * a short tail of the on-disk log. The tail is the caller's job to fetch (best-effort log read,
- * best-effort IO at the leaf boundary); these helpers stay pure so they unit-test without a
- * filesystem. A bloated tail would regress prompt token cost, so the caller caps the read and
- * these helpers clamp again defensively — the block is environment context, not a full transcript.
+ * a clamped excerpt of the on-disk log. Reading the log is the caller's job (best-effort IO at the
+ * leaf boundary, capped at {@link VERIFY_LOG_READ_MAX_BYTES}); these helpers stay pure so they
+ * unit-test without a filesystem — the block is environment context, not a full transcript.
  */
 
-/** Max characters of log tail inlined into a verify block. Keeps the prompt addition bounded. */
-export const VERIFY_TAIL_MAX_CHARS = 600;
+/** Max characters of command output inlined into a prompt block. Keeps the prompt addition bounded. */
+export const VERIFY_OUTPUT_MAX_CHARS = 600;
+
+/** How much of a verify log's end the caller reads, so the clamp's head is the log's own head for a typical run. */
+export const VERIFY_LOG_READ_MAX_BYTES = 256 * 1024;
+
+/**
+ * Trimmed output, or its head and tail halves with the elided middle marked: the first compiler or
+ * type error sits at the top of a log, the failing summary at the bottom. Half-and-half truncation
+ * follows OpenAI's Codex prompting guide ("Tool Response Truncation").
+ */
+export const clampCommandOutput = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (trimmed.length <= VERIFY_OUTPUT_MAX_CHARS) return trimmed;
+  const half = VERIFY_OUTPUT_MAX_CHARS / 2;
+  const elided = trimmed.length - VERIFY_OUTPUT_MAX_CHARS;
+  return `${trimmed.slice(0, half)}\n…${String(elided)} chars truncated…\n${trimmed.slice(-half)}`;
+};
 
 /**
  * The running (last) attempt of an in-progress task, or undefined when there is none (defensive —
@@ -41,15 +56,6 @@ export const lastSettledAttempt = (task: InProgressTask): Attempt | undefined =>
 export const verifyRunForPhase = (attempt: Attempt | undefined, phase: VerifyRunPhase): VerifyRun | undefined =>
   attempt?.verifyRuns?.find((r) => r.phase === phase);
 
-const clampTail = (tail: string | undefined): string => {
-  if (tail === undefined) return '';
-  const trimmed = tail.trim();
-  if (trimmed.length === 0) return '';
-  // Keep the END of the tail — the failing summary / final stack frame sits at the bottom of a
-  // verify-script log, which is the part a generator most needs.
-  return trimmed.length > VERIFY_TAIL_MAX_CHARS ? `…${trimmed.slice(trimmed.length - VERIFY_TAIL_MAX_CHARS)}` : trimmed;
-};
-
 const outcomeLabel = (run: VerifyRun): string => {
   switch (run.outcome) {
     case 'success':
@@ -63,15 +69,15 @@ const outcomeLabel = (run: VerifyRun): string => {
   }
 };
 
-const formatVerifyRun = (run: VerifyRun, tail: string | undefined): string => {
+const formatVerifyRun = (run: VerifyRun, log: string | undefined): string => {
   const lines: string[] = [];
   if (run.command.length > 0) lines.push(`command: \`${run.command}\``);
   lines.push(`outcome: ${outcomeLabel(run)}`);
   if (run.durationMs > 0) lines.push(`duration: ${String(run.durationMs)}ms`);
-  const clamped = clampTail(tail);
+  const clamped = clampCommandOutput(log ?? '');
   if (clamped.length > 0) {
     lines.push('');
-    lines.push('log tail:');
+    lines.push('log:');
     lines.push('```');
     lines.push(clamped);
     lines.push('```');
@@ -94,7 +100,7 @@ export const formatPreVerifyResults = (task: InProgressTask, logTail: string | u
   const run = verifyRunForPhase(runningAttempt(task), 'pre');
   if (run === undefined) return '';
   // A skipped/synthetic row with no command and no body carries nothing actionable.
-  if (run.command.length === 0 && clampTail(logTail).length === 0) return '';
+  if (run.command.length === 0 && (logTail ?? '').trim().length === 0) return '';
   return formatVerifyRun(run, logTail);
 };
 

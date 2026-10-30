@@ -35,6 +35,9 @@ to [Semantic Versioning](https://semver.org/).
   handling for states the code already rules out, or comments and type annotations to code it did not change.
   When the evaluator fails work on a project convention, it now cites the context file and line that states it,
   and it no longer fails work on a convention no file or criterion states.
+- **Retries see the first error in a failing verify log.** The verify and reproduction output inlined into the
+  generator prompt keeps the start and the end of the log, with the middle cut, instead of only the end. A
+  compiler or type checker usually prints the root-cause error first, which the old end-only excerpt dropped.
 - **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
   one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
   `ralphctl` is unchanged.
