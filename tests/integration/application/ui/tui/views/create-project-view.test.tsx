@@ -28,6 +28,15 @@ import { CTRL_U, ENTER, ESC, tick } from '@tests/integration/application/ui/tui/
 import { waitFor, waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady, type HarnessApi } from '@tests/integration/application/ui/tui/_harness.tsx';
 
+// A long path wraps onto an indented continuation line and the caret row drops the character at the
+// wrap, so a whole-path match can never hold: head and tail (one write lands atomically) prove the echo.
+const echoes = (frame: string, path: string): boolean => {
+  const squash = (text: string): string => text.replace(/\s+/g, '');
+  const flat = squash(frame);
+  const want = squash(path);
+  return flat.includes(want.slice(0, 24)) && flat.includes(want.slice(-8));
+};
+
 // Types `name`, accepts the default slug, skips the description, enters `repoPath`, accepts the
 // default repo name and confirms. Each key waits for the next step to render, so the caller only
 // has to wait for the outcome of the final confirm.
@@ -51,7 +60,7 @@ const walkWizard = async (result: HarnessApi['result'], name: string, repoPath: 
   await advanceTo('t', 'Path');
   result.stdin.write(CTRL_U);
   result.stdin.write(repoPath);
-  await waitFor(() => expect(frame()).toContain(repoPath));
+  await waitFor(() => expect(echoes(frame(), repoPath)).toBe(true));
   await advanceTo(ENTER, 'Repository name');
   await advanceTo(ENTER, 'Save this project?');
   result.stdin.write(ENTER);
