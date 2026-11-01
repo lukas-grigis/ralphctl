@@ -7,7 +7,7 @@ metadata:
 
 A "simplification" that inlines an exported pure predicate (e.g. `shouldShowMigrationGate(pending, resolved)`)
 and deletes its test removes the only fence for the invariant it named (consent splash must not re-show after
-a pause/resume remount). The new inline expression sits in a non-exported closure, so nothing can test it.
+a pause/resume remount). The new inline expression sits in a non-exported closure, so only a test driven through the launch path can reach it.
 
 **Why:** "tests no weaker" is judged by invariants, not by test count; a tautological-looking test can be the
 sole regression net for a launch-path rule.
