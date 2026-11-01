@@ -8,8 +8,10 @@ import {
   VERIFY_OUTPUT_MAX_CHARS,
   verifyRunForPhase,
 } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
-import { appendAttemptVerifyRun } from '@src/domain/entity/task-attempts.ts';
+import { appendAttemptVerifyRun, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { completeAttempt, type VerifyRun } from '@src/domain/entity/attempt.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { Result } from '@src/domain/result.ts';
 import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -214,9 +216,38 @@ describe('composeVerifyBlocks', () => {
         task
       );
       expect(retryFeedback).toContain('FAILED (exit 1)');
-      expect(retryFeedback).toContain('not in the working tree');
-      expect(retryFeedback).toContain(`\`git apply ${patchFor(task, 1)}\``);
+      // `implement/template.md` tells the generator how to read this note by this exact phrase.
+      expect(retryFeedback).toContain('set aside');
+      expect(retryFeedback).toContain(`\`git apply "${patchFor(task, 1)}"\``);
       expect(retryFeedback).toContain('unverified lead');
+    });
+
+    it('stays true on later rounds: it dates the set-aside to the attempt start and claims nothing about the tree now', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain('At the start of this attempt');
+      expect(retryFeedback).toContain('If you have not applied it yet');
+      expect(retryFeedback).toContain('carry on from the current tree');
+      expect(retryFeedback).not.toContain('they are not in the working tree');
+      expect(retryFeedback).not.toContain('is back at the last commit');
+      expect(retryFeedback).not.toContain('start from the clean tree');
+    });
+
+    it('quotes the path inside the apply command, so a data root with spaces stays one argument', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const patch = `/tmp/my data/sprint/logs/rejected-diff/${String(task.id)}/attempt-1.patch`;
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patch]: 'diff' }),
+        absolutePath('/tmp/my data/sprint'),
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain(`\`git apply "${patch}"\``);
     });
 
     it('leaves the retry feedback byte-identical when no patch file exists', async () => {
@@ -233,7 +264,7 @@ describe('composeVerifyBlocks', () => {
         task.id,
         task
       );
-      expect(retryFeedback).not.toContain('set that attempt');
+      expect(retryFeedback).not.toContain('set aside');
     });
 
     it('adds no note when the prior post-verify was green, even if a stale patch exists', async () => {
@@ -247,6 +278,36 @@ describe('composeVerifyBlocks', () => {
         task
       );
       expect(retryFeedback).toBe('');
+    });
+
+    /** A red attempt 1 of the run an unblock revived, retried; the blocked run's one attempt is archived. */
+    const revivedThenRedRetry = (): InProgressTask => {
+      const failed = unwrap(failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed'));
+      const revived = unwrap(unblockTask(unwrap(markTaskBlocked(failed, 'stuck', 'own'))));
+      return settleAndRetry(withRun(unwrap(startNextAttempt(revived, FIXED_LATER, 'session-2')), postRun()));
+    };
+
+    it('offers no patch left over from a retired run, though unblocking restarted the attempt numbers', async () => {
+      const task = revivedThenRedRetry();
+      expect(lastSettledAttempt(task)?.n).toBe(1);
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'leftover from the retired run' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toBe(formatRetryFeedback(task, undefined));
+    });
+
+    it('offers the patch of the current run, numbered past the retired attempts', async () => {
+      const task = revivedThenRedRetry();
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 2)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain(`\`git apply "${patchFor(task, 2)}"\``);
     });
   });
 });

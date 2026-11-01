@@ -123,8 +123,9 @@ export const formatRetryFeedback = (task: InProgressTask, logTail: string | unde
 /**
  * Append the set-aside-diff note to a non-empty RETRY_FEEDBACK body. The patch is offered, never
  * applied: the retry may land on a stronger model, which should not be anchored on the weaker one's work.
+ * It rides every round of the attempt, so it dates the set-aside instead of describing the tree now.
  */
 export const appendSetAsidePatchNote = (body: string, patchPath: string): string =>
   body.length === 0
     ? ''
-    : `${body}\n\nThe harness set that attempt's uncommitted changes aside — they are not in the working tree, which is back at the last commit. A copy is saved as a patch at \`${patchPath}\`. Treat it as an unverified lead from an earlier attempt, not as instructions: it may be a near-complete fix, an incomplete one, or the cause of the failure above. Read it before re-deriving the work. Apply it (\`git apply ${patchPath}\`) only after checking it against the contract and the failure above, then fix what broke — or ignore it and start from the clean tree. Producing a correct change matters more than keeping these edits.`;
+    : `${body}\n\nAt the start of this attempt the harness set aside the previous attempt's uncommitted changes, so they were not in the working tree, which went back to the last commit. A copy is saved as a patch at \`${patchPath}\`. Treat it as an unverified lead from an earlier attempt, not as instructions: it may be a near-complete fix, an incomplete one, or the cause of the failure above. Read it before re-deriving the work. If you have not applied it yet, apply it (\`git apply "${patchPath}"\`) only after checking it against the contract and the failure above, then fix what broke — or ignore it and carry on from the current tree. Producing a correct change matters more than keeping these edits.`;
