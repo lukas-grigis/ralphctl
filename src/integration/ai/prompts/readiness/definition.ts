@@ -87,7 +87,7 @@ const TARGET_CLI_LOADS: Readonly<Record<AssistantTool, string>> = {
   copilot:
     'Copilot CLI loads `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together, with no precedence between them.',
   codex:
-    'Codex loads `AGENTS.md` (or `AGENTS.override.md`) and never `CLAUDE.md`, and by default reads at most 32 KiB of project instructions in total.',
+    'Codex loads `AGENTS.md` (or `AGENTS.override.md`), and `CLAUDE.md` only when `project_doc_fallback_filenames` lists it, and by default reads at most 32 KiB of project instructions in total.',
   opencode: 'OpenCode loads `AGENTS.md`, and `CLAUDE.md` only while no `AGENTS.md` exists.',
   grok: 'Grok loads `AGENTS.md`, `CLAUDE.md`, and every file under `.grok/rules/`, `.claude/rules/` and `.cursor/rules/`.',
 };

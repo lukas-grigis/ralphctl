@@ -236,7 +236,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
   it.each([
     ['claude-code', '`AGENTS.md` only while no `CLAUDE.md` exists'],
     ['copilot', '`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together'],
-    ['codex', 'never `CLAUDE.md`'],
+    ['codex', '`CLAUDE.md` only when `project_doc_fallback_filenames` lists it'],
     ['opencode', '`CLAUDE.md` only while no `AGENTS.md` exists'],
     ['grok', 'Grok loads `AGENTS.md`, `CLAUDE.md`'],
   ] as const)('tells the model which context files %s loads by itself', async (currentTool, fact) => {
