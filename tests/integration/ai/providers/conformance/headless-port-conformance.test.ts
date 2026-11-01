@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -314,26 +314,29 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
   it('surfaces a cancel during rate-limit backoff as AbortError, without re-spawning', async () => {
     // InvalidStateError here would read as a recoverable turn error and self-block the task.
     const controller = new AbortController();
+    const cap = createCapturingBus();
     const fake = makeProviderSpawn([{ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 }]);
     const provider = row.create({
       rateLimitRetries: 2,
-      backoffSchedule: [5_000],
-      eventBus: createCapturingBus().bus,
+      backoffSchedule: [30_000],
+      eventBus: cap.bus,
       spawn: fake.spawn,
       mkTempPath: () => join(String(tmp.root), 'codex-body.txt'),
       readFile: () => Promise.resolve(''),
       unlink: () => Promise.resolve(),
     });
     const promise = provider.generate(session({ abortSignal: controller.signal }));
-    await waitForSpawn(fake.calls);
-    setTimeout(() => controller.abort(), 5);
+    // banner-show is published right before the sleep, so aborting after it can only cut the sleep short.
+    await vi.waitFor(() => expect(cap.events.some((e) => e.type === 'banner-show')).toBe(true));
+    controller.abort();
+    // Far below the 30s backoff: a sleep that ignores the signal would blow this timeout.
     const result = await promise;
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.name).toBe('AbortError');
     expect(fake.calls).toHaveLength(1);
-  });
+  }, 3_000);
 
   it('persists session-id.txt beside signals.json, and on a crash too, so the thread stays resumable', async () => {
     const sidPath = join(String(outputDir), 'session-id.txt');
