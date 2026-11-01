@@ -82,6 +82,21 @@ clean-tree-only restore never popped the earlier work. **How to apply:** any fak
 task ("fix"/"bug"/"crash" in the name) must answer `stash list` BEFORE `start-attempt`. Still open:
 `quarantine-retry-diff` stashes the whole tree, reproduction test included, on a red-verify retry.
 
+**A discarded reproduction's test leaves the tree by one path, under its own stash key.** With no artifact
+`withReproductionTestExcluded` doesn't exclude it, so left in place it turned the next baseline red and blocked
+the task (seen on the real flow). The `discarded-reproduction` suffix must stay out of every list-and-pop key:
+`blocked-diff` (the teardown count too), `reproduction-baseline-exclude`, `attempt-N-rejected-diff`,
+`attempt-N-candidate-I`. `testPath` is AI-reported: `.` passes a naive escape check and IS a blanket stash, so
+`cwd` itself and directories are refused. Trap (git 2.56): a path-limited `stash push` records staged changes of
+OTHER paths in the entry (`stash show` lists them) while leaving them in the tree, so assert on `status`, not
+`stash show`. Still open: `withReproductionTestExcluded` runs `stash push` raw, outside `withStashMutex` and
+without `:(literal)`. `reproduce.ts` sits at the `max-lines` cap and lint is `--max-warnings 0`, so new helpers
+go in a sibling.
+
+**Anything under `logs/` keyed on `attempt.n` restarts after an unblock** (`attempts: []`). The rejected-diff
+patch adds the retired attempts, because a leftover file used to read as "the quarantine ran". `verifyLogPath`
+doesn't, and `persistVerifyLog` skips empty output, so a run with an empty log can still inline a retired run's.
+
 **Parallel worktree setup output is discarded at setup time, not excluded at commit time.** That was
 a user decision on 2026-09-17. A commit-time path exclusion would also drop the task's own change to
 the same path, like a lockfile when the task adds a dependency, and it would leave the worktree dirty
