@@ -4,6 +4,7 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
@@ -54,6 +55,8 @@ interface RetryQuarantineInput {
   readonly sprintId: SprintId;
   /** 1-based number of the running attempt being settled — disambiguates stash entries. */
   readonly attemptN: number;
+  /** Names the patch file, the same way the retry's reader does. */
+  readonly task: Pick<Task, 'id' | 'retiredAttempts'>;
 }
 
 /**
@@ -71,12 +74,12 @@ export const retryStashMessage = (sprintId: SprintId, taskId: TaskId, attemptN: 
 const saveRejectedDiffPatch = async (
   deps: QuarantineRetryDiffLeafDeps,
   opts: QuarantineRetryDiffLeafOpts,
-  taskId: TaskId,
+  task: RetryQuarantineInput['task'],
   attemptN: number,
   message: string,
   log: Logger
 ): Promise<void> => {
-  const ctx = { taskId: String(taskId), stashMessage: message };
+  const ctx = { taskId: String(task.id), stashMessage: message };
   const shown = await gitStashPatch(deps.gitRunner, opts.cwd, message);
   if (!shown.ok) {
     log.warn('could not read the set-aside diff — no patch file for the retry', { ...ctx, error: shown.error.message });
@@ -88,7 +91,7 @@ const saveRejectedDiffPatch = async (
     log.warn('set-aside diff too large — no patch file for the retry', { ...ctx, bytes });
     return;
   }
-  const path = rejectedDiffPatchPath(opts.sprintDir, taskId, attemptN);
+  const path = rejectedDiffPatchPath(opts.sprintDir, task, attemptN);
   if (!path.ok) {
     log.warn('could not resolve the patch path — no patch file for the retry', { ...ctx, error: path.error.message });
     return;
@@ -130,7 +133,7 @@ export const quarantineRetryDiffLeaf = (
             taskId: String(taskId),
             stashMessage: message,
           });
-          await saveRejectedDiffPatch(deps, opts, taskId, input.attemptN, message, log);
+          await saveRejectedDiffPatch(deps, opts, input.task, input.attemptN, message, log);
         }
         return Result.ok(undefined);
       },
@@ -138,6 +141,7 @@ export const quarantineRetryDiffLeaf = (
     input: (ctx): RetryQuarantineInput => ({
       sprintId: ctx.sprintId,
       attemptN: ctx.currentTask?.attempts.length ?? 0,
+      task: ctx.currentTask ?? { id: taskId },
     }),
     output: (ctx) => ctx,
     label: 'Stash retry diff',

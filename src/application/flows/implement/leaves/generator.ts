@@ -365,7 +365,7 @@ export const composeVerifyBlocks = async (
   if (priorAttemptN !== undefined && retryFeedback.length > 0) {
     // The red-verify retry quarantine saves the set-aside diff here; the reader resolves a
     // missing file to `undefined`, so a 1-byte read is the existence probe.
-    const patchPath = rejectedDiffPatchPath(sprintDir, taskId, priorAttemptN);
+    const patchPath = rejectedDiffPatchPath(sprintDir, task, priorAttemptN);
     if (patchPath.ok && (await reader(patchPath.value, 1)) !== undefined) {
       retryFeedback = appendSetAsidePatchNote(retryFeedback, String(patchPath.value));
     }

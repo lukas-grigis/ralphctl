@@ -7,13 +7,24 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import type { VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { appendAttemptVerifyRun, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { composeVerifyBlocks } from '@src/application/flows/implement/leaves/generator.ts';
+import { absolutePath, FIXED_LATER, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import {
   isRedVerifyRetry,
   quarantineRetryDiffLeaf,
   retryStashMessage,
 } from '@src/application/flows/implement/leaves/quarantine-retry-diff.ts';
 import { REJECTED_DIFF_PATCH_MAX_BYTES } from '@src/application/flows/implement/leaves/verify-log.ts';
+
+const unwrap = <T, E>(r: Result<T, E>): T => {
+  if (!r.ok) throw new Error(`unwrap failed: ${String(r.error)}`);
+  return r.value as T;
+};
 
 const SPRINT_ID = 'sprint-x' as SprintId;
 const SPRINT_DIR = absolutePath('/data/sprints/sprint-x');
@@ -129,6 +140,56 @@ describe('quarantineRetryDiffLeaf', () => {
         PATCH,
       ],
     ]);
+  });
+
+  describe('after an unblock restarted the attempt numbers', () => {
+    const redPost: VerifyRun = {
+      phase: 'post',
+      ranAt: FIXED_LATER,
+      command: 'pnpm verify',
+      exitCode: 1,
+      durationMs: 1,
+      outcome: 'failed',
+    };
+
+    /** The real path to the task's first attempt after an unblock: the blocked run's one attempt is archived. */
+    const revived = (): InProgressTask => {
+      const failed = unwrap(failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed'));
+      const todo = unwrap(unblockTask(unwrap(markTaskBlocked(failed, 'stuck', 'own'))));
+      return unwrap(startNextAttempt(todo, FIXED_LATER, 'session-2'));
+    };
+
+    it('numbers the patch past the retired attempts', async () => {
+      const task = revived();
+      expect(task.attempts).toHaveLength(1);
+      const { runner } = fakeGit({ dirty: true });
+      const { writeFile, writes } = recordingWriteFile();
+      const el = quarantineRetryDiffLeaf({ gitRunner: runner, logger: noopLogger, writeFile }, OPTS, task.id);
+
+      expect((await el.execute(ctxFor(task))).ok).toBe(true);
+      expect(writes.map(([path]) => path)).toEqual([
+        `/data/sprints/sprint-x/logs/rejected-diff/${String(task.id)}/attempt-2.patch`,
+      ]);
+    });
+
+    it('writes the patch where the next attempt reads it', async () => {
+      const task = unwrap(appendAttemptVerifyRun(revived(), redPost));
+      const { runner } = fakeGit({ dirty: true });
+      const { writeFile, writes } = recordingWriteFile();
+      const el = quarantineRetryDiffLeaf({ gitRunner: runner, logger: noopLogger, writeFile }, OPTS, task.id);
+      expect((await el.execute(ctxFor(task))).ok).toBe(true);
+
+      const retry = unwrap(startNextAttempt(unwrap(failCurrentAttempt(task, FIXED_LATER, 'failed')), FIXED_LATER));
+      const written = new Map(writes);
+      const { retryFeedback } = await composeVerifyBlocks(
+        (path) => Promise.resolve(written.get(String(path))),
+        SPRINT_DIR,
+        retry.id,
+        retry
+      );
+
+      expect(retryFeedback).toContain(`\`git apply "${writes[0]?.[0] ?? 'nothing written'}"\``);
+    });
   });
 
   it('skips (does not truncate) a patch over the cap — warns, still ok', async () => {

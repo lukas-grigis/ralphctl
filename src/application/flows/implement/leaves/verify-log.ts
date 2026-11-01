@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { InProgressTask } from '@src/domain/entity/task.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -24,18 +24,17 @@ export const verifyLogPath = (
   attemptN: number
 ): Result<AbsolutePath, ValidationError> => AbsolutePath.parse(verifyLogPathString(sprintDir, taskId, phase, attemptN));
 
-/**
- * `<sprintDir>/logs/rejected-diff/<task-id>/attempt-<N>.patch` — where the red-verify retry
- * quarantine saves the diff it set aside. Shared by the writer and the retry prompt's reader.
- */
+/** `<sprintDir>/logs/rejected-diff/<task-id>/attempt-<N>.patch`; `<N>` adds retired attempts, as unblocks restart `n`. */
 export const rejectedDiffPatchPath = (
   sprintDir: AbsolutePath,
-  taskId: TaskId,
+  task: Pick<Task, 'id' | 'retiredAttempts'>,
   attemptN: number
-): Result<AbsolutePath, ValidationError> =>
-  AbsolutePath.parse(
-    join(String(sprintDir), 'logs', 'rejected-diff', String(taskId), `attempt-${String(attemptN)}.patch`)
+): Result<AbsolutePath, ValidationError> => {
+  const retired = (task.retiredAttempts ?? []).reduce((total, run) => total + run.attempts.length, 0);
+  return AbsolutePath.parse(
+    join(String(sprintDir), 'logs', 'rejected-diff', String(task.id), `attempt-${String(attemptN + retired)}.patch`)
   );
+};
 
 /** Engineering budget, not a measured number: a bigger diff is a poor lead and bloats the sprint dir. */
 export const REJECTED_DIFF_PATCH_MAX_BYTES = 256 * 1024;
