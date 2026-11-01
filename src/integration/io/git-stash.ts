@@ -107,6 +107,38 @@ export const gitStashPush = (
   });
 
 /**
+ * Stash one path, tracked or untracked, and leave the rest of the tree alone. `{ stashed: false }`
+ * when that path has no changes. `:(literal)` because a path like `tests/[id]/a.test.ts` is no glob.
+ */
+export const gitStashPushPath = (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string,
+  path: string
+): Promise<Result<StashOutcome, StorageError>> =>
+  withStashMutex(async () => {
+    const pathspec = `:(literal)${path}`;
+    const status = await runGitChecked(
+      runner,
+      cwd,
+      ['status', '--porcelain', '--untracked-files=all', '--', pathspec],
+      'status'
+    );
+    if (!status.ok) return Result.error(status.error);
+    if (status.value.stdout.trim().length === 0) return Result.ok({ stashed: false });
+
+    const stash = await runGitChecked(
+      runner,
+      cwd,
+      ['stash', 'push', '-u', '-m', message, '--', pathspec],
+      'stash push',
+      { timeoutMs: GIT_BULK_TIMEOUT_MS }
+    );
+    if (!stash.ok) return Result.error(stash.error);
+    return Result.ok({ stashed: true });
+  });
+
+/**
  * List stash entry subjects in the same order as `git stash list`. An empty stash yields
  * `Result.ok([])`. Bubbles a non-zero exit (e.g. not a git repo) as StorageError so callers
  * don't mistake a transport failure for an empty stash.

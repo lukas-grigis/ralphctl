@@ -197,8 +197,9 @@ command itself and only accepts the artifact (`ctx.reproductionArtifact`) when t
 own — a pass, or a run killed on timeout or the output cap, proves nothing. The validated test path,
 run command, and the session's own list of relevant existing tests then ride into every generator and
 evaluator turn of that task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
-claimed command that passes (or is killed) on re-run all degrade silently to today's behaviour — no
-reproduction context, task proceeds unaffected. The same holds for the session's bounded "could not
+claimed command that passes (or is killed) on re-run all degrade silently to no reproduction context,
+and the task proceeds. A test the re-run discarded also leaves the tree: that one path goes into the stash
+under `ralphctl/<sprintId>/<taskId>/discarded-reproduction`, which nothing restores. The same holds for the session's bounded "could not
 reproduce" exit (`reproduced: false` plus a `reason`): the leaf logs a warning, the task card shows
 "not reproduced — <reason>", and no re-run happens. The accepted artifact is also saved to
 `implement/<task-id>/reproduce/artifact.json`. On a relaunch whose earlier work is still quarantined
@@ -311,7 +312,8 @@ the same wave already completed back to `todo`.
 On the task's next attempt after an operator unblock — a relaunch; restore is cross-launch only, because a
 same-run retry within budget stashes its rejected diff under a different key
 (`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores; it also saves a copy
-as `<sprintDir>/logs/rejected-diff/<taskId>/attempt-<N>.patch` (skipped over 256 KiB), which the retry's
+as `<sprintDir>/logs/rejected-diff/<taskId>/attempt-<N>.patch` (skipped over 256 KiB; here `<N>` also counts
+retired attempts, so an unblocked task can't be offered an earlier run's patch), which the retry's
 `<retry_feedback>` names as an optional, unverified patch the agent may apply or ignore — `restore-blocked-
 diff.ts` honours the recorded decision. `fresh` never probes the tree and never pops: the entry stays in the
 stash and the reproduce leaf behaves as on a first launch. `continue` (and a legacy fact with no decision)

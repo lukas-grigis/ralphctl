@@ -48,6 +48,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createImplementFlow, type RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { discardedReproductionStashMessage } from '@src/application/flows/implement/leaves/discarded-reproduction.ts';
 import { REPRODUCTION_TAMPER_NOTE } from '@src/application/flows/implement/leaves/reproduce.ts';
 import {
   absolutePath,
@@ -157,6 +158,19 @@ const verifyShell = (opts: { readonly redHead?: boolean } = {}): ShellScriptRunn
       const result = { passed, exitCode: passed ? 0 : 1, output: passed ? 'ok' : 'FAIL', durationMs: 0 };
       return Result.ok(result) as Result<typeof result, StorageError>;
     },
+  };
+};
+
+/** The verify script as above, except the reproduction command hangs until the runner kills it. */
+const killedReproductionShell = (): ShellScriptRunner => {
+  const verify = verifyShell();
+  return {
+    run: (cwd, script, opts) =>
+      script === RUN_COMMAND
+        ? Promise.resolve(
+            Result.ok({ passed: false, exitCode: null, output: '[timed out]', durationMs: 0, timedOut: true })
+          )
+        : verify.run(cwd, script, opts),
   };
 };
 
@@ -411,6 +425,64 @@ describePosix('bugfix relaunch after an unblock — real git', () => {
     expect((await stashSubjects(repo)).filter((s) => s.endsWith(`: ${message}`))).toHaveLength(1);
     expect(await repo.git('rev-parse', 'HEAD')).toBe(headBefore);
     expect(await repo.readFile(SOURCE_PATH)).toBe(SOURCE_AT_HEAD);
+  }, 120_000);
+
+  it('a first launch whose reproduction is killed sets the test aside: verify stays green and it is never committed', async () => {
+    const seeded = await seedRelaunch();
+    const { repo, sprint, task } = seeded;
+    await repo.git('stash', 'drop');
+    const taskStore = inMemoryTaskRepo([task]);
+    const provider = relaunchProvider();
+
+    const runner = createRunner<ImplementCtx>({
+      id: 'r-bugfix-discarded',
+      element: createImplementFlow(
+        buildDeps(seeded, taskStore.repo, provider, killedReproductionShell()),
+        flowOpts(seeded)
+      ),
+      initialCtx: { sprintId: sprint.id },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(provider.spawned[0]).toBe('reproduce');
+    const settled = taskStore.tasks().find((t) => t.id === task.id);
+    expect(settled?.status).toBe('done');
+    expect(settled?.attempts.at(-1)?.verifyRuns?.map((r) => [r.phase, r.outcome])).toStrictEqual([
+      ['pre', 'success'],
+      ['post', 'success'],
+    ]);
+    expect(await repo.git('show', `HEAD:${TEST_PATH}`)).toBe(TEST_AT_HEAD);
+    expect(await stashSubjects(repo)).toStrictEqual([
+      `On ${SPRINT_BRANCH}: ${discardedReproductionStashMessage(sprint.id, task.id)}`,
+    ]);
+    expect(await roundPrompt(seeded, 'generator')).not.toContain(RUN_COMMAND);
+  }, 120_000);
+
+  it('the parallel path sets it aside from inside the task worktree, onto the stash list the repo shares', async () => {
+    const seeded = await seedRelaunch();
+    const { repo, sprint, execution, task } = seeded;
+    await repo.git('stash', 'drop');
+    const taskStore = inMemoryTaskRepo([task]);
+    const deps = buildDeps(seeded, taskStore.repo, relaunchProvider(), killedReproductionShell());
+    const opts = { ...flowOpts(seeded), dirtyTreePolicy: 'cancel' as const };
+    const readConfig = () =>
+      Promise.resolve({ maxTurns: 3, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 1 });
+    const branchDeps = { implement: deps, eventBus: createInMemoryEventBus(), foldQueue: createFoldQueue() };
+    const branch = buildWaveBranches(branchDeps, opts, [[task]], readConfig)[0]![0]!;
+
+    const runner = createRunner<ImplementCtx>({
+      id: `r-${branch.id}`,
+      element: branch.element,
+      initialCtx: { sprintId: sprint.id, sprint, execution, tasks: [task] },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(taskStore.tasks().find((t) => t.id === task.id)?.status).toBe('done');
+    expect(await repo.git('show', `${SPRINT_BRANCH}:${TEST_PATH}`)).toBe(TEST_AT_HEAD);
+    const message = discardedReproductionStashMessage(sprint.id, task.id);
+    expect((await stashSubjects(repo)).filter((s) => s.endsWith(`: ${message}`))).toHaveLength(1);
   }, 120_000);
 
   it('the parallel path does the same inside the task worktree and folds the finished fix onto the sprint branch', async () => {

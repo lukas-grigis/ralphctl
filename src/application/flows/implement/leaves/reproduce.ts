@@ -32,6 +32,7 @@ import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts'
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import { clampCommandOutput } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { setAsideDiscardedTest } from '@src/application/flows/implement/leaves/discarded-reproduction.ts';
 import {
   loadReproductionArtifact,
   removeReproductionArtifact,
@@ -67,8 +68,10 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *
  * Failure tolerance is the point, not an afterthought: a failed session, a missing/invalid
  * `reproduction` signal, or a claimed command that passes (or has to be killed) on re-run all
- * degrade to today's behaviour — no reproduction context, logged at warn, task proceeds unaffected. Only a
- * fatal chain error (abort / exhausted rate limit) propagates.
+ * degrade to no reproduction context, logged at warn, task proceeds. A test the re-run discarded
+ * also leaves the tree, into the stash and that one path only: a killed test would hang the next
+ * verify run, and any of them would read as unknown uncommitted work. Only a fatal chain error
+ * (abort / exhausted rate limit) propagates.
  *
  * ## A relaunch reuses the reproduction it already has
  *
@@ -89,7 +92,7 @@ export interface ReproduceLeafDeps {
   readonly templateLoader: TemplateLoader;
   readonly publishSignal: PublishSignal;
   readonly shellScriptRunner: ShellScriptRunner;
-  /** Lists the stash, which is how a relaunch with quarantined work is told apart from a fresh one. */
+  /** Lists the stash, which tells a relaunch with quarantined work from a fresh one, and sets a discarded test aside. */
   readonly gitRunner: GitRunner;
   /** Saves an accepted reproduction so a later launch of the same task can reuse it. */
   readonly writeFile: WriteFile;
@@ -362,12 +365,13 @@ const runReproduceSession = async (
 const spawnReproduction = async (
   deps: ReproduceLeafDeps,
   opts: ReproduceLeafOpts,
-  taskId: TaskId,
-  task: Task,
+  input: ReproduceInput,
   reproduceDir: AbsolutePath,
   abortSignal: AbortSignal | undefined
 ): Promise<Result<ReproductionArtifact | undefined, DomainError>> => {
   const log = deps.logger.named(LOG_SCOPE);
+  const { task } = input;
+  const taskId = task.id;
   const session = await runReproduceSession(deps, opts, taskId, task, reproduceDir, abortSignal);
   if (!session.ok) return Result.error(session.error);
   const reproduction = session.value;
@@ -393,6 +397,10 @@ const spawnReproduction = async (
         ? `reproduce command for task '${String(taskId)}' was killed on re-run (timeout or runaway output) — a run the harness has to kill is not a reproduction, discarding`
         : `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
       { taskId: String(taskId), runCommand: reproduction.runCommand }
+    );
+    await setAsideDiscardedTest(
+      { gitRunner: deps.gitRunner, log },
+      { cwd: opts.cwd, sprintId: input.sprintId, taskId, testPath: reproduction.testPath }
     );
     return Result.ok(undefined);
   }
@@ -494,7 +502,7 @@ const reproduceUseCase = async (
     });
   }
 
-  const spawned = await spawnReproduction(deps, opts, taskId, input.task, reproduceDir.value, abortSignal);
+  const spawned = await spawnReproduction(deps, opts, input, reproduceDir.value, abortSignal);
   if (!spawned.ok) return Result.error(spawned.error);
   const artifact = spawned.value;
   if (artifact === undefined) return Result.ok({});

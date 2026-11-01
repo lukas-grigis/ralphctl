@@ -92,9 +92,11 @@ const fakeShellRunner = (
 });
 
 /**
- * Git fake for the reproduce leaf's one git read — `stash list --format=%s`, answered in real git's
- * `On <branch>: <message>` subject shape. Matched on the first two args only, so a flag change
- * elsewhere in the argv never silently turns a scripted answer into an unscripted one.
+ * Git fake for the reproduce leaf's reads — `stash list --format=%s`, answered in real git's
+ * `On <branch>: <message>` subject shape, and the path probe before setting a discarded test aside,
+ * answered clean (`reproduce-discard-realgit.test.ts` covers the stash itself). Matched on the first
+ * two args only, so a flag change elsewhere in the argv never silently turns a scripted answer into
+ * an unscripted one.
  */
 const fakeStashGit = (
   opts: { readonly subjects?: readonly string[]; readonly listFails?: boolean } = {}
@@ -108,6 +110,7 @@ const fakeStashGit = (
         if (opts.listFails === true) return Result.error(new StorageError({ subCode: 'io', message: 'git broke' }));
         return Result.ok({ stdout: (opts.subjects ?? []).join('\n'), stderr: '', exitCode: 0 });
       }
+      if (args[0] === 'status' && args[1] === '--porcelain') return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
       throw new Error(`unscripted git args: ${args.join(' ')}`);
     },
   };
