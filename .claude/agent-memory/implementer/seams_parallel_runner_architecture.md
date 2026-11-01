@@ -144,7 +144,7 @@ verdict-less attempt's neighbour. The evaluator reads its iterations from `loop-
   dependency-blocked task that means only `dependency-gate-<id>` (completed) + `task-body-<id>`
   (skipped) — no failed/aborted entry, no terminal leaf — so `resolveStatusFromSubSteps` returned
   `running` forever and pinned the header/card cursor. Fixed by a `task-body`-named skipped check
-  (`BucketOptions.bodySubstepName`), NOT by "any skipped substep", because `reproduce-guard` /
+  (`BODY_SUBSTEP` in `bucket-task-signals.ts`), NOT by "any skipped substep", because `reproduce-guard` /
   `quarantine-blocked-diff-guard` skip routinely inside a healthy task. Cursor scans share
   `isInFlightBucket` (running|pending); `tasksDone` still counts only `completed` on purpose, so a
   blocked task keeps `2/3` non-green.

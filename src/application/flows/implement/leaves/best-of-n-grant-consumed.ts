@@ -11,7 +11,7 @@ import { BEST_OF_N_CANDIDATE_LOGGER } from '@src/application/flows/implement/lea
 
 /**
  * Persist the grant's consumption to disk BEFORE any candidate spawns — the once-per-attempt
- * spend the whole opt-in remedy costs must survive a crash mid-sampling, not just a clean finish.
+ * spend the whole remedy costs must survive a crash mid-sampling, not just a clean finish.
  * `bestOfNSelectionLeaf`'s `consumeGrant` (best-of-n-selection.ts) clears the SAME
  * `bestOfNGrantedCandidates` field on ctx once selection closes out — but that ctx mutation only
  * reaches disk via whatever leaf persists next (`finalize-gen-eval`, downstream of the WHOLE

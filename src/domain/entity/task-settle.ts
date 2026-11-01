@@ -148,7 +148,7 @@ const MIN_BEST_OF_N_CANDIDATES = 2;
 /**
  * Stamp the once-per-task best-of-N grant onto an `in_progress` task — the counterpart of
  * {@link recordTaskEscalation} / {@link recordTaskEffortEscalation} for the escalation ladder's
- * opt-in top-of-ladder remedy. Sets the PERMANENT {@link InProgressTask.bestOfNGranted} marker
+ * top-of-ladder remedy. Sets the PERMANENT {@link InProgressTask.bestOfNGranted} marker
  * (never cleared — `decideEscalation` reads it for the once-per-task gate) alongside the
  * transient {@link InProgressTask.bestOfNGrantedCandidates} handshake value the attempt-body
  * consumes at start-attempt. Unlike the model/effort stamps, this is NOT re-stampable in

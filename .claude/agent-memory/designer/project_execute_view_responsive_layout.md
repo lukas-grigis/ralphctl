@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-The arithmetic lives in `execute-view-internals/use-responsive-layout.ts` and `theme/tokens.ts`. Read them for the
+The arithmetic lives in `execute-view-internals/responsive-layout.ts` and `theme/tokens.ts`. Read them for the
 current numbers; do not copy constants into new code or docs.
 
 - **Sidebar section order (keep it):** BaselineHealthCard, ModelMeta, Steps tree, Tasks minimap, TokenBudgetCard

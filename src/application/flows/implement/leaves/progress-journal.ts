@@ -114,8 +114,8 @@ interface JournalInput {
    */
   readonly commitSubject?: string | undefined;
   /**
-   * Best-of-N summary for the just-settled attempt, when the escalation policy's opt-in top-of-
-   * ladder grant sampled it — `ctx.bestOfNSummary`, stamped by `bestOfNSelectionLeaf`. Undefined
+   * Best-of-N summary for the just-settled attempt, when the escalation policy's top-of-ladder
+   * grant sampled it — `ctx.bestOfNSummary`, stamped by `bestOfNSelectionLeaf`. Undefined
    * for every ordinary attempt, so the `### Continuation state` block's extra line is zero-noise
    * on the default (non-opt-in) path.
    */

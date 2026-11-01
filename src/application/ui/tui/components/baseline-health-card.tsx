@@ -16,8 +16,7 @@
  *  - All-clean compact variant: a single summary line with four ticks; avoids wasted vertical space.
  *  - Title bar accent: error state → title reads `Baseline · <cause>` in `inkColors.error`;
  *    clean state → `Baseline · clean` in dim; pending/mixed → plain `Baseline`.
- *  - Fluid width at `xxl`: caller passes `width` (default `CONTEXT_WIDTH`); the card never
- *    hardcodes its own width.
+ *  - Width comes from the caller (default `CONTEXT_WIDTH`); the card never hardcodes its own.
  *
  * The card derives in-place from `SprintExecution` + `Task[]` — the entities the dashboard
  * already has access to. The wider `SprintState` projection this once anticipated was deleted

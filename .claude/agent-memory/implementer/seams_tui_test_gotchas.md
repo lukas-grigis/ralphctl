@@ -37,7 +37,7 @@ re-running the test with the fix reverted.
    `ExecuteLayout`. A handler threaded only into the pre-built node is a silent no-op on any real wide
    terminal while the width-independent footer keeps advertising it — and every Execute-view test runs
    at the default 100 cols. **When adding a prop to the tasks panel, thread BOTH branches and A/B the
-   behaviour at 160 AND 100 cols**, driving widths through `useResponsiveLayout({ columns })` props or
+   behaviour at 160 AND 100 cols**, driving widths through `resolveResponsiveLayout({ columns, rows })` or
    mocking `useTerminalSize` the way `execute-view-width-regimes.test.tsx` does.
 
 6. **The `MaxListenersExceededWarning: 11 resize listeners added to [Stdout]` in a full `pnpm test`

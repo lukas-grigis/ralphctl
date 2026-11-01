@@ -105,8 +105,8 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
 
   const drain = async (): Promise<void> => {
     while (queue.length > 0) {
-      // One append per burst, not per line. `AppendFile` re-ensures the directory on every call,
-      // so a failed write heals on the next burst.
+      // One append per burst, not per line. A failed append loses that burst and raises the degraded
+      // event; `AppendFile` re-ensures the directory on every call, so the next burst heals.
       const result = await deps.appendFile(deps.file, queue.splice(0).join(''));
       if (!result.ok && !degraded) {
         degraded = true;

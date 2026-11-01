@@ -29,7 +29,7 @@ to [Semantic Versioning](https://semver.org/).
   `CLAUDE.md`, the proposed `CLAUDE.md` now starts with an `@AGENTS.md` import and adds only Claude-specific
   sections. Before, it copied the whole `AGENTS.md` body, and the two files drifted apart. Claude Code stops
   reading `AGENTS.md` once a `CLAUDE.md` exists, so the import is what keeps those rules loaded.
-- **Readiness knows which context files each CLI reads.** Codex never reads `CLAUDE.md`, and OpenCode ignores it
+- **Readiness knows which context files each CLI reads.** Codex skips `CLAUDE.md` unless configured to read it, and OpenCode ignores it
   once an `AGENTS.md` exists, so readiness for those tools now carries the rules from your `CLAUDE.md` into the
   proposed `AGENTS.md` instead of leaving them out. For Copilot and Grok, which read every file, it still avoids
   repeating them.
@@ -43,7 +43,7 @@ to [Semantic Versioning](https://semver.org/).
   an unverified lead it can check and apply, or ignore. Before, the retry had to redo the work from scratch, and
   its prompt wrongly suggested the earlier changes were still in the working tree. Nothing is applied for it.
 - **Retries see the first error in a failing verify log.** The verify and reproduction output inlined into the
-  generator prompt keeps the start and the end of the log, with the middle cut, instead of only the end. A
+  generator prompt keeps the start and the end of the last 256 KiB of the log, with the middle cut, instead of only the end. A
   compiler or type checker usually prints the root-cause error first, which the old end-only excerpt dropped.
 - **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
   one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
@@ -54,8 +54,8 @@ to [Semantic Versioning](https://semver.org/).
   "fix" or "broken" got an extra AI session that tried to write a failing test before any work started.
 - **A reproduction test that hangs no longer counts.** For bugfix tasks, ralphctl re-runs the reproduction test
   the AI wrote before it accepts it. A re-run that ralphctl had to kill, because it timed out or printed runaway
-  output, used to count as a reproduction, and the evaluator then re-ran it every round. It is now discarded and
-  the task goes on without a reproduction. The reproduce prompt also asks the AI to put a timeout inside a test
+  output, used to count as a reproduction, and the evaluator then re-ran it every round. It is now discarded, its test
+  file moves to the git stash so it can't hang the next verify run, and the task goes on without a reproduction. The reproduce prompt also asks the AI to put a timeout inside a test
   for a hang, to assert the behaviour the report asks for rather than only "not today's wrong output", and not to
   assert details the report never mentions.
 

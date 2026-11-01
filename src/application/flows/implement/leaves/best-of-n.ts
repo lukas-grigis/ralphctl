@@ -91,7 +91,7 @@ export const hasBestOfNCompositeRun = (ctx: ImplementCtx): boolean => ctx.bestOf
  * A best-of-N grant never lands before a task's 3rd attempt (the escalation policy only grants at
  * `nudgedAtTop`, itself downstream of a prior plateau + nudge), and every earlier attempt already
  * wrote at least one `rounds/<N>/` directory to disk — so on the granted attempt's very first turn
- * `currentRoundNum` was already 3 or higher and the substitute never fired; the whole opt-in
+ * `currentRoundNum` was already 3 or higher and the substitute never fired; the whole
  * remedy silently degraded to a plain gen-eval loop. `ctx.bestOfNLoopTurn` is attempt-scoped
  * (reset by `start-attempt`, like `currentRoundNum` itself), so turn 1 of THIS composite is always
  * `1` regardless of how many rounds prior attempts of the same task already wrote to disk.
