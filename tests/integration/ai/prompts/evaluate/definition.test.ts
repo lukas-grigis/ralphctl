@@ -406,7 +406,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(flattened).toContain('pre-existing, not graded:');
     expect(flattened).toContain('name the pattern and list the other locations you saw');
     expect(flattened).toContain('cite the context file and line that states it');
-    expect(flattened).toContain('do not fail on a convention no file or criterion states');
+    expect(flattened).toContain('do not fail on a convention nothing in the repository states or shows');
   });
 
   it('carries no placeholder-checkpoint phase and renders the shared grading rules once', async () => {

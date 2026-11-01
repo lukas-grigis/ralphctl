@@ -30,7 +30,8 @@ These rules apply every round, identically on a first evaluation and on a re-eva
   starts from the location, so an item without one usually costs it a round. When a defect is one instance of
   a pattern, name the pattern and list the other locations you saw, so one round fixes every instance. When a
   FAIL rests on a project convention rather than a criterion, cite the context file and line that states it,
-  since the generator's tool may not load that file; do not fail on a convention no file or criterion states.
+  since the generator's tool may not load that file, or the sibling code at `path:line` that shows it; do not
+  fail on a convention nothing in the repository states or shows.
   When a FAIL stems from criterion ambiguity — two competent reviewers could disagree about what the
   criterion requires — rather than a demonstrable defect, prefix the item with `[spec-ambiguity]` and state
   the interpretation you graded against, so the generator and the operator reading the critique can tell a
