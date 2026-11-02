@@ -36,8 +36,6 @@ describe('ActionMenu — reserved nav-alias hotkey guard', () => {
     expect(alphaSelect).not.toHaveBeenCalled();
     expect(betaSelect).not.toHaveBeenCalled();
     expect(gammaSelect).not.toHaveBeenCalled();
-
-    r.unmount();
   });
 
   it('"j" and DOWN move the cursor identically when no item claims it as a hotkey', async () => {
@@ -76,7 +74,5 @@ describe('ActionMenu — reserved nav-alias hotkey guard', () => {
     await tick(30);
 
     expect(gammaSelect).toHaveBeenCalledTimes(1);
-
-    r.unmount();
   });
 });

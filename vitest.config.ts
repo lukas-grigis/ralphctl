@@ -41,12 +41,8 @@ export default defineConfig({
         'src/application/ui/**': { statements: 79, branches: 69, functions: 82, lines: 82 },
       },
     },
-    // Two projects so the heavy TUI render tests can run with file-level serialisation
-    // while everything else keeps full fork-pool parallelism. The TUI suite is the only
-    // one that legitimately needs CPU-stable timing: Ink reconciliation + sequential
-    // keystroke flows are sensitive to fork contention, and turning that contention off
-    // is cheaper than perpetually hunting flaky assertions. Other tests are pure logic
-    // and parallelise cleanly.
+    // Two projects: the TUI render tests pin colour and mount a per-test Ink teardown; everything
+    // else is pure logic. Both run with full fork-pool parallelism.
     projects: [
       {
         resolve: { alias: ALIASES },
@@ -64,11 +60,11 @@ export default defineConfig({
           // pinning it suite-wide would silently run every test through the fallback path and
           // neuter `tasks-panel-no-color.test.tsx`, which sets it per-test on purpose.
           env: { FORCE_COLOR: '0' },
+          unstubEnvs: true,
           pool: 'forks',
-          // One file at a time within this project; non-TUI tests still parallelise.
-          fileParallelism: false,
-          // Even serial, individual TUI tests can take a couple of seconds (render +
-          // multiple keystroke cycles + effect flushes). 15s gives plenty of margin.
+          setupFiles: ['./tests/integration/application/ui/tui/_setup.ts'],
+          // Individual TUI tests can take a couple of seconds (render + multiple keystroke
+          // cycles + effect flushes) on a busy runner. 15s gives plenty of margin.
           testTimeout: 15000,
         },
       },
@@ -80,6 +76,7 @@ export default defineConfig({
           exclude: ['tests/integration/application/ui/tui/**'],
           // Same colour pin as the `tui` project — CLI-output assertions are plain-substring too.
           env: { FORCE_COLOR: '0' },
+          unstubEnvs: true,
           pool: 'forks',
           // E2E tests under `tests/e2e/cli/` spawn real child processes (git / gh / glab /
           // provider CLIs) inside the in-process CLI run, and pay full module-import cost on

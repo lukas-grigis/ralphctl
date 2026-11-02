@@ -46,9 +46,8 @@ describe('settleAttemptUseCase — task-blocked notification', () => {
       eventBus: bus,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('blocked');
 
     const blocked = seen.filter((e) => e.type === 'task-blocked');
     expect(blocked).toHaveLength(1);
@@ -118,9 +117,8 @@ describe('settleAttemptUseCase — task-blocked notification', () => {
       eventBus: bus,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
+    const value = result.getOrThrow();
+    expect(value.status).toBe('blocked');
 
     const blocked = seen.filter((e) => e.type === 'task-blocked');
     expect(blocked).toHaveLength(1);
@@ -151,9 +149,8 @@ describe('settleAttemptUseCase — task-blocked notification', () => {
       eventBus: bus,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('done');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('done');
     expect(seen.filter((e) => e.type === 'task-blocked')).toHaveLength(0);
   });
 
@@ -175,9 +172,8 @@ describe('settleAttemptUseCase — task-blocked notification', () => {
       eventBus: bus,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('in_progress');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('in_progress');
     expect(seen.filter((e) => e.type === 'task-blocked')).toHaveLength(0);
   });
 

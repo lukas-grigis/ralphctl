@@ -9,17 +9,15 @@ const names = (waves: ReadonlyArray<readonly Task[]>): string[][] => waves.map((
 describe('scheduleIntoWaves', () => {
   it('returns an empty schedule for empty input', () => {
     const r = scheduleIntoWaves([]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value).toEqual([]);
+    const value = r.getOrThrow();
+    expect(value).toEqual([]);
   });
 
   it('schedules a single independent task into one wave', () => {
     const a = makeTodoTask({ name: 'a' });
     const r = scheduleIntoWaves([a]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(names(r.value)).toEqual([['a']]);
+    const rValue = r.getOrThrow();
+    expect(names(rValue)).toEqual([['a']]);
   });
 
   it('schedules independent tasks into one wide wave, order ASC', () => {
@@ -27,10 +25,9 @@ describe('scheduleIntoWaves', () => {
     const b = makeTodoTask({ name: 'b', order: 1 });
     const c = makeTodoTask({ name: 'c', order: 2 });
     const r = scheduleIntoWaves([a, b, c]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const rValue = r.getOrThrow();
     // one wave, sorted by Task.order ASC regardless of input order
-    expect(names(r.value)).toEqual([['b', 'c', 'a']]);
+    expect(names(rValue)).toEqual([['b', 'c', 'a']]);
   });
 
   it('schedules a linear chain into N singleton waves', () => {
@@ -38,9 +35,8 @@ describe('scheduleIntoWaves', () => {
     const b = makeTodoTask({ name: 'b', order: 2, dependsOn: [a.id] });
     const c = makeTodoTask({ name: 'c', order: 3, dependsOn: [b.id] });
     const r = scheduleIntoWaves([a, b, c]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(names(r.value)).toEqual([['a'], ['b'], ['c']]);
+    const rValue = r.getOrThrow();
+    expect(names(rValue)).toEqual([['a'], ['b'], ['c']]);
   });
 
   it('schedules a diamond into levels (root, middle pair, sink)', () => {
@@ -49,9 +45,8 @@ describe('scheduleIntoWaves', () => {
     const right = makeTodoTask({ name: 'right', order: 3, dependsOn: [root.id] });
     const sink = makeTodoTask({ name: 'sink', order: 4, dependsOn: [left.id, right.id] });
     const r = scheduleIntoWaves([sink, right, left, root]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(names(r.value)).toEqual([['root'], ['left', 'right'], ['sink']]);
+    const rValue = r.getOrThrow();
+    expect(names(rValue)).toEqual([['root'], ['left', 'right'], ['sink']]);
   });
 
   it('breaks within-wave ties by Task.order ASC', () => {
@@ -61,9 +56,8 @@ describe('scheduleIntoWaves', () => {
     const y = makeTodoTask({ name: 'y', order: 10, dependsOn: [root.id] });
     const z = makeTodoTask({ name: 'z', order: 20, dependsOn: [root.id] });
     const r = scheduleIntoWaves([root, x, y, z]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(names(r.value)).toEqual([['root'], ['y', 'z', 'x']]);
+    const rValue = r.getOrThrow();
+    expect(names(rValue)).toEqual([['root'], ['y', 'z', 'x']]);
   });
 
   it('guarantees every dependency is scheduled in an earlier wave', () => {
@@ -72,11 +66,10 @@ describe('scheduleIntoWaves', () => {
     const c = makeTodoTask({ name: 'c', order: 3, dependsOn: [a.id] });
     const d = makeTodoTask({ name: 'd', order: 4, dependsOn: [b.id, c.id] });
     const r = scheduleIntoWaves([d, c, b, a]);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    const rValue = r.getOrThrow();
 
     const waveIndexById = new Map<string, number>();
-    r.value.forEach((wave, i) => wave.forEach((t) => waveIndexById.set(t.id, i)));
+    rValue.forEach((wave, i) => wave.forEach((t) => waveIndexById.set(t.id, i)));
     for (const task of [a, b, c, d]) {
       for (const depId of task.dependsOn) {
         expect(waveIndexById.get(depId)!).toBeLessThan(waveIndexById.get(task.id)!);

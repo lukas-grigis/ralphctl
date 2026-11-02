@@ -16,14 +16,11 @@ import { renderSidecars } from '@src/integration/ai/contract/_engine/render-side
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { detectSkillsOutputContract } from '@src/application/flows/detect-skills/leaves/propose.contract.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
-import {
-  readOnlySignalsSession,
-  type ReadOnlySignalsSessionOpts,
-} from '@src/application/flows/_shared/signals-session.ts';
-import { runPathsFor, type RunPaths } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface ProposeDetectSkillsLeafDeps {
@@ -66,28 +63,6 @@ interface ProposeOutput {
 }
 
 /**
- * Assemble the `readOnlySignalsSession` options — pulled out of `proposeUseCase` purely to
- * keep the use case's branch count low; the two optional fields are the only conditionals
- * here.
- */
-const buildSessionOpts = (
-  deps: ProposeDetectSkillsLeafDeps,
-  input: ProposeInput,
-  paths: RunPaths,
-  prompt: Prompt,
-  abortSignal: AbortSignal | undefined
-): ReadOnlySignalsSessionOpts => ({
-  cwd: input.repository.path,
-  prompt,
-  model: deps.model,
-  signalsFile: paths.signalsFile,
-  outputDir: input.runDir,
-  bodyFile: paths.bodyFile,
-  ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-  ...(abortSignal !== undefined ? { abortSignal } : {}),
-});
-
-/**
  * Project the validated detect-skills signal array onto the two optional proposal fields. The
  * contract caps each kind at one, so `find` is the right primitive. Extracted from
  * `proposeUseCase` so the use-case body stays a flat read of its validation chain (mirrors
@@ -106,7 +81,7 @@ const extractProposal = (
 
 /**
  * Headless AI round-trip. Builds the detect-skills prompt, runs the session against the
- * repository path, validates the audit-[09] `signals.json` the AI wrote, picks the
+ * repository path, validates the `signals.json` the AI wrote, picks the
  * `setup-skill-proposal` / `verify-skill-proposal` signals out for downstream leaves.
  *
  * Either signal may be absent — that's a valid "no skill needed" answer (e.g. an existing
@@ -139,7 +114,17 @@ const proposeUseCase = async (
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
   const spawn = await deps.provider.generate(
-    readOnlySignalsSession(buildSessionOpts(deps, input, paths.value, prompt.value, abortSignal))
+    signalsSession({
+      prompt: prompt.value,
+      cwd: input.repository.path,
+      model: deps.model,
+      permissions: READ_ONLY,
+      signalsFile: paths.value.signalsFile,
+      outputDir: input.runDir,
+      bodyFile: paths.value.bodyFile,
+      effort: deps.effort,
+      abortSignal,
+    })
   );
   if (!spawn.ok) {
     log.error(`provider failed for repo ${input.repository.name}`, {

@@ -72,7 +72,6 @@ describe('HomeView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/Start by creating a project/);
     expect(frame).toMatch(/create your first project/);
-    result.unmount();
   });
 
   it('shows the sprint-creation CTA when a project is selected but no sprint', async () => {
@@ -95,6 +94,5 @@ describe('HomeView', () => {
     expect(frame).toContain('Mainline');
     expect(frame).toMatch(/sprint/i);
     expect(frame).toMatch(/open Sprints/);
-    result.unmount();
   });
 });

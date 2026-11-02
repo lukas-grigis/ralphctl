@@ -20,17 +20,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderView, stripAnsi, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 40 }));
 
@@ -52,25 +47,7 @@ const makeSprint = (tickets: readonly unknown[]): Sprint =>
     tickets,
   }) as unknown as Sprint;
 
-const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(sprint);
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 interface CardFrame {
   readonly topLine: string;
@@ -123,7 +100,7 @@ describe('SprintDetailView — ticket / task card harmony', () => {
         verificationCriteria: [],
       } as never,
     ];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('bravo-card-marker') && f.includes('alpha-task-marker'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');
@@ -187,7 +164,7 @@ describe('SprintDetailView — task metadata row wrap policy', () => {
     const longTicketTitle = 'an-intentionally-long-ticket-title-that-pushes-the-metadata-row-past-the-line-budget';
     const sprint = makeSprint([{ id: 'ticket-a' as never, title: longTicketTitle, status: 'approved' } as never]);
     const tasks: readonly Task[] = [buildMetadataHeavyTask('task-meta-wide')];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('· ticket:'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');
@@ -212,7 +189,7 @@ describe('SprintDetailView — task metadata row wrap policy', () => {
     const longTicketTitle = 'an-intentionally-long-ticket-title-that-pushes-the-metadata-row-past-the-line-budget';
     const sprint = makeSprint([{ id: 'ticket-a' as never, title: longTicketTitle, status: 'approved' } as never]);
     const tasks: readonly Task[] = [buildMetadataHeavyTask('task-meta-narrow')];
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(sprint, tasks), initial });
     await waitForViewReady(result, (f) => f.includes('ticket:'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');

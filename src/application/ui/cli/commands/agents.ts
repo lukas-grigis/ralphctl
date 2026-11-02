@@ -5,7 +5,7 @@ import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/
 import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
@@ -26,14 +26,8 @@ const listAgentsAction = async (): Promise<void> => {
   });
 
   const [bundled, operator] = await Promise.all([bundledSource.list(), operatorSource.list()]);
-  if (!bundled.ok) {
-    fail(bundled.error.message);
-    return;
-  }
-  if (!operator.ok) {
-    fail(operator.error.message);
-    return;
-  }
+  if (!okOrFail(bundled)) return;
+  if (!okOrFail(operator)) return;
 
   const showFlow = createSettingsShowFlow({ settingsRepo: deps.settingsRepo });
   const current = await showFlow.execute({ input: undefined });

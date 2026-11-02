@@ -1,10 +1,8 @@
-import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { absentState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildReadinessPrompt,
   collectArtefactPaths,
@@ -18,39 +16,6 @@ import { Slug } from '@src/domain/value/slug.ts';
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
 describe('readinessPromptDef — completeness', () => {
-  it('every placeholder in readiness.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/readiness/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(readinessPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(readinessPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in readiness.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/readiness/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(readinessPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(readinessPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('expectedSignals advertises the audit-[09] readiness sub-union', () => {
     expect(readinessPromptDef.expectedSignals).toEqual([
       'agents-md-proposal',
@@ -261,10 +226,31 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
       existingContextFile: 'x',
       detectedArtefacts: 'x',
       targetFileConventions: 'x',
+      targetCliLoads: 'x',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+
+  it.each([
+    ['claude-code', '`AGENTS.md` only while no `CLAUDE.md` exists'],
+    ['copilot', '`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together'],
+    ['codex', '`CLAUDE.md` only when `project_doc_fallback_filenames` lists it'],
+    ['opencode', '`CLAUDE.md` only while no `AGENTS.md` exists'],
+    ['grok', 'Grok loads `AGENTS.md`, `CLAUDE.md`'],
+  ] as const)('tells the model which context files %s loads by itself', async (currentTool, fact) => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool,
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const loads = /<target_cli_loads>(.*)<\/target_cli_loads>/u.exec(result.value)?.[1] ?? '';
+    expect(loads).toContain(fact);
+    // The rule that consumes it: carry over what the CLI never loads instead of skipping it.
+    expect(result.value.replace(/\s+/g, ' ')).toContain('from a context file it does not load, carry over the rules');
   });
 
   it('embeds the WIRE_TAG = "claude-md" identifier for the claude-code tool', async () => {

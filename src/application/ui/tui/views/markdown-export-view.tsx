@@ -12,7 +12,7 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   type UseMarkdownExportConfig,
@@ -27,7 +27,7 @@ export interface MarkdownExportViewProps extends UseMarkdownExportConfig {
 }
 
 export const MarkdownExportView = (props: MarkdownExportViewProps): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const run = useMarkdownExport({ filename: props.filename, run: props.run, deps: props.deps });
 
   return (

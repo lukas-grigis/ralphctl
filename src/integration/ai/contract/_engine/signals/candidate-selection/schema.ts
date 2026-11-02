@@ -5,7 +5,7 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
 
 /**
  * Zod schema for the `candidate-selection` AI signal — the best-of-N judge's verdict comparing
- * two candidates' compact structured summaries (arXiv 2604.16529). `winner` is the 1-based index
+ * two candidates' compact structured summaries (arXiv 2604.16529, RTV). `winner` is the 1-based index
  * matching the `Candidate 1` / `Candidate 2` labelling the prompt shows the AI; constrained to a
  * non-negative integer: `1` / `2` name a candidate, `0` declares a tie (the judge runs twice with the
  * order swapped, so an honest tie is a usable answer).

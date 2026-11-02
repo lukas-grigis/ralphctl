@@ -389,7 +389,7 @@ describe('forkCtx', () => {
  * Classification alone is not enough to force the PROJECTION to keep up (every `ImplementCtx` field
  * except `sprintId` is optional, so a hand-written return object can legally omit an optional key)
  * — which is exactly the gap this guard closes. `projectSprintScopedFields` declares its return
- * type as `Required<Pick<ImplementCtx, SprintScopedKey>>`, where `SprintScopedKey` is derived by
+ * type as `Required<Pick<ImplementCtx, KeysWhere<'merge', 'sprint'>>>`, where the key set is derived by
  * mapped type from the fields classified `'sprint'`. `Required<>` strips the optional modifier, so
  * every sprint-scoped key MUST be explicitly present in the returned object literal — omitting one
  * is a compile error, not a silently-accepted gap.
@@ -399,17 +399,17 @@ describe('forkCtx', () => {
  * would fail typecheck), so it is preserved here as the contract record:
  *
  *   // In ctx.ts, adding:                readonly someNewField?: string | undefined;
- *   // In sprint-scoped-projection.ts's CTX_FIELD_CLASS, classifying:  someNewField: SPRINT,
+ *   // In sprint-scoped-projection.ts's CTX_FIELD_CLASS, classifying:  someNewField: { merge: 'sprint', … },
  *   // …without adding `someNewField: ctx.someNewField` to `projectSprintScopedFields`'s return
  *   // object produces, at `pnpm typecheck`:
  *   //   error TS2741: Property 'someNewField' is missing in type '{ sprintId: …; … }' but
- *   //   required in type 'Required<Pick<ImplementCtx, SprintScopedKey>>'.
+ *   //   required in type 'Required<Pick<ImplementCtx, KeysWhere<'merge', 'sprint'>>>'.
  *
  * This `expectTypeOf`-free note is the test surface for the guard — the actual enforcement is the
  * `Required<Pick<…>>` return type in sprint-scoped-projection.ts, verified every `pnpm typecheck`.
  */
 describe('exhaustiveness guard (compile-time)', () => {
-  it('is enforced by projectSprintScopedFields returning Required<Pick<ImplementCtx, SprintScopedKey>>', () => {
+  it('is enforced by the Required<Pick<…>> return type of projectSprintScopedFields', () => {
     // Runtime no-op: the guarantee is structural (typecheck-time), asserted by the doc above.
     expect(true).toBe(true);
   });

@@ -114,8 +114,11 @@ cold fallback is what makes that safe.
   attempt budget — nudges happen before the turn is recorded. See `contract/_engine/corrective-retry.ts`.
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
-  critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an
-  escalation rung on a stall the generator would have broken on its own. Must be ≤ `maxTurns` — the plateau window can
+  critique-Jaccard shift can exempt a round from counting. The default (3) is the smallest value that gives
+  the generator one round with the change-approach line from `dimension-trajectory.ts` (it fires at a stall
+  of `plateauThreshold − 1`) before the attempt escalates; at 2 the attempt plateaus before that line can
+  reach a generator prompt. Engineering judgment, not measured — see the rejected row in
+  RESEARCH-REFERENCES.md. Must be ≤ `maxTurns` — the plateau window can
   never fill within a single attempt when the turn budget runs out first (escalation and nudge
   would be permanently unreachable). A violating PERSISTED pair self-heals at parse time
   (threshold clamps down to the turn budget, floors permitting) rather than failing the load —
@@ -172,8 +175,7 @@ Claude Code CLI default (`medium` on Opus 5.5 and Sonnet 5.5, `high` on every ot
 model). Each
 firing climbs exactly one tier on `low → medium → high → xhigh → max` (the few models without an `xhigh`
 tier, e.g. Sonnet 4.6, go `high → max`), capping at `max`. Copilot
-keeps the fixed target `EFFORT_ESCALATION_TARGET`
-(`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
+keeps the fixed target `high`; Codex and Grok keep the fixed target `xhigh` (`FIXED_EFFORT_RUNG`) —
 `xhigh` is accepted by every codex catalog model and by `grok-4.6` / `grok-4.7` (on `grok-4.5`, which caps
 at `high`, the Grok target is capped to that ceiling), unlike the old shared
 `high` target, which every codex preset already stamped on implement and so left the rung permanently
@@ -184,10 +186,10 @@ the first plateau, `xhigh → max` on the second — see **Default posture** bel
 generally — the stamped effort climbs monotonically to the terminal
 `max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
 nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
-ceiling. `opencode` is excluded from both rungs by design (`EFFORT_CAPABLE_PROVIDERS` in
+ceiling. `opencode` is excluded from both rungs by design (no `FIXED_EFFORT_RUNG` entry in
 `escalation-map.ts`) — it aggregates upstream providers, so there is no `--variant` level this ladder
 could stamp that is known valid for the row's model; an OpenCode generator on a plateau falls straight to
-the change-of-approach nudge. Grok is included in that set (`xai-grok`); its model ladder is
+the change-of-approach nudge. Grok (`xai-grok`) does have an entry; its model ladder is
 `grok-4.5` → `grok-4.6` → `grok-4.7`. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
 generator's `escalate-effort` fires, `decideEscalation` also calls `nextEffortRung` against the
 evaluator's OWN provider/model/effort triple (never copied from the generator's target) and, when it

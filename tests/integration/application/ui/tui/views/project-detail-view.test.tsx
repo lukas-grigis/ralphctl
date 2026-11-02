@@ -66,7 +66,6 @@ describe('ProjectDetailView', () => {
     expect(frame).toContain('mainline');
     expect(frame).toContain('main-repo');
     expect(frame).toContain('Repositories');
-    result.unmount();
   });
 
   it('advertises the move / select / edit hints the view actually responds to', async () => {
@@ -83,7 +82,6 @@ describe('ProjectDetailView', () => {
     expect(frame).toContain('edit field');
     // DESIGN-SYSTEM §6.4 — the j/k alias stays bound but is never advertised per-view.
     expect(frame).not.toContain('j/k');
-    result.unmount();
   });
 
   it('hides the repo-only d/c/S hints on the project displayName row, shows them on a repo row', async () => {
@@ -108,7 +106,6 @@ describe('ProjectDetailView', () => {
     expect(onRepoRow).toContain('remove repo');
     expect(onRepoRow).toContain('detect scripts');
     expect(onRepoRow).toContain('detect skills');
-    result.unmount();
   });
 
   it('a pushes the add-repository wizard scoped to this project', async () => {
@@ -121,7 +118,6 @@ describe('ProjectDetailView', () => {
     result.stdin.write('a');
     await tick();
     expect(routeIds()).toContain('add-repository');
-    result.unmount();
   });
 
   it('initial focus lands on the project displayName row', async () => {
@@ -178,7 +174,6 @@ describe('ProjectDetailView', () => {
     expect(queue.head?.kind).not.toBe('choice');
     expect(queue.head?.kind).toBe('textarea');
     expect(queue.head?.message ?? '').toContain('setupScript');
-    result.unmount();
   });
 
   it('keeps focus on the edited row after the save reloads the project', async () => {
@@ -219,7 +214,6 @@ describe('ProjectDetailView', () => {
     expect(setupRow).toContain(glyphs.actionCursor);
     const nameRow = lineWithLabelAndValue(frame, 'Name', current.displayName);
     expect(nameRow).not.toContain(glyphs.actionCursor);
-    result.unmount();
   });
 
   it('c / S / d are silent no-ops on the project displayName row; a still opens the wizard', async () => {

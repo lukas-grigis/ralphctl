@@ -1,5 +1,5 @@
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createCreateSprintFlow } from '@src/application/flows/create-sprint/flow.ts';
 import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
@@ -26,7 +26,7 @@ export const launchCreateSprint = (ctx: LaunchContext): LaunchResult => {
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Create sprint — ${snapshot.project.displayName}`,
   };
 };

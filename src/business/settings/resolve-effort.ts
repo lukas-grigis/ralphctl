@@ -78,7 +78,7 @@ export const resolveEffortForRow = (
   if (row.effort !== undefined) return clampEffortToModel(row.effort, row.provider, row.model);
   if (globalEffort !== undefined) return floorEffort(globalEffort, row.provider, row.model);
   // OpenCode aggregates upstream providers, so no level is known-good for the row's model — the
-  // same rationale that excludes it from `EFFORT_CAPABLE_PROVIDERS` in `business/task/escalation-map.ts`.
+  // same rationale that leaves it out of `FIXED_EFFORT_RUNG` in `business/task/escalation-map.ts`.
   // Letting the CLI pick its own default is safer than stamping one the upstream model rejects.
   if (row.provider === 'opencode') return undefined;
   return floorEffort(FLOW_DEFAULT_EFFORT[flow], row.provider, row.model);

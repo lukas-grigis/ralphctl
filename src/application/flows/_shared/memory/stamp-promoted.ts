@@ -118,9 +118,8 @@ const stamp = async (
   // promotion, so subtract the accepted set defensively.
   const retired = new Set([...retiredIds].filter((id) => !accepted.has(id)));
 
-  // CHANGED semantic: an empty accepted+retired set is no longer an unconditional no-op. If the
-  // ledger has grown past the size threshold we still run a compaction-only pass so an unattended
-  // ledger can never grow without bound; below the threshold (the common case) it stays a cheap no-op.
+  // An empty accepted+retired set still runs a compaction-only pass once the ledger is past the
+  // size threshold, so an unattended ledger can never grow without bound; below it this is a no-op.
   if (accepted.size === 0 && retired.size === 0 && !(await statLedgerExceedsThreshold(path))) {
     log.info('no accepted/retired learnings and ledger under threshold — nothing to stamp');
     return Result.ok(0);

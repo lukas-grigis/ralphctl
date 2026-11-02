@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
 
@@ -20,11 +20,10 @@ describe('CLI top-level error handling', () => {
 
   beforeEach(async () => {
     cli = await createCliHome();
-    delete process.env[RALPHCTL_DEBUG_TRACE_ENV];
+    vi.stubEnv(RALPHCTL_DEBUG_TRACE_ENV, undefined);
   });
 
   afterEach(async () => {
-    delete process.env[RALPHCTL_DEBUG_TRACE_ENV];
     await cli.cleanup();
   });
 
@@ -59,7 +58,7 @@ describe('CLI top-level error handling', () => {
 
   it('keeps the full stack behind RALPHCTL_DEBUG_TRACE', async () => {
     await writeSettings('not json at all');
-    process.env[RALPHCTL_DEBUG_TRACE_ENV] = '1';
+    vi.stubEnv(RALPHCTL_DEBUG_TRACE_ENV, '1');
 
     const result = await runCliCaptured(cli, ['doctor']);
 

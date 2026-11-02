@@ -20,7 +20,7 @@ import type { SessionManager, SessionRecord } from '@src/application/ui/tui/runt
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -65,7 +65,7 @@ const Inner = ({
   claimPrompt?: boolean | undefined;
   openOverlay?: boolean | undefined;
 }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   useEffect(() => (claimPrompt ? ui.claimPrompt() : undefined), [claimPrompt, ui.claimPrompt]);
   // Open the help overlay (a representative overlay) to verify chords are inert while one is up.
@@ -111,7 +111,7 @@ describe('multi-flow navigation chords', () => {
   it('Tab cycles to the next running session', async () => {
     const manager = fakeManager([sess('a'), sess('b'), sess('c')]);
     let current: ViewEntry = { id: 'execute', props: { sessionId: 'a' } };
-    const { stdin, unmount } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
+    const { stdin } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
     await tick(50);
     stdin.write(TAB);
     await tick();
@@ -124,13 +124,12 @@ describe('multi-flow navigation chords', () => {
     stdin.write(TAB);
     await tick();
     expect(focusedSessionId(current)).toBe('a');
-    unmount();
   });
 
   it('Shift+Tab cycles to the previous running session (with modular wrap)', async () => {
     const manager = fakeManager([sess('a'), sess('b'), sess('c')]);
     let current: ViewEntry = { id: 'execute', props: { sessionId: 'b' } };
-    const { stdin, unmount } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
+    const { stdin } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
     await tick(50);
     stdin.write(SHIFT_TAB);
     await tick();
@@ -140,25 +139,23 @@ describe('multi-flow navigation chords', () => {
     stdin.write(SHIFT_TAB);
     await tick();
     expect(focusedSessionId(current)).toBe('c');
-    unmount();
   });
 
   it('Ctrl+3 jumps to the 3rd running session from a non-execute view (push path)', async () => {
     const manager = fakeManager([sess('a'), sess('b'), sess('c')]);
     let current: ViewEntry = { id: 'home' };
-    const { stdin, unmount } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
+    const { stdin } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
     await tick(50);
     stdin.write(ctrlDigit(3));
     await tick();
     expect(current.id).toBe('execute');
     expect(focusedSessionId(current)).toBe('c');
-    unmount();
   });
 
   it('Tab is inert while a prompt is active', async () => {
     const manager = fakeManager([sess('a'), sess('b')]);
     let current: ViewEntry = { id: 'execute', props: { sessionId: 'a' } };
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <Harness manager={manager} initial={current} onRoute={(e) => (current = e)} claimPrompt />
     );
     await tick(50);
@@ -166,13 +163,12 @@ describe('multi-flow navigation chords', () => {
     await tick();
     // promptActive > 0 ⇒ the whole global handler is muted; focus stays put.
     expect(focusedSessionId(current)).toBe('a');
-    unmount();
   });
 
   it('Tab is inert while an overlay is open', async () => {
     const manager = fakeManager([sess('a'), sess('b')]);
     let current: ViewEntry = { id: 'execute', props: { sessionId: 'a' } };
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <Harness manager={manager} initial={current} onRoute={(e) => (current = e)} openOverlay />
     );
     await tick(50);
@@ -180,19 +176,17 @@ describe('multi-flow navigation chords', () => {
     await tick();
     // Help overlay open ⇒ the overlay branch early-returns before the chord; focus stays put.
     expect(focusedSessionId(current)).toBe('a');
-    unmount();
   });
 
   it('Tab is a no-op with zero running sessions', async () => {
     const manager = fakeManager([sess('a', 'completed'), sess('b', 'aborted')]);
     let current: ViewEntry = { id: 'home' };
-    const { stdin, unmount } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
+    const { stdin } = render(<Harness manager={manager} initial={current} onRoute={(e) => (current = e)} />);
     await tick(50);
     stdin.write(TAB);
     await tick();
     // No running sessions ⇒ silent no-op; the router never leaves home.
     expect(current.id).toBe('home');
-    unmount();
   });
 
   it('Tab with exactly one running session does not call the router (same-session guard)', async () => {
@@ -202,7 +196,7 @@ describe('multi-flow navigation chords', () => {
     const manager = fakeManager([sess('only')]);
     const routeCalls: ViewEntry[] = [];
     let current: ViewEntry = { id: 'execute', props: { sessionId: 'only' } };
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <Harness
         manager={manager}
         initial={current}
@@ -222,6 +216,5 @@ describe('multi-flow navigation chords', () => {
     expect(focusedSessionId(current)).toBe('only');
     // No additional route callbacks beyond the initial mount probe.
     expect(routeCalls.length).toBe(callsBeforeTab);
-    unmount();
   });
 });

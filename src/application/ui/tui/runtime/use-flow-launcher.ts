@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 import { flowRegistry, type FlowEntry } from '@src/application/registry.ts';
 import { evaluateTriggers } from '@src/application/registry-triggers.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useSessionScratch, type SessionScratchApi } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -110,7 +110,7 @@ const runFlowLaunch = async (
 };
 
 /** Subscribe BEFORE `start()` so a synchronous completion isn't missed. */
-const attachRepositoryCapture = (runner: Runner<unknown>, ui: ReturnType<typeof useUiState>): void => {
+const attachRepositoryCapture = (runner: Runner<unknown>, ui: SessionScratchApi): void => {
   const unsubRepoCapture: () => void = runner.subscribe((event) => {
     if (event.type === 'failed' || event.type === 'aborted') {
       unsubRepoCapture();
@@ -127,7 +127,7 @@ interface LaunchCtx {
   readonly deps: AppDeps;
   readonly queue: PromptQueue;
   readonly storage: StoragePaths;
-  readonly ui: ReturnType<typeof useUiState>;
+  readonly ui: SessionScratchApi;
   readonly selection: ReturnType<typeof useSelection>;
   readonly sessions: SessionManager;
   readonly router: RouterApi;
@@ -216,7 +216,7 @@ export interface FlowLauncher {
 }
 
 export const useFlowLauncher = ({ snapshot, reload }: UseFlowLauncherArgs): FlowLauncher => {
-  const ui = useUiState();
+  const ui = useSessionScratch();
   const deps = useDeps();
   const selection = useSelection();
   const router = useRouter();

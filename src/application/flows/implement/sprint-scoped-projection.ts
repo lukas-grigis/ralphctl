@@ -1,77 +1,35 @@
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * Classification of every {@link ImplementCtx} field along TWO independent axes, both enforced by
- * the same exhaustiveness guard (the `satisfies Record<keyof ImplementCtx, FieldClass>` check below):
+ * Every {@link ImplementCtx} field classified on two axes. Adding a ctx field breaks the
+ * `satisfies` check until it is classified here.
  *
- *  - `merge`   — used by the parallel-wave fan-in (`mergeImplementWave`) and per-branch fork
- *                (`forkCtx`), both in `merge-wave.ts`:
- *     - `'sprint'`       — sprint-scoped invariant; carried straight from `base` (the ctx that
- *                          entered the wave / that a branch forked from). Same across every branch.
- *                          Projected by {@link projectSprintScopedFields} below — the ONLY place
- *                          either caller reads these fields off `base`.
- *     - `'tasks'`        — the task list. `mergeImplementWave` folds it as a task-keyed overlay;
- *                          `forkCtx` carries it straight through so per-task leaves can look up
- *                          sibling deps. The two callers genuinely compute different values for it,
- *                          so it is classified here (for the exhaustiveness check) but NOT part of
- *                          the shared sprint-scoped projection.
- *     - `'per-task'`     — single-slot state scoped to ONE in-flight task. Meaningless between
- *                          waves (each branch carried its own); both callers reset it to `undefined`
- *                          by omission.
- *     - `'signal-accum'` — per-attempt signal accumulators. Likewise per-branch; reset to
- *                          `undefined`.
- *  - `attempt` — used by the per-attempt boundary leaves (`start-attempt`, `settle-attempt`) in
- *                `leaves/`:
- *     - `'reset'`        — scratch that only makes sense for the CURRENTLY-RUNNING attempt (turn
- *                          counter, plateau window, round pointer, latest evaluation, proposed
- *                          commit message, generator/evaluator session ids). Cleared by
- *                          {@link resetAttemptScratch}, which `start-attempt` spreads onto its
- *                          output so attempt 2 of a task never inherits attempt 1's scratch.
- *     - `'settle-reset'` — per-task verdict / turn-outcome state that settle-attempt clears once
- *                          the attempt has been settled (task identity, verdict, block reason,
- *                          exit, warning, verify result, commit sha). Cleared by
- *                          {@link resetSettleScratch}. Distinct from `'reset'`: settle-attempt runs
- *                          BEFORE `progress-journal` in the same loop iteration, and progress-journal
- *                          still needs to read `currentRoundNum` / `lastEvaluation` / etc — so those
- *                          fields must NOT be cleared yet at settle time. They wait for the next
- *                          `start-attempt`.
- *     - `'carry'`        — everything else: never cleared by either boundary. This includes the
- *                          `'signal-accum'` fields (merge axis) — those are cleared by
- *                          `progress-journal` instead, via {@link resetSignalAccumulators}, one step
- *                          BEFORE the next `start-attempt` runs, so by the time `start-attempt`
- *                          re-enters they are already `undefined`.
+ * `merge` — the parallel-wave fan-in / fork in `merge-wave.ts`:
+ *  - `sprint`       run-scoped; carried from `base` via {@link projectSprintScopedFields}.
+ *  - `tasks`        the task list; the merge overlays it, the fork carries it.
+ *  - `per-task`     one in-flight task's state; dropped between waves.
+ *  - `signal-accum` per-attempt accumulators; dropped between waves.
+ *
+ * `attempt` — the per-attempt boundary leaves:
+ *  - `reset`        cleared by `start-attempt` ({@link resetAttemptScratch}).
+ *  - `settle-reset` cleared by `settle-attempt` ({@link resetSettleScratch}). Kept apart from `reset`
+ *                   because `progress-journal` runs after settle and still reads the `reset` fields.
+ *  - `carry`        never cleared by either boundary; the `signal-accum` fields are cleared by
+ *                   `progress-journal` ({@link resetSignalAccumulators}) before the next attempt.
  */
-type MergeClass = 'sprint' | 'tasks' | 'per-task' | 'signal-accum';
-type AttemptClass = 'reset' | 'settle-reset' | 'carry';
-
 interface FieldClass {
-  readonly merge: MergeClass;
-  readonly attempt: AttemptClass;
+  readonly merge: 'sprint' | 'tasks' | 'per-task' | 'signal-accum';
+  readonly attempt: 'reset' | 'settle-reset' | 'carry';
 }
 
-// Named so the classification map reads as labels, not repeated string literals.
-const SPRINT = 'sprint' satisfies MergeClass;
-const TASKS = 'tasks' satisfies MergeClass;
-const PER_TASK = 'per-task' satisfies MergeClass;
-const SIGNAL_ACCUM = 'signal-accum' satisfies MergeClass;
+const SPRINT = 'sprint';
+const PER_TASK = 'per-task';
+const SIGNAL_ACCUM = 'signal-accum';
+const RESET = 'reset';
+const SETTLE_RESET = 'settle-reset';
+const CARRY = 'carry';
 
-const RESET = 'reset' satisfies AttemptClass;
-const SETTLE_RESET = 'settle-reset' satisfies AttemptClass;
-const CARRY = 'carry' satisfies AttemptClass;
-
-/**
- * THE exhaustiveness guard. A single object literal keyed over EVERY field of {@link ImplementCtx},
- * `satisfies Record<keyof ImplementCtx, FieldClass>`. It is derived from the interface, not a
- * hand-maintained list: add a new field to `ImplementCtx` and this object stops satisfying the
- * constraint until the new field is classified on BOTH axes here.
- *
- * Classifying a field here is necessary but not, on its own, sufficient to make it project — see
- * {@link SprintScopedKey} / {@link projectSprintScopedFields} (and the `attempt`-axis counterparts
- * below), which are the part of the guard that actually forces the projection functions to keep up
- * with this classification.
- */
 const CTX_FIELD_CLASS = {
-  // sprint-scoped → projected by projectSprintScopedFields
   sprintId: { merge: SPRINT, attempt: CARRY },
   sprint: { merge: SPRINT, attempt: CARRY },
   execution: { merge: SPRINT, attempt: CARRY },
@@ -83,7 +41,7 @@ const CTX_FIELD_CLASS = {
   priorLearnings: { merge: SPRINT, attempt: CARRY },
   // task list → each merge caller projects its own value (overlay vs straight carry); never
   // touched by either attempt boundary.
-  tasks: { merge: TASKS, attempt: CARRY },
+  tasks: { merge: 'tasks', attempt: CARRY },
   // per-task single-slot → undefined between waves. `taskWorkspaceRoot` / `expectedBranch` are
   // re-stamped by their own per-task setter leaves every task, so neither attempt boundary needs
   // to clear them.
@@ -133,7 +91,7 @@ const CTX_FIELD_CLASS = {
   // out — same per-attempt lifecycle as `bestOfNCandidates`.
   bestOfNSummary: { merge: PER_TASK, attempt: RESET },
   // signal accumulators → undefined between waves; cleared per-attempt by progress-journal
-  // (resetSignalAccumulators), not by either attempt-boundary leaf directly.
+  // (resetSignalAccumulators).
   currentAttemptDecisions: { merge: SIGNAL_ACCUM, attempt: CARRY },
   currentAttemptChanges: { merge: SIGNAL_ACCUM, attempt: CARRY },
   currentAttemptLearnings: { merge: SIGNAL_ACCUM, attempt: CARRY },
@@ -147,60 +105,33 @@ const CTX_FIELD_CLASS = {
   currentAttemptInputTokens: { merge: SIGNAL_ACCUM, attempt: CARRY },
   currentAttemptOutputTokens: { merge: SIGNAL_ACCUM, attempt: CARRY },
   currentAttemptDurationMs: { merge: SIGNAL_ACCUM, attempt: CARRY },
-} satisfies Record<keyof ImplementCtx, FieldClass>;
+} as const satisfies Record<keyof ImplementCtx, FieldClass>;
 
-// Reference the guard so it is not dead-code-eliminated / lint-flagged; its whole purpose is the
-// compile-time `satisfies` check above plus the key types derived from it below.
-void CTX_FIELD_CLASS;
+type ClassifiedKey = keyof typeof CTX_FIELD_CLASS;
+type KeysWhere<A extends keyof FieldClass, C extends FieldClass[A]> = {
+  [K in ClassifiedKey]: (typeof CTX_FIELD_CLASS)[K][A] extends C ? K : never;
+}[ClassifiedKey];
 
-/**
- * Keys of {@link ImplementCtx} classified `merge: 'sprint'` in {@link CTX_FIELD_CLASS} — derived by
- * mapped type over the classification object itself, never hand-listed, so it can't drift from it.
- */
-type SprintScopedKey = {
-  [K in keyof typeof CTX_FIELD_CLASS]: (typeof CTX_FIELD_CLASS)[K]['merge'] extends typeof SPRINT ? K : never;
-}[keyof typeof CTX_FIELD_CLASS];
-
-/**
- * Keys classified `attempt: 'reset'` — cleared by `start-attempt` at the top of every attempt. See
- * {@link resetAttemptScratch}.
- */
-type AttemptResetKey = {
-  [K in keyof typeof CTX_FIELD_CLASS]: (typeof CTX_FIELD_CLASS)[K]['attempt'] extends typeof RESET ? K : never;
-}[keyof typeof CTX_FIELD_CLASS];
+/** Every field of one class, cleared to `undefined` — derived from the table, so it cannot drift. */
+const clearWhere = <A extends keyof FieldClass, C extends FieldClass[A]>(
+  axis: A,
+  cls: C
+): Readonly<Required<Pick<ImplementCtx, KeysWhere<A, C>>>> =>
+  Object.freeze(
+    Object.fromEntries(
+      Object.entries(CTX_FIELD_CLASS)
+        .filter(([, c]) => c[axis] === cls)
+        .map(([key]) => [key, undefined])
+    )
+  ) as Readonly<Required<Pick<ImplementCtx, KeysWhere<A, C>>>>;
 
 /**
- * Keys classified `attempt: 'settle-reset'` — cleared by `settle-attempt` once an attempt settles.
- * See {@link resetSettleScratch}.
+ * The run-scoped slice `mergeImplementWave` and `forkCtx` both carry from `base`. The
+ * `Required<Pick<…>>` return type forces every `sprint`-classified field to be listed here.
  */
-type SettleResetKey = {
-  [K in keyof typeof CTX_FIELD_CLASS]: (typeof CTX_FIELD_CLASS)[K]['attempt'] extends typeof SETTLE_RESET ? K : never;
-}[keyof typeof CTX_FIELD_CLASS];
-
-/**
- * Keys classified `merge: 'signal-accum'` — cleared by `progress-journal` after it renders the
- * attempt's accumulated signals into the journal entry. See {@link resetSignalAccumulators}.
- */
-type SignalAccumKey = {
-  [K in keyof typeof CTX_FIELD_CLASS]: (typeof CTX_FIELD_CLASS)[K]['merge'] extends typeof SIGNAL_ACCUM ? K : never;
-}[keyof typeof CTX_FIELD_CLASS];
-
-/**
- * Project the sprint-scoped fields of `ctx` — carried verbatim across a wave merge
- * (`mergeImplementWave`) or a per-branch fork (`forkCtx`): the same sprint, execution, progress
- * file, and run-scoped setup/memory state applies to every branch of a wave and every wave of a run.
- *
- * The return type, `Required<Pick<ImplementCtx, SprintScopedKey>>`, is the actual compile-time
- * forcing function the `_exhaustive`-style guard alone can't provide: EVERY field classified
- * `merge: 'sprint'` above MUST be assigned explicitly below (present or not — each field's own type
- * already allows `undefined`, `Required` only strips the *optional* modifier so the key can't be
- * silently left out of the object literal). Reclassifying or adding a field to the `'sprint'` bucket
- * widens `SprintScopedKey`, which breaks THIS function's return type until the new field is
- * projected here. Because `mergeImplementWave` and `forkCtx` both build their sprint-scoped slice by
- * calling this and only this, neither can drift out of sync with the classification, or with each
- * other.
- */
-export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<ImplementCtx, SprintScopedKey>> => ({
+export const projectSprintScopedFields = (
+  ctx: ImplementCtx
+): Required<Pick<ImplementCtx, KeysWhere<'merge', typeof SPRINT>>> => ({
   sprintId: ctx.sprintId,
   sprint: ctx.sprint,
   execution: ctx.execution,
@@ -210,75 +141,11 @@ export const projectSprintScopedFields = (ctx: ImplementCtx): Required<Pick<Impl
   priorLearnings: ctx.priorLearnings,
 });
 
-/**
- * The per-ATTEMPT scratch reset — every field classified `attempt: 'reset'` above, cleared to
- * `undefined`. `start-attempt` spreads this onto its output ALONGSIDE the fields it explicitly sets
- * (`currentTaskId` / `currentTask` / `tasks`), so a fresh attempt never inherits the prior attempt's
- * turn counter, plateau window, round pointer, latest evaluation, proposed commit message, or
- * generator/evaluator session ids.
- *
- * The return type, `Required<Pick<ImplementCtx, AttemptResetKey>>`, is the same compile-time forcing
- * function as {@link projectSprintScopedFields}: reclassifying or adding a field to the `'reset'`
- * bucket widens `AttemptResetKey`, which breaks this function's return type until the new field is
- * assigned here.
- *
- * Takes no `ctx` parameter — the reset always yields the same fixed set of `undefined` values
- * regardless of the attempt's prior state, so there is nothing to read off `ctx`.
- */
-export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetKey>> => ({
-  genEvalTurn: undefined,
-  currentRoundNum: undefined,
-  lastEvaluation: undefined,
-  plateauHistory: undefined,
-  proposedCommitMessage: undefined,
-  priorGeneratorSessionId: undefined,
-  priorEvaluatorSessionId: undefined,
-  crashResumePending: undefined,
-  bestOfNCandidates: undefined,
-  bestOfNSampledCount: undefined,
-  bestOfNLoopTurn: undefined,
-  bestOfNSummary: undefined,
-});
+/** Spread by `start-attempt` so an attempt never inherits the prior attempt's scratch. */
+export const resetAttemptScratch = clearWhere('attempt', RESET);
 
-/**
- * The per-SETTLE reset — every field classified `attempt: 'settle-reset'` above, cleared to
- * `undefined`. `settle-attempt` spreads this onto its output alongside the settled task overlay it
- * writes onto `ctx.tasks`, so the just-settled task's identity and verdict scratch never leaks into
- * the next leaf's read of ctx.
- *
- * Deliberately DISTINCT from {@link resetAttemptScratch}: `settle-attempt` runs before
- * `progress-journal` in the same loop iteration, and `progress-journal` still needs
- * `ctx.currentRoundNum` / `ctx.lastEvaluation` / the rest of the `'reset'` bucket to render this
- * attempt's journal section. Those wait for the next `start-attempt`.
- */
-export const resetSettleScratch = (): Required<Pick<ImplementCtx, SettleResetKey>> => ({
-  currentTaskId: undefined,
-  currentTask: undefined,
-  lastExit: undefined,
-  lastVerdict: undefined,
-  lastBlockReason: undefined,
-  lastBlockTriage: undefined,
-  lastWarning: undefined,
-  lastShouldFailAttempt: undefined,
-  lastVerifyResult: undefined,
-  lastPreVerifyOutcome: undefined,
-  lastCommitSha: undefined,
-});
+/** Spread by `settle-attempt` once the attempt has settled. */
+export const resetSettleScratch = clearWhere('attempt', SETTLE_RESET);
 
-/**
- * The per-attempt signal-accumulator reset — every field classified `merge: 'signal-accum'` above,
- * cleared to `undefined`. `progress-journal` spreads this onto its output after rendering the
- * accumulated decisions / changes / learnings / notes / nudge tallies into the attempt's journal
- * section, so the NEXT attempt (or the next task) starts with empty accumulators.
- */
-export const resetSignalAccumulators = (): Required<Pick<ImplementCtx, SignalAccumKey>> => ({
-  currentAttemptDecisions: undefined,
-  currentAttemptChanges: undefined,
-  currentAttemptLearnings: undefined,
-  currentAttemptNotes: undefined,
-  currentAttemptGeneratorNudges: undefined,
-  currentAttemptEvaluatorNudges: undefined,
-  currentAttemptInputTokens: undefined,
-  currentAttemptOutputTokens: undefined,
-  currentAttemptDurationMs: undefined,
-});
+/** Spread by `progress-journal` after it renders the attempt's accumulated signals. */
+export const resetSignalAccumulators = clearWhere('merge', SIGNAL_ACCUM);

@@ -193,18 +193,15 @@ const applyOne = async (plan: RenamePlan): Promise<Result<AppliedRename, Storage
   if (!toExists.ok) return Result.error(toExists.error);
 
   if (toExists.value || !fromExists.value) {
-    return Result.ok(skipped(plan)) as Result<AppliedRename, StorageError>;
+    return Result.ok(skipped(plan));
   }
 
   const renamed = await renamePath(String(plan.from), String(plan.to));
   if (!renamed.ok) {
     if (renamed.error instanceof StorageError) return Result.error(renamed.error);
-    return Result.ok(skipped(plan)) as Result<AppliedRename, StorageError>; // NotFoundError → idempotent skip
+    return Result.ok(skipped(plan)); // NotFoundError → idempotent skip
   }
-  return Result.ok({ id: plan.id, fromName: plan.fromName, toName: plan.toName, status: 'renamed' }) as Result<
-    AppliedRename,
-    StorageError
-  >;
+  return Result.ok({ id: plan.id, fromName: plan.fromName, toName: plan.toName, status: 'renamed' });
 };
 
 const skipped = (plan: RenamePlan): AppliedRename => ({
@@ -260,9 +257,9 @@ const mergeOne = async (merge: MemoryMergePlan, ctx: ApplyCtx): Promise<Result<v
 /** Read a ledger body; an absent ledger is empty, any other fault must stop the merge. */
 const readLedger = async (path: string): Promise<Result<string, StorageError>> => {
   try {
-    return Result.ok(await fs.readFile(path, 'utf8')) as Result<string, StorageError>;
+    return Result.ok(await fs.readFile(path, 'utf8'));
   } catch (cause) {
-    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok('') as Result<string, StorageError>;
+    if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok('');
     return Result.error(new StorageError({ subCode: 'io', message: `ledger read failed: ${path}`, path, cause }));
   }
 };
@@ -295,7 +292,7 @@ const drainLegacyDir = async (
       );
     }
   }
-  return Result.ok(undefined) as Result<void, StorageError>;
+  return Result.ok(undefined);
 };
 
 /** Delete one already-merged legacy entry, or move any other into the slugged dir under a free name. */
@@ -308,13 +305,13 @@ const drainEntry = async (
   if (isMerged) {
     const removed = await removeFile(from);
     if (!removed.ok && removed.error instanceof StorageError) return Result.error(removed.error);
-    return Result.ok(undefined) as Result<void, StorageError>;
+    return Result.ok(undefined);
   }
   const target = await freeTargetPath(String(merge.sluggedDir), name);
   if (!target.ok) return Result.error(target.error);
   const moved = await renamePath(from, target.value);
   if (!moved.ok && moved.error instanceof StorageError) return Result.error(moved.error);
-  return Result.ok(undefined) as Result<void, StorageError>;
+  return Result.ok(undefined);
 };
 
 /** First of `<name>`, `<name>.legacy`, `<name>.legacy-2`, … not yet present in `dir`. */
@@ -323,7 +320,7 @@ const freeTargetPath = async (dir: string, name: string): Promise<Result<string,
     const candidate = join(dir, n === 0 ? name : n === 1 ? `${name}.legacy` : `${name}.legacy-${String(n)}`);
     const taken = await pathExists(candidate);
     if (!taken.ok) return Result.error(taken.error);
-    if (!taken.value) return Result.ok(candidate) as Result<string, StorageError>;
+    if (!taken.value) return Result.ok(candidate);
   }
 };
 

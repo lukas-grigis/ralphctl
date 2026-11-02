@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, CandidateSelectionSignal } from '@src/domain/signal.ts';
+import type { CandidateSelectionSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { candidateSelectionSignalSchema } from '@src/integration/ai/contract/_engine/signals/candidate-selection/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
@@ -7,7 +7,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 
 /**
  * Per-leaf I/O contract for the `select-candidate` one-shot judge session — best-of-N candidate
- * selection over compact structured summaries (arXiv 2604.16529). Keeps ONLY
+ * selection over compact structured summaries (arXiv 2604.16529, RTV). Keeps ONLY
  * `candidate-selection`: the session's whole job is a pairwise verdict over the two summaries it
  * is shown, so no narrative fan-out is accepted — a stray `note` / `learning` a mounted skill
  * might coach fails the array the same as an omitted or duplicated verdict.
@@ -78,6 +78,3 @@ export const selectCandidateOutputContract: AiOutputContract<SelectCandidateSign
   migrations: {},
   exampleSignals: selectCandidateExampleSignals,
 };
-
-const _signalCheck: SelectCandidateSignal extends AiSignal ? true : false = true;
-void _signalCheck;

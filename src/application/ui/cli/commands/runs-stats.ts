@@ -6,7 +6,7 @@ import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { renderOutcomeStats } from '@src/application/ui/cli/commands/runs-stats-report.ts';
 import { foldOutcomeStats, type SprintWithTasks } from '@src/business/runs/outcome-stats.ts';
 
@@ -99,35 +99,20 @@ const activeSince =
 const resolveScopedSprints = async (deps: StatsDeps, opts: StatsOpts): Promise<ScopeResult> => {
   if (opts.sprint !== undefined) {
     const id = SprintId.parse(opts.sprint);
-    if (!id.ok) {
-      fail(`invalid sprint id: ${id.error.message}`);
-      return { ok: false };
-    }
+    if (!okOrFail(id, 'invalid sprint id: ')) return { ok: false };
     const found = await deps.sprintRepo.findById(id.value);
-    if (!found.ok) {
-      fail(found.error.message);
-      return { ok: false };
-    }
+    if (!okOrFail(found)) return { ok: false };
     return { ok: true, sprints: [found.value] };
   }
 
   const all = await deps.sprintRepo.list();
-  if (!all.ok) {
-    fail(all.error.message);
-    return { ok: false };
-  }
+  if (!okOrFail(all)) return { ok: false };
   if (opts.project === undefined) return { ok: true, sprints: all.value };
 
   const projectId = ProjectId.parse(opts.project);
-  if (!projectId.ok) {
-    fail(`invalid project id: ${projectId.error.message}`);
-    return { ok: false };
-  }
+  if (!okOrFail(projectId, 'invalid project id: ')) return { ok: false };
   const project = await deps.projectRepo.findById(projectId.value);
-  if (!project.ok) {
-    fail(project.error.message);
-    return { ok: false };
-  }
+  if (!okOrFail(project)) return { ok: false };
   return { ok: true, sprints: all.value.filter((sprint) => sprint.projectId === projectId.value) };
 };
 

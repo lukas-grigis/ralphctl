@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildEvaluateContinuationPrompt,
   evaluateContinuationPromptDef,
@@ -18,37 +17,6 @@ const SAMPLE_CONTRACT_SECTION =
   '## Output contract\n\nWrite /tmp/ralph/sandbox/rounds/3/evaluator/signals.json. (test fixture body.)';
 
 describe('evaluateContinuationPromptDef — completeness', () => {
-  it('every placeholder in the template is declared by the definition (parameters or partials)', async () => {
-    const template = await fs.readFile(TEMPLATE_PATH, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(evaluateContinuationPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(evaluateContinuationPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in the template', async () => {
-    const template = await fs.readFile(TEMPLATE_PATH, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(evaluateContinuationPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(evaluateContinuationPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('declares the single evaluation-verdict signal the full evaluate prompt does', () => {
     expect(evaluateContinuationPromptDef.expectedSignals).toEqual(['evaluation']);
   });

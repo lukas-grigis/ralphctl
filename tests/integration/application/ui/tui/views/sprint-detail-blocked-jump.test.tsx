@@ -14,11 +14,9 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
@@ -26,8 +24,8 @@ import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { END, HOME, PAGE_DOWN, PAGE_UP, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
-import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { readOnlyDeps, sprintDetailEntry } from '@tests/integration/application/ui/tui/views/_sprint-detail.ts';
 
 const FIXED_SPRINT_ID = 'sprint-blocked-jump-fixture' as unknown as SprintId;
 
@@ -75,25 +73,7 @@ const makeSprint = (): Sprint =>
     ],
   }) as unknown as Sprint;
 
-const stubDeps = (): AppDeps =>
-  ({
-    sprintRepo: {
-      async findById() {
-        return Result.ok(makeSprint());
-      },
-    } as unknown as SprintRepository,
-    taskRepo: {
-      async findBySprintId() {
-        return Result.ok([...tasks()]);
-      },
-    } as unknown as TaskRepository,
-    projectRepo: {} as never,
-    sprintExecutionRepo: {} as never,
-    settingsRepo: {} as never,
-    logger: noopLogger,
-  }) as unknown as AppDeps;
-
-const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial = sprintDetailEntry(FIXED_SPRINT_ID);
 
 /**
  * The one card row carrying the cursor caret. `ListCard` renders it as `▸ #N Title`, so anchoring
@@ -104,7 +84,7 @@ const focusedCardLine = (frame: string): string => frame.split('\n').find((line)
 
 describe('SprintDetailView — B jumps to the next blocked task', () => {
   it('lands on each blocked row in turn and wraps back to the first', async () => {
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(makeSprint(), tasks()), initial });
     await waitForViewReady(result, (f) => f.includes(SECOND_BLOCKED));
 
     // The cursor starts on the ticket row — neither blocked task is focused yet.
@@ -128,15 +108,13 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await waitForPredicate(() => focusedCardLine(result.lastFrame() ?? '').includes(FIRST_BLOCKED), {
       label: 'third B wraps back to the first blocked task',
     });
-
-    result.unmount();
   });
 
   it('hands the arrow keys to jump-mode movement once a jump has engaged', async () => {
     // `useListWindow`'s own cursor is PAUSED (not unmounted) the moment the override engages, so
     // `k` must move by exactly one row from the jumped-to index — proving the two cursors are not
     // both handling the press.
-    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(), initial });
+    const { result } = renderView(<SprintDetailView />, { deps: readOnlyDeps(makeSprint(), tasks()), initial });
     await waitForViewReady(result, (f) => f.includes(FIRST_BLOCKED));
 
     result.stdin.write('B');
@@ -177,14 +155,12 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await waitForPredicate(() => focusedCardLine(result.lastFrame() ?? '').includes(ONLY_TICKET), {
       label: 'Home jumps back to the first row',
     });
-
-    result.unmount();
   });
 
   it('stays inert when nothing is blocked', async () => {
     const clean = [makeTodoTask({ name: BEFORE_FIRST }), makeTodoTask({ name: 'filler one' })];
     const deps = {
-      ...stubDeps(),
+      ...readOnlyDeps(makeSprint(), tasks()),
       taskRepo: {
         async findBySprintId() {
           return Result.ok([...clean]);
@@ -204,6 +180,5 @@ describe('SprintDetailView — B jumps to the next blocked task', () => {
     await tick(50);
 
     expect(focusedCardLine(result.lastFrame() ?? '')).toBe(before);
-    result.unmount();
   });
 });

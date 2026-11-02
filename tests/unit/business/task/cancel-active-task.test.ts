@@ -56,10 +56,9 @@ describe('cancelActiveTaskUseCase', () => {
       logger: noopLogger,
       clock,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
-    expect(result.value.blockedReason).toBe('user cancel');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('blocked');
+    expect(resultValue.blockedReason).toBe('user cancel');
     expect(repo.saved).toHaveLength(1);
   });
 
@@ -74,9 +73,8 @@ describe('cancelActiveTaskUseCase', () => {
       logger: noopLogger,
       clock,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
+    const value = result.getOrThrow();
+    expect(value.status).toBe('blocked');
     expect(repo.saved).toHaveLength(1);
   });
 
@@ -91,12 +89,11 @@ describe('cancelActiveTaskUseCase', () => {
       logger: noopLogger,
       clock,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
-    expect(result.value.blockedReason).toBe('user cancel');
-    expect(result.value.attempts.at(-1)).toMatchObject({ status: 'aborted', abortCause: 'user-cancel' });
-    expect(repo.saved).toEqual([result.value]);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('blocked');
+    expect(resultValue.blockedReason).toBe('user cancel');
+    expect(resultValue.attempts.at(-1)).toMatchObject({ status: 'aborted', abortCause: 'user-cancel' });
+    expect(repo.saved).toEqual([resultValue]);
   });
 
   it('idempotent — already-blocked task passes through without re-saving', async () => {
@@ -110,9 +107,8 @@ describe('cancelActiveTaskUseCase', () => {
       logger: noopLogger,
       clock,
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('blocked');
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('blocked');
     expect(repo.saved).toHaveLength(0);
   });
 

@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -16,7 +15,6 @@ import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.
 import type { ReproductionSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
@@ -24,16 +22,17 @@ import { gitStashList, stashEntryMatchesMessage } from '@src/integration/io/git-
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
-import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { deriveHeadlineTaskKind } from '@src/business/task/derive-task-kind.ts';
 import { buildReproducePrompt } from '@src/integration/ai/prompts/reproduce/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { reproduceOutputContract } from '@src/application/flows/implement/leaves/reproduce.contract.ts';
 import { runPathsFor } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { readCappedProgress } from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
-import { VERIFY_TAIL_MAX_CHARS } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
+import { clampCommandOutput } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
 import { quarantineStashMessage } from '@src/domain/value/quarantine-stash-message.ts';
+import { setAsideDiscardedTest } from '@src/application/flows/implement/leaves/discarded-reproduction.ts';
 import {
   loadReproductionArtifact,
   removeReproductionArtifact,
@@ -61,15 +60,18 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *
  * The harness never takes the session's word for it: after the spawn reports, this leaf re-runs
  * the claimed `runCommand` itself (once, bounded output) and accepts the artifact ONLY when that
- * re-run actually fails — a reproduction that passes proves nothing. On acceptance the leaf
+ * re-run fails on its own (exits non-zero without being killed on timeout or the output cap) — a
+ * reproduction that passes, or one the harness has to kill, proves nothing. On acceptance the leaf
  * checksums the test file's content so the evaluator prompt can later state that an unexplained
  * edit to it during the gen-eval loop is tampering, on the same footing as any other verification
  * tampering it already audits for.
  *
  * Failure tolerance is the point, not an afterthought: a failed session, a missing/invalid
- * `reproduction` signal, or a claimed command that turns out to pass on re-run all degrade to
- * today's behaviour — no reproduction context, logged at warn, task proceeds unaffected. Only a
- * fatal chain error (abort / exhausted rate limit) propagates.
+ * `reproduction` signal, or a claimed command that passes (or has to be killed) on re-run all
+ * degrade to no reproduction context, logged at warn, task proceeds. A test the re-run discarded
+ * also leaves the tree, into the stash and that one path only: a killed test would hang the next
+ * verify run, and any of them would read as unknown uncommitted work. Only a fatal chain error
+ * (abort / exhausted rate limit) propagates.
  *
  * ## A relaunch reuses the reproduction it already has
  *
@@ -90,7 +92,7 @@ export interface ReproduceLeafDeps {
   readonly templateLoader: TemplateLoader;
   readonly publishSignal: PublishSignal;
   readonly shellScriptRunner: ShellScriptRunner;
-  /** Lists the stash, which is how a relaunch with quarantined work is told apart from a fresh one. */
+  /** Lists the stash, which tells a relaunch with quarantined work from a fresh one, and sets a discarded test aside. */
   readonly gitRunner: GitRunner;
   /** Saves an accepted reproduction so a later launch of the same task can reuse it. */
   readonly writeFile: WriteFile;
@@ -168,12 +170,13 @@ export const readReproductionSection = (ctx: ImplementCtx): string | undefined =
  * Gate predicate for the guard wrapping this leaf — defect-shaped tasks only. Reads `ctx.tasks`
  * (the leaf runs BEFORE `start-attempt`, so `ctx.currentTask` is not set yet), mirroring
  * `dependency-gate.ts`'s `isTaskRunnable`. A task classified anything other than `'bugfix'` by
- * {@link deriveTaskKind} skips silently — the guard primitive records a `skipped` trace entry,
+ * {@link deriveHeadlineTaskKind} (name first, so a passing "fix" in a feature's description does
+ * not buy a whole extra AI spawn) skips silently — the guard primitive records a `skipped` trace entry,
  * no AI spawn happens, `ctx.reproductionArtifact` stays undefined.
  */
 export const isDefectShapedTask = (ctx: ImplementCtx, taskId: TaskId): boolean => {
   const task = ctx.tasks?.find((t) => t.id === taskId);
-  return task !== undefined && deriveTaskKind(task) === 'bugfix';
+  return task !== undefined && deriveHeadlineTaskKind(task) === 'bugfix';
 };
 
 const LOG_SCOPE = 'implement.reproduce';
@@ -183,60 +186,21 @@ const CHECKSUM_ALGORITHM = 'sha256';
 const computeChecksum = (content: string): string =>
   createHash(CHECKSUM_ALGORITHM).update(content, 'utf-8').digest('hex');
 
-/**
- * Keep the END of a captured run — the decisive failure line sits at the bottom of test-runner
- * output. Mirrors `_shared/verify-run-summary.ts`'s clamp so every prompt-embedded command
- * output in the implement chain shares one budget.
- */
-const clampOutput = (raw: string): string => {
-  const trimmed = raw.trim();
-  return trimmed.length > VERIFY_TAIL_MAX_CHARS ? `…${trimmed.slice(trimmed.length - VERIFY_TAIL_MAX_CHARS)}` : trimmed;
-};
-
-/**
- * Per-call `AiSession` for the reproduce spawn. FULL_AUTO (not the read-only profile the other
- * one-shot flows use) because the session must write a new test file AND run it — the prompt's
- * `<constraints>` block is what actually keeps the session to reproduction-only work; the
- * harness-side backstop is {@link verifyReproductionFails} below, which discards any artifact
- * whose claimed command does not actually fail on the harness's own re-run.
- */
-const buildReproduceSession = (opts: {
-  readonly cwd: AbsolutePath;
-  readonly prompt: Prompt;
-  readonly model: string;
-  readonly effort: string | undefined;
-  readonly signalsFile: AbsolutePath;
-  readonly outputDir: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly abortSignal: AbortSignal | undefined;
-}): AiSession => {
-  const chainSessionId = rootSessionId();
-  return {
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    permissions: FULL_AUTO,
-    signalsFile: opts.signalsFile,
-    outputDir: opts.outputDir,
-    bodyFile: opts.bodyFile,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
-  };
-};
-
 /** Structured outcome of the harness's own re-run — the ONLY authority on whether an artifact is accepted. */
 type VerifyOutcome =
   | { readonly kind: 'accepted'; readonly observedFailure: string }
-  | { readonly kind: 'discarded' }
+  | { readonly kind: 'discarded'; readonly cause: 'passed' | 'killed' | 'spawn-failed' }
   | { readonly kind: 'fatal'; readonly error: DomainError };
 
 /**
  * Re-run the session's claimed `runCommand` once against the repo, bounded output. Only a
- * command that actually fails is accepted as a reproduction — a passing re-run means the
- * session's claim does not hold (or the code was fixed in the same session) and proves nothing,
- * so it is discarded rather than threaded forward. A run-time spawn failure degrades the same
- * way; only a fatal chain error (abort / exhausted rate limit) propagates.
+ * command that fails on its own (exits non-zero without being killed on timeout or the output
+ * cap) is accepted as a reproduction — a passing re-run means the session's claim does not hold
+ * (or the code was fixed in the same session) and proves nothing, and a run the runner had to kill
+ * would only burn every evaluator re-run, so both are discarded rather than threaded forward. A
+ * run-time spawn failure degrades the same way; only a fatal chain error (abort / exhausted rate
+ * limit) propagates. A null exit the runner did not cause (a signal crash) still counts: it can be
+ * the defect itself.
  */
 const verifyReproductionFails = async (
   deps: Pick<ReproduceLeafDeps, 'shellScriptRunner'>,
@@ -249,9 +213,13 @@ const verifyReproductionFails = async (
     runCommand,
     abortSignal !== undefined ? { signal: abortSignal } : {}
   );
-  if (!ran.ok) return isFatalChainError(ran.error) ? { kind: 'fatal', error: ran.error } : { kind: 'discarded' };
-  if (ran.value.passed) return { kind: 'discarded' };
-  return { kind: 'accepted', observedFailure: clampOutput(ran.value.output) };
+  if (!ran.ok)
+    return isFatalChainError(ran.error)
+      ? { kind: 'fatal', error: ran.error }
+      : { kind: 'discarded', cause: 'spawn-failed' };
+  if (ran.value.passed) return { kind: 'discarded', cause: 'passed' };
+  if (ran.value.timedOut === true) return { kind: 'discarded', cause: 'killed' };
+  return { kind: 'accepted', observedFailure: clampCommandOutput(ran.value.output) };
 };
 
 /**
@@ -342,7 +310,9 @@ const runReproduceSession = async (
   const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  const session = buildReproduceSession({
+  // FULL_AUTO: the session must write AND run a test; verifyReproductionFails is the backstop.
+  const session = signalsSession({
+    permissions: FULL_AUTO,
     cwd: opts.cwd,
     prompt: prompt.value,
     model: opts.model,
@@ -395,12 +365,13 @@ const runReproduceSession = async (
 const spawnReproduction = async (
   deps: ReproduceLeafDeps,
   opts: ReproduceLeafOpts,
-  taskId: TaskId,
-  task: Task,
+  input: ReproduceInput,
   reproduceDir: AbsolutePath,
   abortSignal: AbortSignal | undefined
 ): Promise<Result<ReproductionArtifact | undefined, DomainError>> => {
   const log = deps.logger.named(LOG_SCOPE);
+  const { task } = input;
+  const taskId = task.id;
   const session = await runReproduceSession(deps, opts, taskId, task, reproduceDir, abortSignal);
   if (!session.ok) return Result.error(session.error);
   const reproduction = session.value;
@@ -422,8 +393,14 @@ const spawnReproduction = async (
   if (verified.kind === 'fatal') return Result.error(verified.error);
   if (verified.kind === 'discarded') {
     log.warn(
-      `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
+      verified.cause === 'killed'
+        ? `reproduce command for task '${String(taskId)}' was killed on re-run (timeout or runaway output) — a run the harness has to kill is not a reproduction, discarding`
+        : `reproduce command for task '${String(taskId)}' did not fail on re-run — a reproduction that passes proves nothing, discarding`,
       { taskId: String(taskId), runCommand: reproduction.runCommand }
+    );
+    await setAsideDiscardedTest(
+      { gitRunner: deps.gitRunner, log },
+      { cwd: opts.cwd, sprintId: input.sprintId, taskId, testPath: reproduction.testPath }
     );
     return Result.ok(undefined);
   }
@@ -525,7 +502,7 @@ const reproduceUseCase = async (
     });
   }
 
-  const spawned = await spawnReproduction(deps, opts, taskId, input.task, reproduceDir.value, abortSignal);
+  const spawned = await spawnReproduction(deps, opts, input, reproduceDir.value, abortSignal);
   if (!spawned.ok) return Result.error(spawned.error);
   const artifact = spawned.value;
   if (artifact === undefined) return Result.ok({});

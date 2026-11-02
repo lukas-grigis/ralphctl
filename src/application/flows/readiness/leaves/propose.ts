@@ -23,7 +23,8 @@ import { renderSidecars } from '@src/integration/ai/contract/_engine/render-side
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import { readinessOutputContract } from '@src/application/flows/readiness/leaves/readiness.contract.ts';
-import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
+import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 
@@ -32,7 +33,7 @@ export interface ProposeReadinessLeafDeps {
   readonly templateLoader: TemplateLoader;
   /**
    * Output port used to write any harness-owned sidecars (`agents-md-proposal.md`,
-   * `setup-skill.md`, `verify-skill.md`) post-spawn under audit-[09]. The AI itself writes
+   * `setup-skill.md`, `verify-skill.md`) post-spawn. The AI itself writes
    * `signals.json` directly into `outputDir`; the leaf only validates that file and
    * renders sidecars from the validated signals.
    */
@@ -108,7 +109,7 @@ const missingProposal = (
 };
 
 /**
- * Build the readiness prompt, call the AI, validate the audit-[09] `signals.json` it wrote
+ * Build the readiness prompt, call the AI, validate the `signals.json` it wrote
  * into the per-run dir, fan validated signals out to the bus, render harness-owned
  * sidecars, then project the proposal bodies onto ctx for downstream leaves.
  *
@@ -127,15 +128,7 @@ const proposeReadinessUseCase = async (
   input: ProposeReadinessInput,
   abortSignal?: AbortSignal
 ): Promise<Result<ProposeReadinessOutput, DomainError>> => {
-  const existingPath = pickExistingContextPath(tool, input.probedState);
-  let existingBody: string | undefined;
-  if (existingPath !== undefined) {
-    try {
-      existingBody = await fs.readFile(existingPath, 'utf8');
-    } catch {
-      existingBody = undefined;
-    }
-  }
+  const existingBody = await readExistingContext(tool, input.probedState);
 
   const engineResult = await setupReadinessUseCase(
     {
@@ -146,15 +139,16 @@ const proposeReadinessUseCase = async (
           outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
-        readOnlySignalsSession({
+        signalsSession({
           cwd: deps.cwd,
           prompt,
           model: deps.model,
+          permissions: READ_ONLY,
           signalsFile,
           outputDir,
-          ...(bodyFile !== undefined ? { bodyFile } : {}),
-          ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-          ...(abortSignal !== undefined ? { abortSignal } : {}),
+          bodyFile,
+          effort: deps.effort,
+          abortSignal,
         }),
       logger: deps.logger,
     },
@@ -169,7 +163,7 @@ const proposeReadinessUseCase = async (
   if (!engineResult.ok) return Result.error(engineResult.error);
   const engineOut = engineResult.value;
 
-  // audit-[09]: the AI wrote `signals.json` into the per-run dir directly. Validate against
+  // The AI wrote `signals.json` into the per-run dir directly. Validate against
   // the readiness contract (signals-missing / invalid-json / schema-mismatch surface as
   // domain errors with precise hints).
   const validated = await validateSignalsFile(engineOut.runDir, readinessOutputContract);
@@ -220,8 +214,26 @@ const proposeReadinessUseCase = async (
 };
 
 /**
+ * Claude Code stops loading `AGENTS.md` once a `CLAUDE.md` exists, so a new `CLAUDE.md` starts by
+ * importing it (https://code.claude.com/docs/en/memory). Treated as the existing body: the model
+ * adds only Claude-specific sections below it.
+ */
+const AGENTS_MD_IMPORT = '@AGENTS.md\n';
+const CLAUDE_CODE = 'claude-code';
+
+/** The existing context body the proposal appends to, or undefined for a fresh file (an unreadable one counts as fresh). */
+const readExistingContext = async (tool: AssistantTool, state: ReadinessState): Promise<string | undefined> => {
+  if (isPresent(state) && state.artifacts.tool === CLAUDE_CODE) {
+    const { claudeMd, agentsMd } = state.artifacts;
+    if (claudeMd === undefined && agentsMd !== undefined) return AGENTS_MD_IMPORT;
+  }
+  const path = pickExistingContextPath(tool, state);
+  return path === undefined ? undefined : fs.readFile(path, 'utf8').catch(() => undefined);
+};
+
+/**
  * Return the absolute path of the tool-native context file when the probe surfaced one.
- *  - claude-code → `claudeMd` (preferred) or `agentsMd`.
+ *  - claude-code → `claudeMd`.
  *  - copilot     → `copilotInstructions`.
  *  - codex       → `agentsMd`.
  *  - opencode    → `agentsMd`.
@@ -237,8 +249,8 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
   if (!isPresent(state)) return undefined;
   const a = state.artifacts;
   switch (tool) {
-    case 'claude-code':
-      return a.tool === 'claude-code' ? pathOf(a.claudeMd ?? a.agentsMd) : undefined;
+    case CLAUDE_CODE:
+      return a.tool === CLAUDE_CODE ? pathOf(a.claudeMd) : undefined;
     case 'copilot':
       return a.tool === 'copilot' ? pathOf(a.copilotInstructions) : undefined;
     case 'codex':

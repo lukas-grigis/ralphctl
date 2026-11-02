@@ -12,7 +12,7 @@ import { Layout } from '@src/application/ui/tui/App.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -43,7 +43,7 @@ const storage = (): React.ComponentProps<typeof StorageProvider>['value'] => {
 };
 
 const Page = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   return <ViewShell title="Home">{ui.helpOpen ? <Text>HELP OVERLAY</Text> : <Text>PAGE</Text>}</ViewShell>;
 };
 
@@ -81,7 +81,7 @@ describe('prompt arriving behind an open overlay', () => {
     const queue = createPromptQueue();
     const resolve = vi.fn();
     const reject = vi.fn();
-    const { stdin, lastFrame, unmount } = mount(queue);
+    const { stdin, lastFrame } = mount(queue);
     await tick();
     stdin.write('?');
     await tick();
@@ -96,13 +96,12 @@ describe('prompt arriving behind an open overlay', () => {
     stdin.write(ENTER);
     await tick();
     expect(resolve).toHaveBeenCalledOnce();
-    unmount();
   });
 
   it('keeps keys off the hidden prompt while the overlay is open', async () => {
     const queue = createPromptQueue();
     const resolve = vi.fn();
-    const { stdin, unmount } = mount(queue);
+    const { stdin } = mount(queue);
     await tick();
     stdin.write('?');
     await tick();
@@ -111,6 +110,5 @@ describe('prompt arriving behind an open overlay', () => {
     stdin.write(ENTER);
     await tick();
     expect(resolve).not.toHaveBeenCalled();
-    unmount();
   });
 });

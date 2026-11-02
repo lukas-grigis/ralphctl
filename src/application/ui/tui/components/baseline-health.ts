@@ -21,7 +21,7 @@
 
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Attempt, VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { VerifyRun } from '@src/domain/entity/attempt.ts';
 import { foldTaskRollup } from '@src/business/runs/outcome-stats.ts';
 
 /** Stale threshold for "baseline state may be out of date", in ms. */
@@ -42,10 +42,8 @@ export interface AttributionCounts {
 }
 
 /**
- * The four attribution verdicts, in the camelCase shape the card renders. A thin projection of
- * the business fold's `attribution.byVerdict` — the counting itself is not duplicated here, so
- * this surface inherits its tolerant reads (a legacy task with no `attempts` array no longer
- * throws in the render path) and can never drift from the CLI rollup.
+ * The four attribution verdicts, in the camelCase shape the card renders. A projection of the
+ * business fold's `attribution.byVerdict`, so the card can never drift from the CLI rollup.
  */
 export const countAttributions = (tasks: readonly Task[]): AttributionCounts => {
   const { byVerdict } = foldTaskRollup(tasks).attribution;
@@ -61,15 +59,9 @@ export const countAttributions = (tasks: readonly Task[]): AttributionCounts => 
 const newerVerifyRun = (current: VerifyRun | undefined, candidate: VerifyRun): VerifyRun =>
   current === undefined || candidate.ranAt > current.ranAt ? candidate : current;
 
-/** The attempt history, or `[]` for a persisted task written before `attempts` existed. */
-const attemptsOf = (task: Task): readonly Attempt[] => (Array.isArray(task.attempts) ? task.attempts : []);
-
-/**
- * All verify rows across every attempt of a single task that match the given phase. Tolerant of a
- * legacy record — the same guarantee the business fold makes.
- */
+/** All verify rows across every attempt of a single task that match the given phase. */
 const verifyRunsForPhase = (task: Task, phase: 'pre' | 'post'): readonly VerifyRun[] =>
-  attemptsOf(task).flatMap((attempt) => (attempt?.verifyRuns ?? []).filter((row) => row.phase === phase));
+  task.attempts.flatMap((attempt) => (attempt.verifyRuns ?? []).filter((row) => row.phase === phase));
 
 /**
  * Walk every attempt across every task and return the most recent {@link VerifyRun} for the

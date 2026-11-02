@@ -29,7 +29,7 @@ export const createInteractiveCopilotProvider = (deps: InteractiveProviderDeps):
   createInteractiveProvider(
     {
       providerName: 'interactive-copilot',
-      defaultCommand: 'copilot',
+      provider: 'github-copilot',
       modelCatalogLabel: 'Copilot',
       isKnownModel: isCopilotModel,
       supportsSessionId: true,

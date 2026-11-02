@@ -23,7 +23,11 @@ import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { UiStateProvider, useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import {
+  UiStateProvider,
+  useFocusedRun,
+  type FocusedRunCtx,
+} from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 // Hoisted size control — vi.hoisted so the variable exists when the mock factory is hoisted.
@@ -64,7 +68,7 @@ const Seed = ({
   focusedRun,
 }: SeedOptions): React.JSX.Element => {
   const selection = useSelection();
-  const ui = useUiState();
+  const ui = useFocusedRun();
   const setProjectRef = React.useRef(selection.setProject);
   setProjectRef.current = selection.setProject;
   const setSprintRef = React.useRef(selection.setSprint);
@@ -102,7 +106,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
       sprintId: undefined,
       sprintLabel: undefined,
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="stale-sprint" focusedRun={focusedRun} />
     );
     await waitForPredicate(() => (lastFrame() ?? '').includes('run-project'));
@@ -115,8 +119,6 @@ describe('Breadcrumb — right-side label coalescing', () => {
     // the stale global one must not leak through.
     expect(frame).not.toContain('stale-sprint');
     expect(frame).not.toContain('sprint:');
-
-    unmount();
   });
 
   it('a focused run with a sprint shows both labels from the run, not the global selection', async () => {
@@ -126,7 +128,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
       sprintId: parseSprintId(),
       sprintLabel: 'run-sprint',
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="stale-sprint" focusedRun={focusedRun} />
     );
     await waitForPredicate(() => (lastFrame() ?? '').includes('run-sprint'));
@@ -136,41 +138,32 @@ describe('Breadcrumb — right-side label coalescing', () => {
     expect(frame).toContain('run-sprint');
     expect(frame).not.toContain('global-project');
     expect(frame).not.toContain('stale-sprint');
-
-    unmount();
   });
 
   it('with no focused run, both labels resolve from the global selection', async () => {
     sizeRef.columns = 100;
-    const { lastFrame, unmount } = render(
-      <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
-    );
+    const { lastFrame } = render(<Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('global-sprint'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('global-project');
     expect(frame).toContain('global-sprint');
-
-    unmount();
   });
 });
 
 describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
   it('renders the [S] picker affordance next to the sprint label (mirroring [P])', async () => {
     sizeRef.columns = 100;
-    const { lastFrame, unmount } = render(
-      <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
-    );
+    const { lastFrame } = render(<Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />);
     await waitForPredicate(() => (lastFrame() ?? '').includes('[S]'));
     const frame = lastFrame() ?? '';
     expect(frame).toContain('[P]');
     expect(frame).toContain('[S]');
-    unmount();
   });
 
   it('renders the sprint status chip at ≥md (100 cols)', async () => {
     sizeRef.columns = 100;
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
     );
     await waitForPredicate(() => (lastFrame() ?? '').includes('[ACTIVE]'));
@@ -178,12 +171,11 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     expect(frame).toContain('my-sprint');
     // StatusChip wraps the label in brackets and uppercases it.
     expect(frame).toContain('[ACTIVE]');
-    unmount();
   });
 
   it('omits the sprint status chip below md (<100 cols)', async () => {
     sizeRef.columns = 80;
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
     );
     await waitForPredicate(() => (lastFrame() ?? '').includes('my-sprint'));
@@ -191,7 +183,6 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     expect(frame).toContain('my-sprint');
     // No chip at narrow width — avoids overflow on small terminals.
     expect(frame).not.toContain('[ACTIVE]');
-    unmount();
   });
 
   it('does NOT show the status chip for a focused run even when the global status is set', async () => {
@@ -201,7 +192,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
       sprintId: parseSprintId(),
       sprintLabel: 'run-sprint',
     };
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <Harness
         globalProjectLabel="global-project"
         globalSprintLabel="global-sprint"
@@ -214,7 +205,6 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     // The focused run's sprint label shows but the global status chip must not leak through.
     expect(frame).toContain('run-sprint');
     expect(frame).not.toContain('[REVIEW]');
-    unmount();
   });
 
   it('renders the correct chip kind for each status value', async () => {

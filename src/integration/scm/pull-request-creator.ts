@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { runCli, type CliRunResult } from '@src/integration/io/run-cli.ts';
+import { requireCleanExit, runCli, type CliRunResult } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import {
   detectPullRequestPlatform,
@@ -13,15 +13,10 @@ import {
 } from '@src/business/scm/pull-request-creator.ts';
 
 /**
- * Adapter for the `PullRequestCreator` port — dispatches to the local `gh` (GitHub) or `glab`
- * (GitLab) CLI based on the repo's `origin` remote URL. Reads the URL through `GitRunner` (so
- * tests inject a fake) and spawns the platform CLI through `Spawn` (likewise).
- *
- * Mirrors the v1 `PullRequestRunner` shape but adapted to v2's port + functional-runner style:
- *  - port lives in `core/external/`, this module never imports from `business/usecases/`.
- *  - dependencies are passed via a deps record consumed by the factory; no class.
- *  - timeout matches v1 (60s) — `gh` and `glab` block on auth checks and network round-trips.
+ * `PullRequestCreator` adapter — dispatches to the local `gh` (GitHub) or `glab` (GitLab) CLI
+ * based on the repo's `origin` remote URL.
  */
+// 60s, not the 30s read timeout: both CLIs block on auth checks and network round-trips here.
 const CLI_TIMEOUT_MS = 60_000;
 
 export interface PullRequestCreatorDeps {
@@ -118,17 +113,9 @@ const runPlatformCli = async (
           timeoutMs: CLI_TIMEOUT_MS,
         })
       : await runGlab(spawn, input);
-  if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    const stderr = result.value.stderr.trim();
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `${noun} failed: ${stderr || 'unknown error'}`,
-      })
-    );
-  }
-  const url = parseUrlFromCliStdout(result.value.stdout);
+  const checked = requireCleanExit(result, noun);
+  if (!checked.ok) return Result.error(checked.error);
+  const url = parseUrlFromCliStdout(checked.value.stdout);
   if (url === null) {
     return Result.error(new StorageError({ subCode: 'io', message: `${noun} succeeded but emitted no URL` }));
   }

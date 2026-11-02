@@ -14,6 +14,7 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 interface PersistedFlowRow {
@@ -73,10 +74,9 @@ describe('ralphctl settings set — disk round-trip', () => {
     expect(persisted.harness.maxTurns).toBe(7);
     // Other settings still at defaults — set-one-key must not zero out the rest.
     expect(persisted.harness.maxAttempts).toBeGreaterThan(0);
-    expect(persisted.ai.implement.generator.provider).toBeTruthy();
-    expect(persisted.ai.implement.generator.model).toBeTruthy();
-    expect(persisted.ai.implement.evaluator.provider).toBeTruthy();
-    expect(persisted.ai.implement.evaluator.model).toBeTruthy();
+    const { generator, evaluator } = DEFAULT_SETTINGS.ai.implement;
+    expect(persisted.ai.implement.generator).toMatchObject({ provider: generator.provider, model: generator.model });
+    expect(persisted.ai.implement.evaluator).toMatchObject({ provider: evaluator.provider, model: evaluator.model });
   });
 
   it('persists a per-flow ai.<flow>.model to disk', async () => {

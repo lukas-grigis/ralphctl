@@ -15,16 +15,14 @@
  * untouched — reloading on those would hammer disk for a rail update no consumer here renders.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 
 export const useSessionTransitionReload = (reload: () => void): void => {
   const sessionMgr = useSessionManager();
 
-  // `reload` is a fresh closure each render (no useCallback in useAsyncLoad), so we route it
-  // through a ref to keep the subscription stable.
-  const reloadRef = useRef(reload);
-  reloadRef.current = reload;
+  // `reload` is a fresh closure each render; an Effect Event keeps the subscription stable.
+  const onTransition = useEffectEvent(reload);
 
   useEffect(() => {
     const snapshot = (): Map<string, string> => {
@@ -45,7 +43,7 @@ export const useSessionTransitionReload = (reload: () => void): void => {
         }
       }
       prev = next;
-      if (changed) reloadRef.current();
+      if (changed) onTransition();
     });
   }, [sessionMgr]);
 };

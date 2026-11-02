@@ -48,15 +48,16 @@ const lastRun = async (): Promise<{ dir: string; results: ResultsFile }> => {
 const E2E = { timeout: 60_000 };
 
 describe('pnpm eval check', E2E, () => {
-  it('proves every fixture and exits 0', async () => {
-    expect(await main(['check', ...base()])).toBe(0);
-    expect(stdout.join('\n')).toContain('4/4 fixtures proven');
+  // Per-fixture proofs live in check-fixture.test.ts; this only pins the exit-code wiring.
+  it('proves the selected fixture and exits 0', async () => {
+    expect(await main(['check', ...base('--fixture', 'mini-ev')])).toBe(0);
+    expect(stdout.join('\n')).toContain('1/1 fixtures proven');
   });
 
   it('exits 1 and names the fixture when a label is not proven', async () => {
     const dir = join(fixtures, 'evaluate', 'mini-ev', 'variants');
     await fs.copyFile(join(dir, 'clean.patch'), join(dir, 'defect.patch'));
-    expect(await main(['check', ...base()])).toBe(1);
+    expect(await main(['check', ...base('--fixture', 'mini-ev')])).toBe(1);
     expect(stdout.join('\n')).toContain('FAIL evaluate/mini-ev');
     expect(stdout.join('\n')).toContain('1 rejected');
   });
@@ -82,9 +83,7 @@ describe('pnpm eval run --dry-run', E2E, () => {
     expect(await fs.readFile(join(dir, 'summary.md'), 'utf8')).toContain('DRY RUN');
   });
 
-  it('is fail-closed on the budget: --max-tokens is required and small budgets stop the run with exit 2', async () => {
-    expect(await main(['run', '--dry-run', ...base()])).toBe(1);
-    expect(stderr.join('\n')).toContain('--max-tokens is required');
+  it('is fail-closed on the budget: a small --max-tokens stops the run with exit 2', async () => {
     expect(await main(['run', '--dry-run', '--max-tokens', '1500', '-k', '1', ...base()])).toBe(2);
     const { results } = await lastRun();
     expect(results.stoppedReason).toBe('budget');
@@ -104,6 +103,21 @@ describe('pnpm eval run --dry-run', E2E, () => {
     expect(stderr.join('\n')).toContain('no fixtures matched');
   });
 });
+
+// One real dry-run shared by the report tests; each test writes its own copy into its scratch dir.
+let baselineRun: Promise<ResultsFile> | undefined;
+const baselineResults = (): Promise<ResultsFile> =>
+  (baselineRun ??= (async () => {
+    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
+      0
+    );
+    return (await lastRun()).results;
+  })());
+const writeResults = async (name: string, results: unknown): Promise<string> => {
+  const path = join(scratch, name);
+  await fs.writeFile(path, JSON.stringify(results));
+  return path;
+};
 
 describe('pnpm eval compare / report', E2E, () => {
   it('compares two arms and writes a paired comparison', async () => {
@@ -172,12 +186,9 @@ describe('pnpm eval compare / report', E2E, () => {
   });
 
   it('reports offline on two results files without spending anything', async () => {
-    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '2', '--flow', 'evaluate', ...base()])).toBe(
-      0
-    );
-    const first = join((await lastRun()).dir, 'results.json');
-    const second = join(scratch, 'second.json');
-    await fs.copyFile(first, second);
+    const results = await baselineResults();
+    const first = await writeResults('first.json', results);
+    const second = await writeResults('second.json', results);
     stdout.length = 0;
     expect(await main(['report', first, second])).toBe(0);
     const text = stdout.join('\n');
@@ -186,15 +197,11 @@ describe('pnpm eval compare / report', E2E, () => {
   });
 
   it('reports each results file under its own arm: the candidate keeps its own metrics, not the baseline label', async () => {
-    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
-      0
-    );
-    const first = join((await lastRun()).dir, 'results.json');
-    const second = join(scratch, 'second.json');
-    const results = JSON.parse(await fs.readFile(first, 'utf8')) as ResultsFile;
+    const results = await baselineResults();
+    const first = await writeResults('first.json', results);
     // The candidate run got every evaluate trial wrong; the baseline got them all right.
     const wrong = results.trials.map((t) => ({ ...t, correct: false, grade: undefined }));
-    await fs.writeFile(second, JSON.stringify({ ...results, trials: wrong }));
+    const second = await writeResults('second.json', { ...results, trials: wrong });
     stdout.length = 0;
     expect(await main(['report', first, second])).toBe(0);
     const text = stdout.join('\n');
@@ -203,21 +210,14 @@ describe('pnpm eval compare / report', E2E, () => {
   });
 
   it('refuses to report a results file that is not single-arm (a compare run would pool both arms)', async () => {
-    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
-      0
-    );
-    const first = join((await lastRun()).dir, 'results.json');
-    const twoArm = join(scratch, 'two-arm.json');
-    const results = JSON.parse(await fs.readFile(first, 'utf8')) as ResultsFile;
+    const results = await baselineResults();
+    const first = await writeResults('first.json', results);
     const candidate = { ...(results.arms[0] as ResultsFile['arms'][number]), name: 'candidate' };
-    await fs.writeFile(
-      twoArm,
-      JSON.stringify({
-        ...results,
-        arms: [...results.arms, candidate],
-        trials: [...results.trials, ...results.trials.map((t) => ({ ...t, arm: 'candidate' }))],
-      })
-    );
+    const twoArm = await writeResults('two-arm.json', {
+      ...results,
+      arms: [...results.arms, candidate],
+      trials: [...results.trials, ...results.trials.map((t) => ({ ...t, arm: 'candidate' }))],
+    });
     stdout.length = 0;
     expect(await main(['report', first, twoArm])).toBe(1);
     expect(stderr.join('\n')).toContain(`${twoArm}: has 2 arms (baseline, candidate)`);
@@ -225,13 +225,9 @@ describe('pnpm eval compare / report', E2E, () => {
   });
 
   it('refuses to report runs with different k', async () => {
-    expect(await main(['run', '--dry-run', '--max-tokens', '100000', '-k', '1', '--flow', 'evaluate', ...base()])).toBe(
-      0
-    );
-    const first = join((await lastRun()).dir, 'results.json');
-    const other = join(scratch, 'other.json');
-    const results = JSON.parse(await fs.readFile(first, 'utf8')) as Record<string, unknown>;
-    await fs.writeFile(other, JSON.stringify({ ...results, k: 2 }));
+    const results = await baselineResults();
+    const first = await writeResults('first.json', results);
+    const other = await writeResults('other.json', { ...results, k: 2 });
     expect(await main(['report', first, other])).toBe(1);
     expect(stderr.join('\n')).toContain('k differs');
   });

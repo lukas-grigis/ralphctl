@@ -130,18 +130,16 @@ describe('applySettingsKey — escalation keys', () => {
 
   it('overwrites an existing escalationMap entry when set a second time', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'harness.escalationMap.foo', 'bar');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
-    const overwritten = applySettingsKey(seeded.value, 'harness.escalationMap.foo', 'baz');
+    const seededValue = seeded.getOrThrow();
+    const overwritten = applySettingsKey(seededValue, 'harness.escalationMap.foo', 'baz');
     expect(overwritten.ok).toBe(true);
     if (overwritten.ok) expect(overwritten.value.harness.escalationMap).toEqual({ foo: 'baz' });
   });
 
   it('clears an escalationMap entry when given an empty value', () => {
     const seeded = applySettingsKey(DEFAULT_SETTINGS, 'harness.escalationMap.foo', 'bar');
-    expect(seeded.ok).toBe(true);
-    if (!seeded.ok) return;
-    const cleared = applySettingsKey(seeded.value, 'harness.escalationMap.foo', '');
+    const seededValue = seeded.getOrThrow();
+    const cleared = applySettingsKey(seededValue, 'harness.escalationMap.foo', '');
     expect(cleared.ok).toBe(true);
     if (cleared.ok) expect(cleared.value.harness.escalationMap).toEqual({});
   });

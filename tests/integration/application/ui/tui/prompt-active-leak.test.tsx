@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -32,13 +32,13 @@ const emptyManager = (): SessionManager =>
   ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useGlobalKeys({ disabled: ui.promptActive });
   return <>{children}</>;
 };
 
 const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
   return <TextPrompt message="type" onSubmit={onSubmit} onCancel={() => undefined} />;
 };
@@ -87,7 +87,7 @@ describe('promptActive claim suppresses global hotkeys', () => {
   it('typing "blinced" does not trigger the global "n" → flows navigation', async () => {
     probeIds.length = 0;
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(<Harness onSubmit={onSubmit} />);
+    const { stdin } = render(<Harness onSubmit={onSubmit} />);
     await tick(50); // give the claim effect time to run
     stdin.write('blinced');
     await tick();
@@ -97,13 +97,12 @@ describe('promptActive claim suppresses global hotkeys', () => {
     // Router must have stayed on 'home' throughout. ViewProbe records every render's id;
     // if `n` had leaked to useGlobalKeys, we'd see 'flows' here.
     expect(probeIds.every((id) => id === 'home')).toBe(true);
-    unmount();
   });
 
   it('typing matches global hotkeys for all four leak-prone letters', async () => {
     probeIds.length = 0;
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(<Harness onSubmit={onSubmit} />);
+    const { stdin } = render(<Harness onSubmit={onSubmit} />);
     await tick(50);
     // n=flows, s=settings, x=sessions, ! (shift+1) doesn't co-occur with text but cover the
     // letter-only ones explicitly.
@@ -113,6 +112,5 @@ describe('promptActive claim suppresses global hotkeys', () => {
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('nsxh');
     expect(probeIds.every((id) => id === 'home')).toBe(true);
-    unmount();
   });
 });

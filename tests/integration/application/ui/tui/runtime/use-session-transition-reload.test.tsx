@@ -46,7 +46,7 @@ describe('useSessionTransitionReload', () => {
     sessions.register({ runner, flowId: 'demo', title: 'Demo' });
 
     let reloadCount = 0;
-    const r = render(
+    render(
       <SessionsProvider value={sessions}>
         <Probe onReload={() => (reloadCount += 1)} />
       </SessionsProvider>
@@ -61,14 +61,12 @@ describe('useSessionTransitionReload', () => {
     // Two status transitions (idle→running, running→completed) — the two trace-only step
     // notifies in between must not have bumped the count.
     expect(reloadCount).toBe(2);
-
-    r.unmount();
   });
 
   it('fires reload when a new session is registered after mount', () => {
     const sessions = createSessionManager();
     let reloadCount = 0;
-    const r = render(
+    render(
       <SessionsProvider value={sessions}>
         <Probe onReload={() => (reloadCount += 1)} />
       </SessionsProvider>
@@ -80,6 +78,5 @@ describe('useSessionTransitionReload', () => {
     sessions.register({ runner, flowId: 'demo', title: 'Demo' });
 
     expect(reloadCount).toBe(1);
-    r.unmount();
   });
 });

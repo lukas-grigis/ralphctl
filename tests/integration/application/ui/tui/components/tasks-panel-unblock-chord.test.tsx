@@ -74,7 +74,6 @@ describe('TasksPanel — u unblock chord', () => {
     await waitForPredicate(() => onUnblock.mock.calls.length === 1);
 
     expect(onUnblock).toHaveBeenCalledWith('task-blocked');
-    r.unmount();
   });
 
   it('is inert on a focused card that is not in blockedTaskIds', async () => {
@@ -95,7 +94,6 @@ describe('TasksPanel — u unblock chord', () => {
     await tick(50);
 
     expect(onUnblock).not.toHaveBeenCalled();
-    r.unmount();
   });
 
   it('is inert when the host wires no handler', async () => {
@@ -116,7 +114,6 @@ describe('TasksPanel — u unblock chord', () => {
     // With no `onUnblock` there is nothing to observe but the frame, so the assertion is "the
     // panel did not react" — spinner animation normalised out on both sides.
     expect(withoutSpinnerFrames(r.lastFrame() ?? '')).toBe(before);
-    r.unmount();
   });
 });
 
@@ -152,7 +149,6 @@ describe('TasksPanel — e criteria toggle anchors on the focused card', () => {
     // …while the ACTIVE card's (task-live) 4th bullet stays collapsed — proving `e` targeted the
     // focused card, not unconditionally the active one (the pre-fix behaviour).
     expect(frame).not.toContain('Live-4 hidden until e');
-    r.unmount();
   });
 });
 
@@ -283,12 +279,10 @@ describe('TasksPanelHost — the rejected-diff notice names u only while u works
     const result = renderHost(true);
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('rejected diff kept in git stash'));
     expect(result.lastFrame()).not.toContain('u decides');
-    result.unmount();
   });
 
   it('names u once the run has settled', async () => {
     const result = renderHost(false);
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('u decides what the next attempt does'));
-    result.unmount();
   });
 });

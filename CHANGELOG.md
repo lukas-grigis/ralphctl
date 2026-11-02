@@ -7,6 +7,58 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Codex sessions can reach the network.** Codex blocks network access from shell commands by default, so a
+  Codex generator could not install declared dependencies or run checks that need the network. Headless Codex
+  sessions that may run shell commands and use the network (implement, apply-feedback) now get network access
+  and live web search. Read-only sessions (refine, plan, ideate, readiness, detect) keep shell commands offline
+  and use cached web search; PR drafting has both turned off.
+- **Claude Code effort settings now always take effect.** A `CLAUDE_CODE_EFFORT_LEVEL` exported in your shell used
+  to override every effort ralphctl picked — per-flow rows, presets and the escalation ladder — without any sign.
+  Headless sessions now set it to the same level they pass as `--effort`. Interactive sessions (refine, plan,
+  ideate) leave it alone, so `/effort` and the `/model` picker keep working there.
+- **The evaluator no longer sees the generator's vendor memory.** Claude Code auto memory, Codex memories and
+  Grok memory carry notes from one session into the next, so notes from the generator could reach the evaluator
+  grading it. Evaluator sessions and the best-of-N judge now run with that memory turned off; the generator keeps
+  yours.
+
+### Changed
+
+- **Readiness keeps your `AGENTS.md` rules working under Claude Code.** In a repository with an `AGENTS.md` and no
+  `CLAUDE.md`, the proposed `CLAUDE.md` now starts with an `@AGENTS.md` import and adds only Claude-specific
+  sections. Before, it copied the whole `AGENTS.md` body, and the two files drifted apart. Claude Code stops
+  reading `AGENTS.md` once a `CLAUDE.md` exists, so the import is what keeps those rules loaded.
+- **Readiness knows which context files each CLI reads.** Codex skips `CLAUDE.md` unless configured to read it, and OpenCode ignores it
+  once an `AGENTS.md` exists, so readiness for those tools now carries the rules from your `CLAUDE.md` into the
+  proposed `AGENTS.md` instead of leaving them out. For Copilot and Grok, which read every file, it still avoids
+  repeating them.
+- **Leaner implement diffs and grounded convention critiques.** The generator is now told not to add error
+  handling for states the code already rules out, or comments and type annotations to code it did not change.
+  When the evaluator fails work on a project convention, it now cites the context file and line that states it,
+  and it no longer fails work on a convention no file or criterion states.
+- **Retries after a red verify can reuse the rejected work.** When a task's verify script fails after an attempt and
+  the task retries, ralphctl sets that attempt's changes aside so the retry starts from the last commit. It now
+  also saves them as a patch under the sprint's `logs/rejected-diff/` folder and tells the retry where it is, as
+  an unverified lead it can check and apply, or ignore. Before, the retry had to redo the work from scratch, and
+  its prompt wrongly suggested the earlier changes were still in the working tree. Nothing is applied for it.
+- **Retries see the first error in a failing verify log.** The verify and reproduction output inlined into the
+  generator prompt keeps the start and the end of the last 256 KiB of the log, with the middle cut, instead of only the end. A
+  compiler or type checker usually prints the root-cause error first, which the old end-only excerpt dropped.
+- **CLI commands start about twice as fast.** `ralphctl --version`, `sprint list`, `settings show` and the other
+  one-shot commands no longer load the TUI (Ink and React), taking roughly 0.25 s instead of 0.55 s. Bare
+  `ralphctl` is unchanged.
+- **`ralphctl doctor` runs its checks concurrently**, roughly halving its run time. The report order is unchanged.
+- **Fewer needless reproduction runs.** Implement decides whether a task is a bug fix from its name first, and reads
+  the description only when the name gives no hint. Before, a feature task whose description merely mentioned
+  "fix" or "broken" got an extra AI session that tried to write a failing test before any work started.
+- **A reproduction test that hangs no longer counts.** For bugfix tasks, ralphctl re-runs the reproduction test
+  the AI wrote before it accepts it. A re-run that ralphctl had to kill, because it timed out or printed runaway
+  output, used to count as a reproduction, and the evaluator then re-ran it every round. It is now discarded, its test
+  file moves to the git stash so it can't hang the next verify run, and the task goes on without a reproduction. The reproduce prompt also asks the AI to put a timeout inside a test
+  for a hang, to assert the behaviour the report asks for rather than only "not today's wrong output", and not to
+  assert details the report never mentions.
+
 ## [0.27.0] - 2026-10-25
 
 ### Breaking

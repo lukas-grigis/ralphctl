@@ -115,7 +115,6 @@ describe('Execute view — settled-run next steps', () => {
     expect(frame).toContain('◆ Review');
     expect(frame).toContain('◆ Create PR');
     expect(frame).toContain('◆ Close sprint');
-    result.unmount();
   });
 
   it('advertises re-run and progress alongside home once the run settles', async () => {
@@ -139,7 +138,6 @@ describe('Execute view — settled-run next steps', () => {
     expect(frame).toContain('home');
     expect(frame).toContain('re-run');
     expect(frame).toContain('progress');
-    result.unmount();
   });
 
   it('hides the progress hint when the run has no pinned sprint to open', async () => {
@@ -159,7 +157,6 @@ describe('Execute view — settled-run next steps', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('re-run');
     expect(frame).not.toContain('progress');
-    result.unmount();
   });
 
   it('r RESETS to Flows so the dead run leaves the stack and triggers are re-evaluated', async () => {
@@ -184,7 +181,6 @@ describe('Execute view — settled-run next steps', () => {
     expect(routeIds().at(-1)).toBe('flows');
     // A reset (not a push): Home is never routed through, and the run is off the stack.
     expect(routeIds()).not.toContain('home');
-    result.unmount();
   });
 
   it('leaves r unbound while the run is live — no accidental navigation off a running flow', async () => {
@@ -206,7 +202,6 @@ describe('Execute view — settled-run next steps', () => {
     result.stdin.write('r');
     await tick();
     expect(routeIds()).not.toContain('flows');
-    result.unmount();
   });
 
   it('renders the post-mortem block with the paths a failed run actually left behind', async () => {
@@ -238,7 +233,6 @@ describe('Execute view — settled-run next steps', () => {
     expect(frame).toContain('progress.md');
     // There is no `chain.log` anywhere in the tree — advertising one would print a dead path.
     expect(frame).not.toContain('chain.log');
-    result.unmount();
   });
 
   it('advises on the sprint the flow LEFT BEHIND, not the one it started on', async () => {
@@ -296,7 +290,6 @@ describe('Execute view — settled-run next steps', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('◆ Implement');
     expect(frame).not.toContain('◆ Plan');
-    result.unmount();
   });
 
   it('omits the post-mortem block entirely when the run has no sprint to resolve paths from', async () => {
@@ -317,6 +310,5 @@ describe('Execute view — settled-run next steps', () => {
     await waitForViewReady(result, (f) => f.includes('Create Sprint — Failed'));
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('Post-mortem');
-    result.unmount();
   });
 });

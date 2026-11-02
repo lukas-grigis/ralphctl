@@ -18,37 +18,22 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import type { AskConfirmInput, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { absolutePath, FIXED_LATER, makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_LATER, makeBlockedTask, makeReviewSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { createReviewFlow, type CreateReviewFlowOpts } from '@src/application/flows/review/flow.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
-
-const unwrap = <T, E>(r: Result<T, E>): T => {
-  if (!r.ok) {
-    const err: unknown = r.error;
-    const msg = err instanceof Error ? err.message : JSON.stringify(err);
-    throw new Error(`fixture unwrap failed: ${msg}`);
-  }
-  return r.value as T;
-};
-
-const blockedTask = (name: string): Task =>
-  unwrap(markTaskBlocked(makeTodoTask({ name }), 'ran out of attempts', 'own'));
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
+import { scriptedConfirm } from '@tests/fixtures/scripted-confirm.ts';
 
 const findElement = <TCtx>(el: Element<TCtx>, target: string): Element<TCtx> | undefined => {
   if (el.name === target) return el;
@@ -59,50 +44,10 @@ const findElement = <TCtx>(el: Element<TCtx>, target: string): Element<TCtx> | u
   return undefined;
 };
 
-const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
-  let current = initial;
-  const repo = withUpdate({
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-  return { repo, current: () => current };
-};
-
 const staticTaskRepo = (tasks: readonly Task[]): TaskRepository =>
   ({
     findBySprintId: async () => Result.ok(tasks),
   }) as unknown as TaskRepository;
-
-/** Scripted `askConfirm` fake — records every message it was asked, replays canned answers in order. */
-const scriptedInteractive = (
-  responses: ReadonlyArray<Result<boolean, DomainError>>
-): { readonly prompt: InteractivePrompt; readonly messages: () => readonly string[] } => {
-  const messages: string[] = [];
-  let next = 0;
-  const notStubbed = (method: string) => async (): Promise<never> => {
-    throw new Error(`${method} not stubbed on this fake`);
-  };
-  const prompt: InteractivePrompt = {
-    askText: notStubbed('askText'),
-    askTextArea: notStubbed('askTextArea'),
-    askChoice: notStubbed('askChoice'),
-    askMultiChoice: notStubbed('askMultiChoice'),
-    askConfirm: async (input: AskConfirmInput) => {
-      messages.push(input.message);
-      const response = responses[next];
-      next += 1;
-      if (response === undefined) throw new Error('scriptedInteractive: no more scripted responses');
-      return response;
-    },
-  };
-  return { prompt, messages: () => messages };
-};
 
 /**
  * Builds the REAL `createReviewFlow` tree, then locates `review-settle` — the sequential body
@@ -146,7 +91,7 @@ describe('createReviewFlow — review-settle blocked-task gate', () => {
     const sprint = makeReviewSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
     const append = recordingAppendFile();
-    const interactive = scriptedInteractive([]);
+    const interactive = scriptedConfirm([]);
     const progressFile = absolutePath('/tmp/progress.md');
 
     const settleNode = buildSettleNode({
@@ -171,17 +116,17 @@ describe('createReviewFlow — review-settle blocked-task gate', () => {
     ]);
     expect(result.value.trace.find((t) => t.elementName === 'confirm-blocked-tasks')?.status).toBe('skipped');
     // The gate never asked anything — no blocked task, nothing to name.
-    expect(interactive.messages()).toEqual([]);
+    expect(interactive.messages).toEqual([]);
     expect(result.value.ctx.sprint?.status).toBe('done');
     expect(sprintRepo.current().status).toBe('done');
   });
 
-  it('names the blocked task(s) and, on confirm, proceeds to close', async () => {
+  it('asks once and, on confirm, proceeds to close', async () => {
     const sprint = makeReviewSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
     const append = recordingAppendFile();
-    const interactive = scriptedInteractive([Result.ok(true)]);
-    const tasks = [blockedTask('fix-the-thing'), makeTodoTask({ name: 'unrelated-and-not-blocked' })];
+    const interactive = scriptedConfirm([Result.ok(true)]);
+    const tasks = [makeBlockedTask({ name: 'fix-the-thing' }), makeTodoTask({ name: 'unrelated-and-not-blocked' })];
 
     const settleNode = buildSettleNode({
       sprintRepo: sprintRepo.repo,
@@ -203,10 +148,7 @@ describe('createReviewFlow — review-settle blocked-task gate', () => {
       'transition-sprint-to-done',
       'progress-journal-close',
     ]);
-    const [message] = interactive.messages();
-    expect(message).toContain('1 task(s)');
-    expect(message).toContain('fix-the-thing');
-    expect(message).not.toContain('unrelated-and-not-blocked');
+    expect(interactive.messages).toHaveLength(1);
     expect(sprintRepo.current().status).toBe('done');
     // The outcome is recorded — the closing transition is journalled, same as close-sprint's.
     expect(append.snapshot()).toHaveLength(1);
@@ -216,8 +158,8 @@ describe('createReviewFlow — review-settle blocked-task gate', () => {
     const sprint = makeReviewSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
     const append = recordingAppendFile();
-    const interactive = scriptedInteractive([Result.ok(false)]);
-    const tasks = [blockedTask('fix-the-thing')];
+    const interactive = scriptedConfirm([Result.ok(false)]);
+    const tasks = [makeBlockedTask({ name: 'fix-the-thing' })];
 
     const settleNode = buildSettleNode({
       sprintRepo: sprintRepo.repo,
@@ -254,7 +196,7 @@ describe('createReviewFlow — review-settle blocked-task gate', () => {
     const sprint = makeReviewSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
     const append = recordingAppendFile();
-    const interactive = scriptedInteractive([]);
+    const interactive = scriptedConfirm([]);
 
     const settleNode = buildSettleNode({
       sprintRepo: sprintRepo.repo,

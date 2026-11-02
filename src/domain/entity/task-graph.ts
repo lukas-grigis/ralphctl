@@ -11,8 +11,7 @@ import { isUpstreamBlocked } from '@src/domain/entity/task-lifecycle.ts';
  * Pure — does not mutate. Caller persists the chosen task's `startNextAttempt` transition.
  */
 export const nextAvailableTask = (tasks: readonly Task[]): Task | undefined => {
-  const byId = new Map<TaskId, Task>();
-  for (const t of tasks) byId.set(t.id, t);
+  const byId = new Map(tasks.map((t) => [t.id, t]));
 
   const ready = tasks.filter((t) => {
     if (t.status !== 'todo') return false;
@@ -93,8 +92,7 @@ const findInvalidEdge = (
  * means the stack from that node forward IS the cycle.
  */
 const findCycle = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): readonly TaskId[] | undefined => {
-  const color = new Map<TaskId, 0 | 1 | 2>();
-  for (const t of tasks) color.set(t.id, 0);
+  const color = new Map<TaskId, 0 | 1 | 2>(tasks.map((t) => [t.id, 0]));
 
   const stack: TaskId[] = [];
   const visit = (id: TaskId): readonly TaskId[] | undefined => {
@@ -150,8 +148,7 @@ export const validateTaskGraph = (
   tasks: readonly Task[],
   satisfiedDependencyIds: ReadonlySet<TaskId> = new Set()
 ): Result<undefined, TaskGraphIssue> => {
-  const byId = new Map<TaskId, Task>();
-  for (const t of tasks) byId.set(t.id, t);
+  const byId = new Map(tasks.map((t) => [t.id, t]));
 
   const badEdge = findInvalidEdge(tasks, byId, satisfiedDependencyIds);
   if (badEdge !== undefined) return Result.error(badEdge);
@@ -241,8 +238,7 @@ export const scheduleIntoWaves = (
   const validation = validateTaskGraph(tasks, satisfiedDependencyIds);
   if (!validation.ok) return Result.error(validation.error);
 
-  const byId = new Map<TaskId, Task>();
-  for (const t of tasks) byId.set(t.id, t);
+  const byId = new Map(tasks.map((t) => [t.id, t]));
 
   const { inDegree, successors } = buildGraph(tasks, byId);
   const byOrderAsc = (a: Task, b: Task): number => a.order - b.order;

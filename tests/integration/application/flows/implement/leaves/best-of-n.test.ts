@@ -30,8 +30,9 @@ import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/be
 import { buildBestOfNGenEvalLoop, isBestOfNGranted } from '@src/application/flows/implement/leaves/best-of-n.ts';
 
 /**
- * Integration tests for the best-of-N candidate loop + selection cascade (arXiv 2604.16529
- * harness-level N-candidate selection; arXiv 2507.23370's ablation order for the cascade) —
+ * Integration tests for the best-of-N candidate loop + selection cascade (arXiv 2604.16529 RTV
+ * harness-level N-candidate selection; a cascade adapted from arXiv 2507.23370, Trae: dedupe →
+ * regression-test filter → selector, reordered here to execution filter first) —
  * mirrors the fake-provider / fake-git-runner pattern in `reproduce.test.ts` and
  * `tests/e2e/flows/implement.test.ts`.
  */
@@ -680,6 +681,8 @@ describe('best-of-N candidate loop + selection cascade', () => {
     // Both orderings named candidate 2 → it wins, no fallback needed.
     expect(gitState.currentDiff).toBe('diff-2');
     expect(judgeSessions).toHaveLength(2);
+    // The judge runs as the evaluator side, so the adapters keep vendor memory out of it.
+    expect(judgeSessions.map((s) => s.role)).toEqual(['evaluator', 'evaluator']);
     const [forward, swapped] = judgeSessions.map((s) => String(s.prompt));
     expect(forward).toContain(records[0]?.summary);
     expect(swapped).toContain(records[1]?.summary);

@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { runCli } from '@src/integration/io/run-cli.ts';
+import { parseCliJson, requireCleanExit, runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 
 /**
@@ -18,7 +18,6 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
  */
 
 const CLI_TIMEOUT_MS = 30_000;
-const UNKNOWN_ERROR = 'unknown error';
 const NOTES_LABEL = 'glab api issue notes';
 
 export interface GitLabIssueRef {
@@ -55,31 +54,22 @@ export const listGitLabIssueNotes = async (
   spawn: Spawn,
   ref: GitLabIssueRef
 ): Promise<Result<readonly GitLabNote[], StorageError>> => {
-  const result = await runCli(spawn, 'glab', [...gitLabNotesArgs(ref)], { timeoutMs: CLI_TIMEOUT_MS });
+  const result = requireCleanExit(
+    await runCli(spawn, 'glab', [...gitLabNotesArgs(ref)], { timeoutMs: CLI_TIMEOUT_MS }),
+    NOTES_LABEL
+  );
   if (!result.ok) return Result.error(result.error);
-  if (result.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `${NOTES_LABEL} failed: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
-      })
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.value.stdout);
-  } catch (cause) {
-    return Result.error(
-      new StorageError({ subCode: 'parse', message: `failed to parse ${NOTES_LABEL} response`, cause })
-    );
-  }
+  const json = parseCliJson<unknown>(result.value.stdout, NOTES_LABEL);
+  if (!json.ok) return Result.error(json.error);
+  const parsed = json.value;
   if (!Array.isArray(parsed)) {
     return Result.error(
       new StorageError({ subCode: 'parse', message: `failed to parse ${NOTES_LABEL} response: expected a JSON array` })
     );
   }
   // Every field is optional on `GlabNote`; the `??` defaults below tolerate missing ones.
-  const notes = (parsed as readonly GlabNote[]).filter((n) => n.system !== true);
-  const sorted = [...notes].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+  const sorted = (parsed as readonly GlabNote[])
+    .filter((n) => n.system !== true)
+    .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
   return Result.ok(sorted.map((n) => ({ body: n.body ?? '', author: n.author?.username })));
 };

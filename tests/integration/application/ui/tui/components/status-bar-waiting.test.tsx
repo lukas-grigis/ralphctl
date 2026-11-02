@@ -37,13 +37,11 @@ describe('StatusBar WAITING', () => {
     const result = mount('r-1');
     await waitForViewReady(result, (f) => f.includes('1 running'));
     expect(result.lastFrame()).toContain('[WAITING]');
-    result.unmount();
   });
 
   it('stays quiet when the prompt belongs to nobody on the list', async () => {
     const result = mount('someone-else');
     await waitForViewReady(result, (f) => f.includes('1 running'));
     expect(result.lastFrame()).not.toContain('[WAITING]');
-    result.unmount();
   });
 });

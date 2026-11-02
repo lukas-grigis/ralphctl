@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type StorageError } from '@src/domain/value/error/storage-error.ts';
-import { gitStashInspect, gitStashList, gitStashPop, gitStashPush } from '@src/integration/io/git-stash.ts';
+import {
+  gitStashInspect,
+  gitStashList,
+  gitStashPop,
+  gitStashPush,
+  gitStashPushPath,
+} from '@src/integration/io/git-stash.ts';
 import {
   GIT_BULK_TIMEOUT_MS,
   type GitRunner,
@@ -62,6 +68,59 @@ describe('gitStashPush', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.stashed).toBe(true);
     expect(received[1]?.opts).toEqual({ timeoutMs: GIT_BULK_TIMEOUT_MS });
+  });
+});
+
+describe('gitStashPushPath', () => {
+  const STATUS = ['status', '--porcelain', '--untracked-files=all', '--', ':(literal)t/a.test.ts'];
+
+  it('returns stashed:false when the path has no changes, without touching the stack', async () => {
+    const { runner } = scriptRunner([{ args: STATUS, result: ok('') }]);
+    const result = await gitStashPushPath(runner, cwd, 'msg', 't/a.test.ts');
+    expect(result.ok && result.value).toEqual({ stashed: false });
+  });
+
+  it('stashes that one path, on the bulk budget', async () => {
+    const { runner, received } = scriptRunner([
+      { args: STATUS, result: ok('?? t/a.test.ts\n') },
+      { args: ['stash', 'push', '-u', '-m', 'msg', '--', ':(literal)t/a.test.ts'], result: ok() },
+    ]);
+    const result = await gitStashPushPath(runner, cwd, 'msg', 't/a.test.ts');
+    expect(result.ok && result.value).toEqual({ stashed: true });
+    expect(received[1]?.opts).toEqual({ timeoutMs: GIT_BULK_TIMEOUT_MS });
+  });
+
+  it('surfaces a non-zero stash exit as StorageError', async () => {
+    const { runner } = scriptRunner([
+      { args: STATUS, result: ok('?? t/a.test.ts\n') },
+      { args: ['stash', 'push', '-u', '-m', 'msg', '--', ':(literal)t/a.test.ts'], result: ok('', 1, 'nope') },
+    ]);
+    expect((await gitStashPushPath(runner, cwd, 'msg', 't/a.test.ts')).ok).toBe(false);
+  });
+
+  it('holds the stash mutex: a pop queued behind it lists only after the push landed', async () => {
+    const order: string[] = [];
+    let releaseStatus: () => void = () => {};
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const runner: GitRunner = {
+      async run(_, args) {
+        order.push(args.slice(0, 2).join(' '));
+        if (args[0] === 'status') {
+          await statusGate;
+          return ok('?? t/a.test.ts\n');
+        }
+        return ok();
+      },
+    };
+    const push = gitStashPushPath(runner, cwd, 'msg', 't/a.test.ts');
+    const pop = gitStashPop(runner, cwd, 'other');
+    await Promise.resolve();
+    expect(order).toEqual(['status --porcelain']);
+    releaseStatus();
+    await Promise.all([push, pop]);
+    expect(order).toEqual(['status --porcelain', 'stash push', 'stash list']);
   });
 });
 

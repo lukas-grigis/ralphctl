@@ -104,13 +104,12 @@ const mount = (
 describe('quit with live runs', () => {
   it('asks "N run(s) live — quit stops them? [y/N]" instead of quitting', async () => {
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
-    const { stdin, lastFrame, unmount } = mount(runningManager(2), abortAll);
+    const { stdin, lastFrame } = mount(runningManager(2), abortAll);
     await tick();
     stdin.write('q');
     await tick();
     expect(lastFrame()).toContain(`2 runs live — ${PROMPT}`);
     expect(abortAll).not.toHaveBeenCalled();
-    unmount();
   });
 
   it('defaults to No: n, esc, enter and ctrl+c all keep the runs going', async () => {
@@ -132,7 +131,7 @@ describe('quit with live runs', () => {
   it('y aborts every run through abortAll, then exits', async () => {
     let settle: () => void = () => undefined;
     const abortAll = vi.fn(() => new Promise<AbortAllOutcome>((resolve) => (settle = () => resolve(STOPPED))));
-    const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll);
+    const { stdin, lastFrame } = mount(runningManager(1), abortAll);
     await tick();
     stdin.write(CTRL_C);
     await tick();
@@ -143,12 +142,11 @@ describe('quit with live runs', () => {
     expect(lastFrame()).toContain('Stopping 1 run');
     settle();
     await tick();
-    unmount();
   });
 
   it('ignores `q` while another overlay is open, ctrl+c still asks', async () => {
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
-    const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll);
+    const { stdin, lastFrame } = mount(runningManager(1), abortAll);
     await tick();
     stdin.write('?');
     await tick();
@@ -158,18 +156,16 @@ describe('quit with live runs', () => {
     stdin.write(CTRL_C);
     await tick();
     expect(lastFrame()).toContain(PROMPT);
-    unmount();
   });
 
   it('quits at once when nothing is running', async () => {
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
-    const { stdin, lastFrame, unmount } = mount(createSessionManager(), abortAll);
+    const { stdin, lastFrame } = mount(createSessionManager(), abortAll);
     await tick();
     stdin.write('q');
     await tick();
     expect(lastFrame() ?? '').not.toContain(PROMPT);
     expect(abortAll).not.toHaveBeenCalled();
-    unmount();
   });
 
   it('keeps its y away from a confirm that is open underneath', async () => {
@@ -178,7 +174,7 @@ describe('quit with live runs', () => {
     const body = (
       <ConfirmCard title={<Text>Remove sprint?</Text>} message="Remove?" onSubmit={onSubmit} onCancel={vi.fn()} />
     );
-    const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll, body);
+    const { stdin, lastFrame } = mount(runningManager(1), abortAll, body);
     await tick();
     stdin.write('y');
     await tick();
@@ -191,7 +187,6 @@ describe('quit with live runs', () => {
     await tick();
     expect(abortAll).toHaveBeenCalledOnce();
     expect(onSubmit).not.toHaveBeenCalled();
-    unmount();
   });
 
   it('ctrl+c opens only the quit confirm, never a view binding on `c`', async () => {
@@ -201,7 +196,7 @@ describe('quit with live runs', () => {
       return <Text>run view</Text>;
     };
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
-    const { stdin, lastFrame, unmount } = mount(runningManager(1), abortAll, <RunView />);
+    const { stdin, lastFrame } = mount(runningManager(1), abortAll, <RunView />);
     await tick();
     stdin.write(CTRL_C);
     await tick();
@@ -210,7 +205,6 @@ describe('quit with live runs', () => {
     await tick(60);
     expect(lastFrame()).toContain('run view');
     expect(onCancel).not.toHaveBeenCalled();
-    unmount();
   });
 
   it('y also withdraws a prompt that belongs to no run, so nothing holds the quit open', async () => {
@@ -218,7 +212,7 @@ describe('quit with live runs', () => {
     const rejected = vi.fn();
     queue.enqueue({ kind: 'text', message: 'Sprint name:', resolve: vi.fn(), reject: rejected });
     const abortAll = vi.fn(() => Promise.resolve(STOPPED));
-    const { stdin, unmount } = mount(runningManager(1), abortAll, <Text>body</Text>, queue);
+    const { stdin } = mount(runningManager(1), abortAll, <Text>body</Text>, queue);
     await tick();
     stdin.write(CTRL_C);
     await tick();
@@ -227,7 +221,6 @@ describe('quit with live runs', () => {
     expect(abortAll).toHaveBeenCalledWith('quit');
     expect(rejected).toHaveBeenCalledOnce();
     expect(queue.size).toBe(0);
-    unmount();
   });
 });
 

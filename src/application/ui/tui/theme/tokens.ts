@@ -154,16 +154,6 @@ export const breakpointFor = (columns: number): Breakpoint => {
 };
 
 /**
- * Fluid sizing helper — clamps `floor(columns * ratio)` to `[min, max]`. Use for widths that
- * should grow with the terminal but never overwhelm or vanish (e.g. a sidebar that wants ~18%
- * of the screen but at least 28 cols and at most 40).
- */
-export const fluid = (
-  columns: number,
-  opts: { readonly min: number; readonly max: number; readonly ratio: number }
-): number => Math.min(opts.max, Math.max(opts.min, Math.floor(columns * opts.ratio)));
-
-/**
  * Default vertical chrome a windowed-list view reserves outside the list itself: the
  * `ViewShell` header (banner + breadcrumb), the `StatusBanner` / `PromptHost` slots (collapsed
  * when empty, but budgeted for so a banner popping up doesn't shove the list off-screen), and
@@ -228,35 +218,8 @@ export const responsive = <T>(
  */
 export const PROMPT_VISIBLE_ROWS = 8;
 
-/**
- * Layout widths for the Implement dashboard's rail / stream / context split. Fixed character
- * widths (no flex) so the stream column inherits all remaining space via `flexGrow={1}`.
- *
- *   - {@link RAIL_WIDTH} — left rail; carries the Flow Steps list (labels visible).
- *   - {@link CONTEXT_WIDTH} — right context column; baseline health (P1k), token meter
- *     (P2b), and ETA (P3a) cards stack here at ≥180 cols.
- */
-export const RAIL_WIDTH = 28;
+/** Width of the baseline-health / token-budget context cards. */
 export const CONTEXT_WIDTH = 28;
-
-/**
- * Fluid Execute-view rail width — grows with terminal width at the `xl` breakpoint and above
- * so step labels don't wrap mid-word on wide terminals. Below `xl` the fixed {@link RAIL_WIDTH}
- * applies (`lg`) or the compact rail kicks in (`md`).
- *
- *   < lg (≥ 140)  →  RAIL_WIDTH      (28)
- *   ≥ lg, < xl    →  RAIL_WIDTH      (28)   — two-column layout, no context column to compete
- *   ≥ xl  (≥ 180) →  fluid(36..56, 0.22) — three-column layout; rail grows up to 56 cols
- *
- * The xl ratio / cap were bumped (0.18→0.22, 40→56) so long element labels — e.g.
- * `setup-script-runner — setup-script for <abs-path> exited 1` — keep their error tail on a
- * single row on wide terminals (≥200 cols). The Tasks column still has flex-grow so any
- * extra width the rail doesn't claim flows there.
- */
-export const resolveRailWidth = (columns: number): number => {
-  if (columns < breakpoints.xl) return RAIL_WIDTH;
-  return fluid(columns, { min: 36, max: 56, ratio: 0.22 });
-};
 
 /**
  * Signal-kind family used by the Tasks panel. Mirrors the keys of `SIGNAL_LABEL_COLOR` in

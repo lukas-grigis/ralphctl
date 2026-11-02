@@ -3,7 +3,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { createExportContextFlow } from '@src/application/flows/export-context/flow.ts';
 import { bootstrapApp } from '@src/application/bootstrap/bootstrap-app.ts';
-import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { fail, okOrFail } from '@src/application/ui/cli/report-cli-error.ts';
 import { resolveSprintForCli } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface Opts {
@@ -14,20 +14,14 @@ interface Opts {
 
 const exportContextAction = async (opts: Opts): Promise<void> => {
   const outputPath = AbsolutePath.parse(opts.output);
-  if (!outputPath.ok) {
-    fail(`--output: ${outputPath.error.message}`);
-    return;
-  }
+  if (!okOrFail(outputPath, '--output: ')) return;
 
   // Validate the override with the same UUIDv7 parser the sibling commands use. The flow then
   // cross-checks the parsed id against the sprint's own project (and defaults to it if omitted).
   let projectId: ProjectId | undefined;
   if (opts.project !== undefined) {
     const parsed = ProjectId.parse(opts.project);
-    if (!parsed.ok) {
-      fail(`invalid project id: ${parsed.error.message}`);
-      return;
-    }
+    if (!okOrFail(parsed, 'invalid project id: ')) return;
     projectId = parsed.value;
   }
 

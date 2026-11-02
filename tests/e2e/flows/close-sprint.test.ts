@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { attachTicketLink, type DoneSprint, type Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { attachTicketLink, type DoneSprint } from '@src/domain/entity/sprint.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -25,10 +22,10 @@ import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { unlockedSprintLockDeps } from '@tests/fixtures/pass-through-locker.ts';
-import { withUpdate } from '@tests/fixtures/sprint-repo-update.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
@@ -58,21 +55,6 @@ const stubDistill = (): NonNullable<CloseSprintDeps['distill']> => ({
     ai: DEFAULT_SETTINGS.ai,
   },
 });
-
-const inMemorySprintRepo = (initial: Sprint): { readonly repo: SprintRepository; readonly current: () => Sprint } => {
-  let current = initial;
-  const repo = withUpdate({
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  }) as unknown as SprintRepository;
-  return { repo, current: () => current };
-};
 
 describe('createCloseSprintFlow', () => {
   it('transitions a review sprint to done and persists with doneAt set', async () => {

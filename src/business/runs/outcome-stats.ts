@@ -1,92 +1,41 @@
 import type { AbortCause, Attempt, AttemptWarning, Attribution, PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type {
-  CriteriaVerdicts,
-  DoneTask,
-  RetiredRun,
-  Task,
-  TaskStatus,
-  VerificationCriterion,
-} from '@src/domain/entity/task.ts';
+import type { CriteriaVerdicts, DoneTask, RetiredRun, Task, TaskStatus } from '@src/domain/entity/task.ts';
 
 /**
- * Harness outcome rollup — a pure, read-only fold over data the harness ALREADY persists per
- * sprint (`sprint.json` + `tasks.json`, which carries the attempt history). No AI call, no
- * network, no filesystem: the caller loads the aggregates, this module folds them.
+ * Harness outcome rollup — a pure fold over what the harness already persists per sprint
+ * (`sprint.json` + `tasks.json` with its attempt history): how tasks ended, what they cost, which
+ * escalation rung resolved them, which dimensions / criteria keep failing, and which attempts broke
+ * a green baseline.
  *
- * It answers the four questions a harness post-mortem actually needs:
- *   - how did tasks END (done / done-with-warning / blocked / still open),
- *   - how much did they COST (first-pass rate, attempts-to-done, plateau rate by detector),
- *   - which escalation rung RESOLVED the stall vs fell through, and which rubric dimensions /
- *     acceptance criteria keep failing,
- *   - which attempts BROKE a green baseline, and how the rest of them failed (warning kind,
- *     abort cause) — the taxonomy the task-level counters collapse.
- *
- * ## Scoping
- *
- * The fold does no scoping and no filtering. "One sprint", "a project's sprints", "everything"
- * are all expressed by WHAT the caller passes in {@link foldOutcomeStats}. `totals` is a rollup
- * over every task in every slice; `bySprint` keeps the per-sprint breakdown in input order. A
- * caller that passes the same sprint twice gets it counted twice — de-duplication is a caller
- * concern.
- *
- * ## Tolerant reader
- *
- * Every read is defensive. The type signatures describe the CURRENT entity shape, but the input
- * is rehydrated from on-disk records that may predate any given field (`Attempt.warning.source`,
- * `Task.criteriaVerdicts`, `Task.retiredAttempts`, `DoneTask.finalAttemptN`, the escalation
- * stamps …). A legacy or
- * partial record contributes to the metrics it CAN and is skipped for the rest — it never throws
- * and never poisons a count with `NaN`. Throws are reserved for programmer errors; this fold is
- * total, so it has none and needs no `Result` envelope.
- *
- * Pure. No I/O, no clock, no randomness — same input, same output.
+ * No scoping or de-duplication: `totals` rolls up every task passed in, `bySprint` keeps the
+ * per-sprint breakdown in input order. Input is schema-validated; optional fields fall into
+ * `unspecified` / `unknown` buckets.
  */
 
-/**
- * One loaded sprint aggregate: the planning entity plus the tasks persisted beside it. Mirrors
- * the on-disk split (`sprint.json` / `tasks.json`) rather than inventing a parallel shape.
- */
+/** One loaded sprint aggregate, mirroring the on-disk `sprint.json` / `tasks.json` split. */
 export interface SprintWithTasks {
   readonly sprint: Sprint;
   readonly tasks: readonly Task[];
 }
 
-/**
- * Which plateau detector fired, widened with the slot legacy records land in. `unspecified`
- * covers every `plateau` warning persisted before {@link PlateauSource} existed — those attempts
- * still count towards the plateau rate, they just can't be attributed to a detector.
- */
+/** `unspecified`: a plateau warning persisted before {@link PlateauSource} existed. */
 export type PlateauSourceKey = PlateauSource | 'unspecified';
 
 /**
- * An {@link Attribution} verdict, widened with the slot attempts land in when no verdict was
- * derivable — a pre-verify spawn-error, a repository with no verify script, or a record persisted
- * before the field existed. `unspecified` is an ABSENCE of evidence, not a clean bill of health,
- * which is why it never counts towards {@link AttributionStats.regressionRate}'s denominator.
+ * `unspecified`: no verdict was derivable (pre-verify spawn-error, no verify script, legacy record).
+ * An absence of evidence, so it never counts towards the regression-rate denominator.
  */
 export type AttributionKey = Attribution | 'unspecified';
 
-/**
- * An {@link AttemptWarning} discriminant, widened with the slot an unrecognised historical kind
- * lands in. A warning shape this build has never heard of still counts as "the attempt warned".
- */
+/** `unknown` stays in the vocabulary (always `0` today) so the `runs stats --json` shape is stable. */
 export type WarningKindKey = AttemptWarning['kind'] | 'unknown';
 
-/**
- * Why an aborted attempt died. No widened alias: {@link AbortCause} already carries `unknown` as
- * its documented legacy/absent fallback, and a second bucket meaning the same thing would just
- * split the count.
- */
 export type AbortCauseKey = AbortCause;
 
 /**
- * The harness's most severe quality signal: did an attempt break a GREEN baseline? Derived from
- * the per-attempt attribution verdict the post-verify leaf stamps from the pre/post verify pair.
- *
- * `attributed` is the honest denominator — most attempts in a repo with no verify script carry no
- * verdict at all, so rating regressions over every attempt would silently under-report. Those
- * attempts stay visible as `byVerdict.unspecified`.
+ * Did an attempt break a GREEN baseline? `attributed` is the honest denominator: attempts in a repo
+ * with no verify script carry no verdict, and rating over them would under-report.
  */
 export interface AttributionStats {
   /** Attempts carrying a real verdict: `attemptCount` minus `byVerdict.unspecified`. */
@@ -118,23 +67,10 @@ export interface AbortStats {
 }
 
 /**
- * A rung of the escalation ladder, as reconstructable from the DURABLE task stamps:
- *
- *  - `model`            — `escalatedFromModel` / `escalatedToModel` differ (a model bump).
- *  - `effort`           — `escalatedToEffort` is stamped (same-model generator effort rung).
- *  - `evaluator-effort` — `escalatedToEvaluatorEffort` is stamped (evaluator-side effort rung).
- *  - `nudge`            — the model pair is stamped and EQUAL (top-of-ladder same-model nudge).
- *  - `best-of-n`        — the permanent `bestOfNGranted` marker is set.
- *
- * Counted off the live task AND off every archived run in `retiredAttempts` — an unblock retires
- * the four model/effort stamps into the archive (the permanent `bestOfNGranted` marker is the one
- * that stays live), so reading only the live fields would report the rungs of every intervened-on
- * task as never granted while still counting the attempts they paid for.
- *
- * Known limitation, stated so readers don't over-trust the number: the model pair is re-stamped
- * on every climb, so a task that bumped models twice and was then nudged reports `nudge` only.
- * The counts are therefore "rungs still visible in the final record", which is the strongest
- * claim the persisted data supports.
+ * A rung reconstructed from the durable task stamps (live task and every retired run): `model` /
+ * `nudge` when the model pair differs / is equal, `effort` / `evaluator-effort` when stamped,
+ * `best-of-n` from the permanent marker. The model pair is re-stamped on every climb, so a task
+ * that bumped twice and was then nudged reports `nudge` only — "rungs still visible in the record".
  */
 export type EscalationRung = 'model' | 'effort' | 'evaluator-effort' | 'nudge' | 'best-of-n';
 
@@ -241,49 +177,28 @@ export interface OutcomeStats {
   readonly bySprint: readonly SprintOutcomeRollup[];
 }
 
-// ───────────────────────── tolerant reads ─────────────────────────
-
-/** True for a non-null object — the shape guard every legacy-record read starts from. */
-const isRecord = (value: unknown): boolean => typeof value === 'object' && value !== null;
-
-/** Trimmed string, or `undefined` when the field is absent / blank / not a string. */
-const readString = (value: string | undefined): string | undefined => {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
-
-/** The array, or `[]` when a legacy record omitted it (or stored something that is not one). */
-const readArray = <T>(value: readonly T[] | undefined): readonly T[] => (Array.isArray(value) ? value : []);
-
-/**
- * Every attempt this task has ever produced: the live `attempts` ledger plus every retired run's
- * archived batch, oldest run first. `unblockTask` clears `attempts` back to `[]` on a clean restart
- * and moves the cleared batch into `retiredAttempts` instead of deleting it — folding both here is
- * what keeps a cleared attempt's warning / abort-cause / plateau / attribution signal counted after
- * the reset, instead of the outcome report silently losing it the moment an operator intervenes.
- */
-const allAttempts = (task: Task): readonly Attempt[] => [
-  ...readArray<Attempt>(task.attempts),
-  ...readArray<RetiredRun>(task.retiredAttempts).flatMap((run) =>
-    isRecord(run) ? readArray<Attempt>(run.attempts) : []
-  ),
-];
-
-/** The verdict map, or `{}` when absent — a task graded no criteria yet. */
-const readVerdicts = (value: CriteriaVerdicts | undefined): CriteriaVerdicts => (isRecord(value) ? (value ?? {}) : {});
-
 /** `num / den`, with the empty denominator collapsing to `0` instead of `NaN`. */
 const ratio = (num: number, den: number): number => (den > 0 ? num / den : 0);
 
-// ───────────────────────── taxonomy vocabularies ─────────────────────────
+/** Trimmed string, or `undefined` when absent or blank. */
+const nonBlank = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+};
 
-/*
- * Each zero record below is the SINGLE point of exhaustiveness for its taxonomy: the literal is
- * typed `Record<Key, number>`, so widening the underlying domain union stops compiling here until
- * the new member gets a bucket. `bucketKey` then derives the RUNTIME vocabulary from that same
- * record, which is why the two can never drift the way a hand-maintained membership Set can.
+const retiredRuns = (task: Task): readonly RetiredRun[] => task.retiredAttempts ?? [];
+
+/**
+ * The live attempts plus every retired run's archive. `unblockTask` moves cleared attempts into
+ * `retiredAttempts`, so folding both keeps their signal counted after an operator intervenes.
  */
+const allAttempts = (task: Task): readonly Attempt[] => [
+  ...task.attempts,
+  ...retiredRuns(task).flatMap((run) => run.attempts),
+];
+
+// Each zero record is typed `Record<Key, number>`, so widening a domain union stops compiling here
+// until the new member gets a bucket.
 
 const zeroAttribution = (): Record<AttributionKey, number> => ({
   clean: 0,
@@ -319,16 +234,6 @@ const zeroPlateauSource = (): Record<PlateauSourceKey, number> => ({
   entropy: 0,
   unspecified: 0,
 });
-
-/**
- * Tolerant key resolution. Own-key membership on the zero record IS the vocabulary, so an absent,
- * non-string or unrecognised historical value lands in `fallback` instead of inventing a bucket.
- * `Object.hasOwn` rather than `in` — a persisted `'constructor'` must not match the prototype.
- */
-const bucketKey = <K extends string>(zero: Readonly<Record<K, number>>, raw: unknown, fallback: NoInfer<K>): K =>
-  typeof raw === 'string' && Object.hasOwn(zero, raw) ? (raw as K) : fallback;
-
-// ───────────────────────── accumulator ─────────────────────────
 
 type RungOutcome = 'resolved' | 'fellThrough' | 'unsettled';
 
@@ -391,95 +296,54 @@ const emptyAccumulator = (): Accumulator => ({
   criteria: { tasksWithVerdicts: 0, declared: 0, passed: 0, failed: 0, unknown: 0 },
 });
 
-const bump = (counts: Map<string, number>, key: string): void => {
+const bump = <K>(counts: Map<K, number>, key: K): void => {
   counts.set(key, (counts.get(key) ?? 0) + 1);
 };
 
-// ───────────────────────── per-task absorption ─────────────────────────
-
-/** Count the task's lifecycle state. An unrecognised (corrupt) status is skipped, not invented. */
-const absorbStatus = (acc: Accumulator, task: Task): void => {
-  const status = task.status;
-  if (Object.hasOwn(acc.byStatus, status)) acc.byStatus[status] += 1;
-};
-
 /**
- * Attempts spent reaching `done`: the stamped `finalAttemptN` when it is a sane 1-indexed
- * pointer, else the live attempt-history length, PLUS every archived run's attempt count —
- * mirrors {@link allAttempts} / {@link absorbEscalation}'s reasoning. `finalAttemptN` is
- * `attempts.length + 1` at stamp time, and `unblockTask` resets the live `attempts` ledger to
- * `[]` on every intervention, so a task that plateaued out, got unblocked, and then passed on
- * its very next attempt would otherwise report `finalAttemptN=1` — a first-pass task, when it
- * actually cost every attempt the archive remembers plus that last one. `undefined` for a done
- * task with no live pointer/history AND no archive (a legacy record) — it still counts in the
- * outcome mix, just not in the distribution.
+ * Attempts spent reaching `done`: `finalAttemptN` plus every archived run's attempts. `unblockTask`
+ * resets the live ledger, so a task that passed right after an unblock would otherwise read as first-pass.
  */
-const attemptsSpent = (task: DoneTask): number | undefined => {
-  const retired = readArray<RetiredRun>(task.retiredAttempts).reduce(
-    (sum, run) => sum + (isRecord(run) ? readArray<Attempt>(run.attempts).length : 0),
-    0
-  );
-  const stamped = task.finalAttemptN;
-  const live =
-    typeof stamped === 'number' && Number.isInteger(stamped) && stamped >= 1
-      ? stamped
-      : readArray<Attempt>(task.attempts).length;
-  const total = live + retired;
-  return total >= 1 ? total : undefined;
-};
+const attemptsSpent = (task: DoneTask): number =>
+  task.finalAttemptN + retiredRuns(task).reduce((sum, run) => sum + run.attempts.length, 0);
 
 const absorbDone = (acc: Accumulator, task: DoneTask): void => {
   acc.doneTotal += 1;
-  if (readArray<Attempt>(task.attempts).at(-1)?.warning !== undefined) acc.doneWithWarning += 1;
+  if (task.attempts.at(-1)?.warning !== undefined) acc.doneWithWarning += 1;
   const spent = attemptsSpent(task);
-  if (spent === undefined) return;
   if (spent === 1) acc.doneOnFirstAttempt += 1;
-  acc.attemptsToDone.set(spent, (acc.attemptsToDone.get(spent) ?? 0) + 1);
+  bump(acc.attemptsToDone, spent);
 };
 
-/** Detector split for one plateau warning, plus the failed-dimension histogram it carries. */
+/**
+ * Plateau warnings carry the ONLY durable record of which rubric axes failed (`Attempt.evaluation`
+ * keeps just a status and a file path), so the dimension histogram is built from them. Names are
+ * lowercased to match the plateau predicate's normalisation.
+ */
 const absorbPlateau = (acc: Accumulator, warning: AttemptWarning & { kind: 'plateau' }): void => {
   acc.attemptsWithPlateau += 1;
-  acc.bySource[bucketKey(acc.bySource, warning.source, 'unspecified')] += 1;
-  for (const raw of readArray<string>(warning.dimensions)) {
-    const name = readString(raw)?.toLowerCase();
+  acc.bySource[warning.source ?? 'unspecified'] += 1;
+  for (const raw of warning.dimensions) {
+    const name = nonBlank(raw)?.toLowerCase();
     if (name !== undefined) bump(acc.dimensions, name);
   }
 };
 
-/**
- * Fold the attempt history in one pass: the attempt-based denominator, the attribution verdict,
- * the warning taxonomy (plateau incidence by detector plus the failed-dimension histogram), and
- * the abort-cause split.
- *
- * The dimension histogram is built from `plateau` warnings because their `dimensions` array is the
- * ONLY durable record of which rubric axes failed — `Attempt.evaluation` deliberately persists just
- * a status plus the verdict-file path (the prose body was an OOM source). Names are lowercased,
- * matching the normalisation the plateau predicate applies before stamping, and cover the floor
- * rubric plus any planner-authored extra dimension; the canonical floor list itself lives in the
- * integration layer and is (correctly) out of reach from here.
- *
- * `regressed` is counted per attempt AND per task: a task that regressed twice is one broken
- * baseline for incidence purposes but two bad attempts for rate purposes.
- *
- * Folds {@link allAttempts}, not the bare live `attempts` array, so a task's retired (unblock-
- * cleared) history keeps contributing to every one of these counts after the reset.
- */
+/** `regressed` counts per attempt (rate) AND per task (incidence). */
 const absorbAttempts = (acc: Accumulator, task: Task): void => {
   let plateaued = false;
   let regressed = false;
   for (const attempt of allAttempts(task)) {
-    if (!isRecord(attempt)) continue;
     acc.attemptCount += 1;
 
-    const verdict = bucketKey(acc.byVerdict, attempt.attribution, 'unspecified');
+    const verdict = attempt.attribution ?? 'unspecified';
     acc.byVerdict[verdict] += 1;
     if (verdict === 'regressed') regressed = true;
 
     const warning = attempt.warning;
-    if (warning !== undefined && isRecord(warning)) {
+    if (warning !== undefined) {
       acc.attemptsWithWarning += 1;
-      acc.byWarningKind[bucketKey(acc.byWarningKind, warning.kind, 'unknown')] += 1;
+      acc.byWarningKind[warning.kind] += 1;
       if (warning.kind === 'plateau') {
         plateaued = true;
         absorbPlateau(acc, warning);
@@ -489,19 +353,14 @@ const absorbAttempts = (acc: Accumulator, task: Task): void => {
     // Gated on the status, not the field: a stale cause on a settled attempt is not an abort.
     if (attempt.status === 'aborted') {
       acc.attemptsAborted += 1;
-      acc.byAbortCause[bucketKey(acc.byAbortCause, attempt.abortCause, 'unknown')] += 1;
+      acc.byAbortCause[attempt.abortCause ?? 'unknown'] += 1;
     }
   }
   if (plateaued) acc.tasksWithPlateau += 1;
   if (regressed) acc.tasksWithRegression += 1;
 };
 
-/**
- * The four re-stampable model / effort rungs visible in ONE stamped record — the live task's own
- * fields, or an archived {@link RetiredRun}'s copy of them (the archive mirrors exactly these
- * four). `best-of-n` is not among them: its marker is permanent and stays on the live task across
- * an unblock, so {@link rungsGranted} adds it once rather than per retired run.
- */
+/** The four re-stampable rungs a live task and each archived {@link RetiredRun} both carry. */
 type EscalationStamps = Pick<
   RetiredRun,
   'escalatedFromModel' | 'escalatedToModel' | 'escalatedToEffort' | 'escalatedToEvaluatorEffort'
@@ -509,20 +368,19 @@ type EscalationStamps = Pick<
 
 const rungsFromStamps = (stamps: EscalationStamps): readonly EscalationRung[] => {
   const rungs: EscalationRung[] = [];
-  const from = readString(stamps.escalatedFromModel);
-  const to = readString(stamps.escalatedToModel);
+  const from = nonBlank(stamps.escalatedFromModel);
+  const to = nonBlank(stamps.escalatedToModel);
   if (to !== undefined) rungs.push(from === to ? 'nudge' : 'model');
-  if (readString(stamps.escalatedToEffort) !== undefined) rungs.push('effort');
-  if (readString(stamps.escalatedToEvaluatorEffort) !== undefined) rungs.push('evaluator-effort');
+  if (nonBlank(stamps.escalatedToEffort) !== undefined) rungs.push('effort');
+  if (nonBlank(stamps.escalatedToEvaluatorEffort) !== undefined) rungs.push('evaluator-effort');
   return rungs;
 };
 
-/** Rungs still visible in the task's final record. See {@link EscalationRung} for the caveat. */
-const rungsGranted = (task: Task): readonly EscalationRung[] => {
-  const rungs = [...rungsFromStamps(task)];
-  if (task.bestOfNGranted === true) rungs.push('best-of-n');
-  return rungs;
-};
+/** `best-of-n`'s marker is permanent and stays live across an unblock, so it is counted once here. */
+const rungsGranted = (task: Task): readonly EscalationRung[] => [
+  ...rungsFromStamps(task),
+  ...(task.bestOfNGranted === true ? (['best-of-n'] as const) : []),
+];
 
 const rungOutcome = (task: Task): RungOutcome => {
   if (task.status === 'done') return 'resolved';
@@ -530,11 +388,8 @@ const rungOutcome = (task: Task): RungOutcome => {
 };
 
 /**
- * Fold the live stamps under the task's current outcome, then every retired run's stamps under
- * `fellThrough`. The archive's outcome is not in question: a run is retired only by `unblockTask`,
- * which runs on a task that ENDED that cycle `blocked` — so a rung granted inside it demonstrably
- * did not resolve the task. Mirrors {@link allAttempts}: the same intervention that keeps the
- * retired attempts in `attemptCount` keeps the rungs those attempts consumed in this table.
+ * Live stamps count under the task's current outcome; every retired run's stamps under
+ * `fellThrough`, since only `unblockTask` retires a run and it runs on a task that ended `blocked`.
  */
 const absorbEscalation = (acc: Accumulator, task: Task): void => {
   const outcome = rungOutcome(task);
@@ -543,30 +398,23 @@ const absorbEscalation = (acc: Accumulator, task: Task): void => {
     efficacy.granted += 1;
     efficacy[outcome] += 1;
   }
-  for (const run of readArray<RetiredRun>(task.retiredAttempts)) {
-    if (!isRecord(run)) continue;
-    for (const rung of rungsFromStamps(run)) {
-      const efficacy = acc.escalation[rung];
-      efficacy.granted += 1;
-      efficacy.fellThrough += 1;
-    }
+  for (const rung of retiredRuns(task).flatMap(rungsFromStamps)) {
+    const efficacy = acc.escalation[rung];
+    efficacy.granted += 1;
+    efficacy.fellThrough += 1;
   }
 };
 
-/**
- * The criteria universe for one task: its declared checklist ids, de-duplicated. A legacy task
- * whose checklist is missing but which carries verdicts falls back to the verdict map's own keys
- * so its k/N is not silently dropped.
- */
+/** Declared checklist ids, de-duplicated; a task with verdicts but no checklist falls back to the verdict keys. */
 const criterionIds = (task: Task, verdicts: CriteriaVerdicts): readonly string[] => {
-  const declared = readArray<VerificationCriterion>(task.verificationCriteria)
-    .map((criterion) => readString(criterion?.id))
+  const declared = (task.verificationCriteria ?? [])
+    .map((criterion) => nonBlank(criterion.id))
     .filter((id): id is string => id !== undefined);
   return declared.length > 0 ? [...new Set(declared)] : Object.keys(verdicts);
 };
 
 const absorbCriteria = (acc: Accumulator, task: Task): void => {
-  const verdicts = readVerdicts(task.criteriaVerdicts);
+  const verdicts = task.criteriaVerdicts ?? {};
   if (Object.keys(verdicts).length > 0) acc.criteria.tasksWithVerdicts += 1;
   for (const id of criterionIds(task, verdicts)) {
     acc.criteria.declared += 1;
@@ -576,8 +424,6 @@ const absorbCriteria = (acc: Accumulator, task: Task): void => {
     else acc.criteria.unknown += 1;
   }
 };
-
-// ───────────────────────── fold ─────────────────────────
 
 const byCountThenName = (a: DimensionFailureCount, b: DimensionFailureCount): number =>
   b.count - a.count || a.dimension.localeCompare(b.dimension);
@@ -622,30 +468,18 @@ const finalize = (acc: Accumulator): OutcomeRollup => ({
   failedDimensions: [...acc.dimensions.entries()]
     .map(([dimension, count]) => ({ dimension, count }))
     .sort(byCountThenName),
-  criteria: {
-    tasksWithVerdicts: acc.criteria.tasksWithVerdicts,
-    declared: acc.criteria.declared,
-    passed: acc.criteria.passed,
-    failed: acc.criteria.failed,
-    unknown: acc.criteria.unknown,
-    passRate: ratio(acc.criteria.passed, acc.criteria.declared),
-  },
+  criteria: { ...acc.criteria, passRate: ratio(acc.criteria.passed, acc.criteria.declared) },
 });
 
 /**
- * Fold ONE loose task list — the sprint-less entry point. {@link foldOutcomeStats} is this
- * function plus sprint identity and the per-sprint breakdown; the TUI's baseline-health synthesis
- * consumes it directly so its attribution counts and `ralphctl runs stats` cannot disagree.
- *
- * Same tolerance guarantees as the sprint-level fold: a legacy task with no `attempts` array, a
- * null row, or an unrecognised enum value contributes what it can and never throws.
+ * Fold one loose task list. {@link foldOutcomeStats} is this plus sprint identity; the TUI's
+ * baseline-health card consumes it directly so it and `ralphctl runs stats` cannot disagree.
  */
 export const foldTaskRollup = (tasks: readonly Task[]): OutcomeRollup => {
   const acc = emptyAccumulator();
-  for (const task of readArray<Task>(tasks)) {
-    if (!isRecord(task)) continue;
+  for (const task of tasks) {
     acc.taskCount += 1;
-    absorbStatus(acc, task);
+    acc.byStatus[task.status] += 1;
     if (task.status === 'done') absorbDone(acc, task);
     absorbAttempts(acc, task);
     absorbEscalation(acc, task);
@@ -655,21 +489,14 @@ export const foldTaskRollup = (tasks: readonly Task[]): OutcomeRollup => {
 };
 
 const sprintRollup = (slice: SprintWithTasks): SprintOutcomeRollup => ({
-  sprintId: readString(slice.sprint?.id) ?? '',
-  sprintName: readString(slice.sprint?.name) ?? '',
-  rollup: foldTaskRollup(readArray<Task>(slice.tasks)),
+  sprintId: slice.sprint.id.trim(),
+  sprintName: slice.sprint.name.trim(),
+  rollup: foldTaskRollup(slice.tasks),
 });
 
-/**
- * Fold the loaded sprint aggregates into the outcome rollup. Empty input yields a well-formed
- * all-zero report (every rate `0`, every histogram empty) rather than a special case the caller
- * has to branch on.
- */
-export const foldOutcomeStats = (sprints: readonly SprintWithTasks[]): OutcomeStats => {
-  const slices = readArray<SprintWithTasks>(sprints).filter((slice) => isRecord(slice));
-  return {
-    sprintCount: slices.length,
-    totals: foldTaskRollup(slices.flatMap((slice) => readArray<Task>(slice.tasks))),
-    bySprint: slices.map(sprintRollup),
-  };
-};
+/** Empty input yields a well-formed all-zero report rather than a special case. */
+export const foldOutcomeStats = (sprints: readonly SprintWithTasks[]): OutcomeStats => ({
+  sprintCount: sprints.length,
+  totals: foldTaskRollup(sprints.flatMap((slice) => slice.tasks)),
+  bySprint: sprints.map(sprintRollup),
+});

@@ -64,8 +64,7 @@ export interface GenEvalLoopDeps {
   /**
    * Fan-out seam for every validated signal either role's turn emits — the ONE harness-signal
    * channel (see `publish-signal.ts`). Shared verbatim by both the generator and evaluator leaf
-   * (both roles publish under the SAME pre-bound source/taskId; the leaf itself no longer picks
-   * its own source string).
+   * (both roles publish under the SAME pre-bound source/taskId).
    */
   readonly publishSignal: PublishSignal;
   readonly writeFile: WriteFile;
@@ -112,13 +111,9 @@ export const createGenEvalLoop = (
   const sharedLeafDeps = {
     templateLoader: deps.templateLoader,
     publishSignal: deps.publishSignal,
-    // Threaded into both gen-eval leaves so harness-owned sidecars (audit-[09]
-    // `commit-message.txt` for the generator, `evaluation.md` for the evaluator) land via
-    // the atomic-write port. The leaves never write these files directly.
+    // Harness-owned sidecars (`commit-message.txt`, `evaluation.md`) land via the atomic-write port.
     writeFile: deps.writeFile,
     cwd: opts.cwd,
-    // Threaded into `implementSession()` as a second `--add-dir` so the AI can read
-    // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
     sprintDir: opts.sprintDir,
     progressFile: opts.progressFile,
     clock: deps.clock,

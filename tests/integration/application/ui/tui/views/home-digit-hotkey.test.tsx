@@ -123,7 +123,6 @@ describe('HomeView — digit quick-switch hotkeys', () => {
     await waitForPredicate(() => seenSprintIds.at(-1) === sprintB.id);
 
     expect(seenSprintIds.at(-1)).toBe(sprintB.id);
-    result.unmount();
   });
 
   it('pressing the digit for the already-selected sprint is a no-op (matches menu-items guard)', async () => {
@@ -158,6 +157,5 @@ describe('HomeView — digit quick-switch hotkeys', () => {
     result.stdin.write('2');
     await new Promise((res) => setTimeout(res, 100));
     expect(seenSprintIds.at(-1)).toBe(sprintA.id);
-    result.unmount();
   });
 });

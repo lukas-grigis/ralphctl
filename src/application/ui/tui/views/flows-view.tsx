@@ -17,7 +17,7 @@ import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { flowRegistry, type FlowEntry } from '@src/application/registry.ts';
 import { evaluateTriggers } from '@src/application/registry-triggers.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
@@ -152,7 +152,7 @@ const useFlowMenuItems = ({ state, launch, showAll }: UseFlowMenuItemsArgs): rea
   }, [state, launch, showAll]);
 
 export const FlowsView = (): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   const selection = useSelection();
   const [showAll, setShowAll] = useState<boolean>(false);
   useViewHints([

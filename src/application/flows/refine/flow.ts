@@ -38,30 +38,8 @@ export interface CreateRefineFlowOpts {
 }
 
 /**
- * Build the refine chain.
- *
- * Shape:
- *
- *   sequential('refine', [
- *     load-and-assert-sprint(['draft']),
- *     sequential('refine-tickets', [
- *       sequential('refine-<ticket-id>', [
- *         fetch-issue-context-<id>,         // pre-fetch upstream issue body via gh/glab
- *         build-refine-unit-<id>,           // mkdir <refinementRoot>/<ticket-slug>/
- *         render-prompt-to-file-<id>,       // write prompt.md
- *         install-skills-<id>,              // copy the refine flow's skills into the unit root
- *         stamp-meta-refine-<id>,           // <unit-root>/meta.json — provider/model attribution
- *         refine-ticket-<id>,               // hand TTY to Claude, await, read requirements.md back
- *         uninstall-skills-<id>,            // remove them again
- *         save-after-<id>,                  // locked write of the approved ticket onto the fresh sprint
- *       ]),
- *       …,
- *     ]),
- *   ])
- *
- * Refine is always interactive: the user converses with the AI directly. The AI is told to
- * write its final markdown to `<unit-root>/requirements.md`, which the harness reads back
- * after the session exits.
+ * Refine each pending ticket of a draft sprint in its own interactive AI session; the AI writes
+ * `<unit-root>/requirements.md`, which the harness reads back and saves per ticket.
  */
 export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): Element<RefineCtx> => {
   const ticketSlug = (ticket: Ticket): string => {

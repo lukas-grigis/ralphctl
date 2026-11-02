@@ -65,7 +65,7 @@ deliver a clean terminal (rate-limit drain, fatal-sibling kill race, mid-wave ab
 and durable-fold subscriptions on the process-wide bus forever. The heap-critical handler could not
 reach any of it — it only cleared small-capped buffers — so the warning drained nothing.
 
-Five seams pin it:
+Four seams pin it:
 
 1. **`in-memory-event-bus.ts`** — the `handlers` Set was uncapped and strong-ref. It now warns ONCE via
    `console.warn` at `LISTENER_LEAK_THRESHOLD` (150; steady state is well under it — log-forwarder,
@@ -74,15 +74,18 @@ Five seams pin it:
 2. **`parallel-element.ts`** — the PRIMARY fix. `onBranchRunner` captures BOTH unsubs (the bridge and
    `captureDurableFold`, which now RETURNS its unsub) into a per-wave `branchUnsubs` Set, force-detached
    in a `try/finally` around `runWaves`. `runSubElement` (prologue/epilogue) previously DISCARDED its
-   bridge unsub — now captured and force-detached in `finally`. Detach is idempotent.
-3. **`wave-scheduler.ts` `assemble()`** — nulls `runs[i]` AFTER extracting trace + outcome, so each
-   settled branch runner is GC-eligible the moment its wave drains, not at the end of `runWaves`.
-4. **`session-manager.ts`** — on terminal, `update()` swaps `record.runner` for a `terminalRunnerStub`
+   bridge unsub — now captured and force-detached in `finally`. Detach is idempotent. The branch step-forward
+   and fold-capture listeners do not self-detach; this `finally` is their only detach — keep it.
+3. **`session-manager.ts`** — on terminal, `update()` swaps `record.runner` for a `terminalRunnerStub`
    (keeps id/status/trace, drops the live ctx — nothing reads `runner.ctx` post-terminal). Plus a
    `SESSION_RUNNING_CEILING = 200` emergency tier in `evict` (sheds the oldest RUNNING records) and
    `shedTerminal()` for the heap handler.
-5. **`launch.ts`** — `sessions` is created BEFORE the heap watchdog so the critical handler can call
+4. **`launch.ts`** — `sessions` is created BEFORE the heap watchdog so the critical handler can call
    `sessions.shedTerminal()` (the real reachable weight) before taking the snapshot.
+
+Not a seam: the scheduler's per-wave `runs` slot array dies with `runOneWave`, so nulling its slots
+(an earlier "fix") freed nothing and was removed. The branch runners stay reachable only through the
+bus subscriptions seam 2 detaches.
 
 **Gotcha worth keeping:** `runner.trace` is always the SAME array instance (never reassigned), so the
 `'step'` update was spreading a fresh descriptor for a no-op trace-ref change, invalidating the execute

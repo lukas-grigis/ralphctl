@@ -99,7 +99,6 @@ describe('FlowsView', () => {
     expect(frame).toMatch(/no project|pick one/i);
     // No system-y eligibility label in the new design.
     expect(frame).not.toContain('Eligibility');
-    result.unmount();
   });
 
   it('hides every flow on a fresh install (no project, no sprint) — visibility helper short-circuits', async () => {
@@ -113,7 +112,6 @@ describe('FlowsView', () => {
     expect(frame).not.toContain('Refine');
     expect(frame).not.toContain('Plan');
     expect(frame).not.toContain('Implement');
-    result.unmount();
   });
 
   it('renders the no-sprint orientation regime when a project is loaded but no sprint is selected', async () => {
@@ -128,7 +126,6 @@ describe('FlowsView', () => {
     await waitForPredicate(() => /no sprint|create one|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/no sprint|create one|pick one/i);
-    result.unmount();
   });
 
   it('renders the sprint-loaded orientation regime with sprint name and next-action hint', async () => {
@@ -151,7 +148,6 @@ describe('FlowsView', () => {
     expect(frame).toMatch(/next:/i);
     expect(frame).toContain('add a ticket');
     expect(frame).not.toContain('0 approved');
-    result.unmount();
   });
 
   it('publishes the r reload-state hint', async () => {
@@ -159,7 +155,6 @@ describe('FlowsView', () => {
     await waitForPredicate(() => /reload/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/reload/);
-    result.unmount();
   });
 
   it('renders the trigger reason inline for a dimmed flow (not just when focused)', async () => {
@@ -183,7 +178,6 @@ describe('FlowsView', () => {
     // At least one trigger reason should be visible — both Refine and Plan are dimmed.
     // Use a forgiving check: the reason text may be truncated on narrow test terminals.
     expect(frame).toMatch(/ticket/i);
-    result.unmount();
   });
 
   it('does not render a trigger reason next to an eligible flow', async () => {
@@ -209,7 +203,6 @@ describe('FlowsView', () => {
     expect(frame).not.toContain('Select a project first');
     // Confirm the sprint name and status are on-screen (sprint-loaded regime).
     expect(frame).toContain('Fixture Sprint');
-    result.unmount();
   });
 
   it('shows the registered Add ticket row on a draft sprint', async () => {
@@ -223,7 +216,6 @@ describe('FlowsView', () => {
     });
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('Add ticket'));
     expect(result.lastFrame() ?? '').toContain('Add ticket');
-    result.unmount();
   });
 });
 
@@ -260,6 +252,5 @@ describe('FlowsView — cost hints (manifest → menu threading)', () => {
       await tick(20);
     }
     expect(found, 'ideate cost hint should appear when the Ideate row is focused').toBe(true);
-    result.unmount();
   });
 });

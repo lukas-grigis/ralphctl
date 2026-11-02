@@ -34,50 +34,23 @@ export interface AskTextOptions {
 }
 
 /**
- * Output port for asking the user questions. The only production adapter lives in
- * `ui/tui/prompts/` (Ink-based, wired by `ui/tui/launch.ts`). v2's CLI surface is
- * non-interactive by design (see `docs/api.md`), so there is no console / stdin adapter
- * today — chain flows that need prompts are TUI-only.
- *
- * Tests build a fake that returns scripted answers — the use case stays adapter-agnostic.
- *
- * Cancellation is surfaced through the `Result` channel as a `DomainError` (typically
- * `AbortError`) — same shape every other domain call uses, so chain leaves can fail-fast on a
- * Ctrl-C without special-case handling.
+ * Port for asking the user questions; the only adapter is the Ink one, so prompting flows are
+ * TUI-only. Cancellation arrives on the `Result` channel (typically `AbortError`), so leaves can
+ * fail fast on Ctrl-C without special casing.
  */
 export interface InteractivePrompt {
-  /**
-   * Free-text input. Result text is whatever the user typed (trimmed by the adapter).
-   * `opts.initial` pre-fills the buffer so callers can offer an editable suggestion (e.g.
-   * an AI-proposed script the user wants to tweak) without forcing the user to retype it.
-   * `opts.validate` keeps the user at the prompt until the input is acceptable.
-   */
+  /** Trimmed free text. `initial` pre-fills an editable suggestion; `validate` holds the prompt until accepted. */
   askText(prompt: string, opts?: AskTextOptions): Promise<Result<string, DomainError>>;
-  /**
-   * Multi-line free-text input. Enter submits; `\`+Enter or ctrl+j inserts a newline. Returns the typed
-   * value verbatim (not trimmed — newlines and indentation matter for callers that paste
-   * structured input). Designed to replace external `$EDITOR` round-trips that left the
-   * terminal in inconsistent redraw state on return.
-   */
+  /** Multi-line input, returned verbatim (untrimmed). Enter submits; `\`+Enter or ctrl+j inserts a newline. */
   askTextArea(prompt: string, opts?: { readonly initial?: string }): Promise<Result<string, DomainError>>;
   /** Single-select from a fixed option list. Returns the selected option's `value`. */
   askChoice<T>(prompt: string, options: ReadonlyArray<Choice<T>>): Promise<Result<T, DomainError>>;
-  /**
-   * Multi-select from a fixed option list. Returns the selected options' `value`s, order
-   * preserved. `opts.initial` pre-checks every option whose `value` appears in the list (`===`
-   * match) so callers can open the checklist reflecting an existing state — e.g. "currently
-   * enabled" — instead of forcing the user to rebuild a selection from an empty set.
-   */
+  /** Multi-select, order preserved. `initial` pre-checks options whose `value` matches (`===`). */
   askMultiChoice<T>(
     prompt: string,
     options: ReadonlyArray<Choice<T>>,
     opts?: { readonly initial?: readonly T[] }
   ): Promise<Result<readonly T[], DomainError>>;
-  /**
-   * Yes/no confirmation. Returns the user's boolean answer. Adapters define what counts as
-   * yes/no (the console adapter accepts `y`/`yes` / `n`/`no`, case-insensitive); empty input
-   * surfaces a `ValidationError` rather than guessing a default — callers that want a default
-   * can wrap this method with their own fallback logic.
-   */
+  /** Yes/no confirmation. */
   askConfirm(input: AskConfirmInput): Promise<Result<boolean, DomainError>>;
 }

@@ -26,8 +26,8 @@ non-consent outcome.
   resolve via local useState; `onResolved` callback flips a LAUNCH-CLOSURE flag (not React state, lost
   on pause/resume remount) so an AI-session pause never re-shows the gate.
 - launch.ts wiring: bootstrap() computes `migration.pending = needsMigration(dataRoot)` AFTER
-  ensureStorageRoots; `renderElement` thunk calls `shouldShowMigrationGate(pending, gateResolved)`
-  (exported pure helper — the testable seam) to choose `MigrationRoute` vs `App`. appVersion =
+  ensureStorageRoots; `renderElement` thunk checks `pending && !gateResolved` inline to choose
+  `MigrationRoute` vs `App`, fenced through the real `launchTui` by `launch-migration-gate.test.tsx`. appVersion =
   `CLI_METADATA.currentVersion`, now = `() => String(deps.clock())`.
 - bootstrap/bootstrap-app.ts (shared CLI + TUI pre-flight): NO splash, NO auto-migrate (one-shots run headless on tolerant readers); a comment
   states the TUI owns consent.

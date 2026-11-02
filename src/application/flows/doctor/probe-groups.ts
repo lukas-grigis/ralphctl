@@ -243,9 +243,8 @@ export const probeVcsToolingGroup = async (deps: DoctorDeps): Promise<readonly P
     }
   }
 
-  for (const config of OPTIONAL_VCS_CLIS) {
-    probes.push(...(await probeOptionalVcsCli(deps, config)));
-  }
+  const vcsClis = await Promise.all(OPTIONAL_VCS_CLIS.map((config) => probeOptionalVcsCli(deps, config)));
+  probes.push(...vcsClis.flat());
 
   return probes;
 };
@@ -272,29 +271,38 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
 
   // Binary rows first (so a provider's PATH check always precedes its auth check), then one auth row per provider
   // that is both configured and confirmed installed.
+  // Each provider's probes are independent child processes, so they run concurrently; `Promise.all`
+  // keeps the row order.
+  const providers = Object.keys(PROVIDER_BINARY) as readonly AiProvider[];
   const installedByProvider = new Map<AiProvider, boolean>();
-  for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
-    const binary = PROVIDER_BINARY[provider];
-    const isConfigured = configuredProviders.has(provider);
-    const probe = await probeBinary(
-      `ai-${provider}`,
-      `${PROVIDER_LABEL[provider]}${isConfigured ? ' (configured)' : ''}`,
-      binary,
-      'ai',
-      deps.commandExists,
-      `install the '${binary}' CLI and ensure it is on your PATH`
-    );
-    installedByProvider.set(provider, probe.status === 'pass');
-    probes.push(downgradeMissingBinary(probe, isConfigured));
-  }
+  const binaryProbes = await Promise.all(
+    providers.map(async (provider) => {
+      const binary = PROVIDER_BINARY[provider];
+      const isConfigured = configuredProviders.has(provider);
+      const probe = await probeBinary(
+        `ai-${provider}`,
+        `${PROVIDER_LABEL[provider]}${isConfigured ? ' (configured)' : ''}`,
+        binary,
+        'ai',
+        deps.commandExists,
+        `install the '${binary}' CLI and ensure it is on your PATH`
+      );
+      installedByProvider.set(provider, probe.status === 'pass');
+      return downgradeMissingBinary(probe, isConfigured);
+    })
+  );
+  probes.push(...binaryProbes);
 
-  for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
-    if (!configuredProviders.has(provider) || installedByProvider.get(provider) !== true) continue;
-    const version = await probeSupportedVersion(provider, deps.runCommand);
-    // An unsupported major's auth verb may not even exist, and every launch is refused anyway.
-    if (version !== undefined) probes.push(version);
-    else probes.push(await probeProviderAuth(provider, deps.runCommand));
-  }
+  const authProbes = await Promise.all(
+    providers
+      .filter((provider) => configuredProviders.has(provider) && installedByProvider.get(provider) === true)
+      .map(async (provider) => {
+        const version = await probeSupportedVersion(provider, deps.runCommand);
+        // An unsupported major's auth verb may not even exist, and every launch is refused anyway.
+        return version ?? (await probeProviderAuth(provider, deps.runCommand));
+      })
+  );
+  probes.push(...authProbes);
 
   return probes;
 };

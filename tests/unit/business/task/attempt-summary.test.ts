@@ -240,17 +240,13 @@ describe('renderPriorAttemptsSection', () => {
     expect(out.split('\n\n')).toHaveLength(4);
   });
 
-  it('honours a custom k', () => {
-    const attempts = Array.from({ length: 5 }, (_, i) => verifiedAttempt({ n: i + 1, attribution: 'clean' }));
-    const out = renderPriorAttemptsSection(attempts, { k: 2 });
-    expect(out.split('\n\n')).toHaveLength(3);
-  });
-
   it('bounds the whole section to ~2400 chars', () => {
-    const attempts = Array.from({ length: 10 }, (_, i) =>
-      verifiedAttempt({ n: i + 1, attribution: 'clean', critique: 'B'.repeat(230) })
+    // Plateau dimension lists are the one unbounded per-attempt field.
+    const dimensions = Array.from({ length: 100 }, (_, i) => `dimension-${String(i)}`);
+    const attempts = Array.from({ length: 3 }, (_, i) =>
+      verifiedAttempt({ n: i + 1, attribution: 'clean', warning: { kind: 'plateau', dimensions } })
     );
-    const out = renderPriorAttemptsSection(attempts, { k: 10 });
+    const out = renderPriorAttemptsSection(attempts);
     expect(out.length).toBe(2400);
     expect(out.endsWith('…')).toBe(true);
   });

@@ -36,14 +36,13 @@ describe('createSprint', () => {
 
       projectId: FIXED_PROJECT_ID,
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('draft');
-    expect(r.value.tickets).toEqual([]);
-    expect(r.value.plannedAt).toBeNull();
-    expect(r.value.reviewAt).toBeNull();
-    expect(r.value.doneAt).toBeNull();
-    expect(r.value.slug).toBe('sprint-1');
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('draft');
+    expect(rValue.tickets).toEqual([]);
+    expect(rValue.plannedAt).toBeNull();
+    expect(rValue.reviewAt).toBeNull();
+    expect(rValue.doneAt).toBeNull();
+    expect(rValue.slug).toBe('sprint-1');
   });
 
   it('rejects empty name', () => {
@@ -63,11 +62,10 @@ describe('createSprintWithExecution', () => {
 
       projectId: FIXED_PROJECT_ID,
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.sprint.status).toBe('draft');
-    expect(r.value.execution.sprintId).toBe(r.value.sprint.id);
-    expect(r.value.execution.setupRanAt).toEqual([]);
+    const rValue = r.getOrThrow();
+    expect(rValue.sprint.status).toBe('draft');
+    expect(rValue.execution.sprintId).toBe(rValue.sprint.id);
+    expect(rValue.execution.setupRanAt).toEqual([]);
   });
 });
 
@@ -87,21 +85,19 @@ describe('planSprint', () => {
   it('transitions draft → planned with all-approved tickets', () => {
     const draft = makeDraftSprint({ tickets: [makeApprovedTicket()] });
     const r = planSprint(draft, FIXED_LATER);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('planned');
-    expect(r.value.plannedAt).toBe(FIXED_LATER);
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('planned');
+    expect(rValue.plannedAt).toBe(FIXED_LATER);
   });
 });
 
 describe('transitionSprintToReview', () => {
   it('transitions active → review and stamps reviewAt', () => {
     const r = transitionSprintToReview(makeActiveSprint(), FIXED_LATEST);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('review');
-    expect(r.value.reviewAt).toBe(FIXED_LATEST);
-    expect(r.value.doneAt).toBeNull();
+    const value = r.getOrThrow();
+    expect(value.status).toBe('review');
+    expect(value.reviewAt).toBe(FIXED_LATEST);
+    expect(value.doneAt).toBeNull();
   });
 
   it('rejects from non-active states', () => {
@@ -115,13 +111,12 @@ describe('transitionSprintToReview', () => {
 describe('revertSprintToActive', () => {
   it('reopens review → active, clears reviewAt, and re-stamps activatedAt', () => {
     const r = revertSprintToActive(makeReviewSprint(), FIXED_LATEST);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('active');
-    expect(r.value.reviewAt).toBeNull();
-    expect(r.value.doneAt).toBeNull();
-    expect(r.value.activatedAt).toBe(FIXED_LATEST);
-    expect(r.value.plannedAt).not.toBeNull();
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('active');
+    expect(rValue.reviewAt).toBeNull();
+    expect(rValue.doneAt).toBeNull();
+    expect(rValue.activatedAt).toBe(FIXED_LATEST);
+    expect(rValue.plannedAt).not.toBeNull();
   });
 
   it('rejects from any non-review state', () => {
@@ -135,24 +130,21 @@ describe('revertSprintToActive', () => {
 describe('reopenDoneSprint', () => {
   it('reopens done → review, clears doneAt, and re-stamps reviewAt', () => {
     const r = reopenDoneSprint(makeDoneSprint(), FIXED_LATEST);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('review');
-    expect(r.value.doneAt).toBeNull();
-    expect(r.value.reviewAt).toBe(FIXED_LATEST);
-    expect(r.value.activatedAt).not.toBeNull();
-    expect(r.value.plannedAt).not.toBeNull();
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('review');
+    expect(rValue.doneAt).toBeNull();
+    expect(rValue.reviewAt).toBe(FIXED_LATEST);
+    expect(rValue.activatedAt).not.toBeNull();
+    expect(rValue.plannedAt).not.toBeNull();
   });
 
   it('re-arms the existing review → active step: chaining both lands the sprint back at active', () => {
     const reopened = reopenDoneSprint(makeDoneSprint(), FIXED_LATEST);
-    expect(reopened.ok).toBe(true);
-    if (!reopened.ok) return;
-    const reactivated = revertSprintToActive(reopened.value, FIXED_LATEST);
-    expect(reactivated.ok).toBe(true);
-    if (!reactivated.ok) return;
-    expect(reactivated.value.status).toBe('active');
-    expect(reactivated.value.reviewAt).toBeNull();
+    const reopenedValue = reopened.getOrThrow();
+    const reactivated = revertSprintToActive(reopenedValue, FIXED_LATEST);
+    const reactivatedValue = reactivated.getOrThrow();
+    expect(reactivatedValue.status).toBe('active');
+    expect(reactivatedValue.reviewAt).toBeNull();
   });
 
   it('rejects from any non-done state', () => {
@@ -166,10 +158,9 @@ describe('reopenDoneSprint', () => {
 describe('transitionSprintToDone', () => {
   it('transitions review → done and stamps doneAt', () => {
     const r = transitionSprintToDone(makeReviewSprint(), FIXED_LATEST);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('done');
-    expect(r.value.doneAt).toBe(FIXED_LATEST);
+    const value = r.getOrThrow();
+    expect(value.status).toBe('done');
+    expect(value.doneAt).toBe(FIXED_LATEST);
   });
 
   it('rejects from any non-review state, including active and done', () => {
@@ -183,9 +174,8 @@ describe('transitionSprintToDone', () => {
 describe('setSprintSlug', () => {
   it('replaces the slug on a draft sprint', () => {
     const r = setSprintSlug(makeDraftSprint(), slug('alt-handle'));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.slug).toBe('alt-handle');
+    const rValue = r.getOrThrow();
+    expect(rValue.slug).toBe('alt-handle');
   });
 
   it('rejects done sprints', () => {
@@ -246,21 +236,19 @@ describe('attachTicketLink', () => {
     const ticket = makeApprovedTicket();
     const sprint = makeActiveSprint({ tickets: [ticket] });
     const r = attachTicketLink(sprint, ticket.id, ISSUE_URL);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('active');
-    expect(r.value.tickets[0]?.link).toBe(ISSUE_URL);
-    expect(r.value.tickets[0]?.externalRef).toBe('#42');
+    const value = r.getOrThrow();
+    expect(value.status).toBe('active');
+    expect(value.tickets[0]?.link).toBe(ISSUE_URL);
+    expect(value.tickets[0]?.externalRef).toBe('#42');
   });
 
   it('preserves an existing externalRef when attaching a link', () => {
     const ticket = makeApprovedTicket({ externalRef: 'PROJ-7' });
     const sprint = makeActiveSprint({ tickets: [ticket] });
     const r = attachTicketLink(sprint, ticket.id, ISSUE_URL);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.tickets[0]?.link).toBe(ISSUE_URL);
-    expect(r.value.tickets[0]?.externalRef).toBe('PROJ-7');
+    const rValue = r.getOrThrow();
+    expect(rValue.tickets[0]?.link).toBe(ISSUE_URL);
+    expect(rValue.tickets[0]?.externalRef).toBe('PROJ-7');
   });
 
   it('returns NotFoundError when the ticket is missing', () => {

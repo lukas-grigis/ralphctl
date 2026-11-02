@@ -1,26 +1,19 @@
 /**
- * Tasks panel — per-task view of an Implement run. Each task block renders:
+ * Tasks panel — per-task view of an Implement run:
  *
  *   ✓ <id-short> · <duration> · <status>
  *     ↳ <sub-step name>          <duration>
- *     …
  *     eval passed · attempt 2
  *     signals
  *       09:19  chng  added canvas-confetti …
- *       09:19  lern  useLocation + global side-effect …
- *       09:19  cmsg  feat(web-ui): add confetti …
  *
- * Cross-task signals (those whose timestamp doesn't fall inside any task window) pin at the top
- * as "Cross-task notes" so notes-about-the-run aren't lost.
- *
- * Correlation lives in `bucket-task-signals.ts`; this component is a pure renderer over the
- * bucketed structure. Internals are split under `tasks-panel-internals/` — row renderers, the
- * evaluation row, the keyboard model, the focus-key plumbing, and the pure format helpers all
- * live next door so this file can stay a small orchestrator.
+ * Cross-task signals (outside every task window) pin at the top as "Cross-task notes". Correlation
+ * lives in `bucket-task-signals.ts`; this component renders the bucketed structure, with row
+ * renderers, the keyboard model and focus-key plumbing under `tasks-panel-internals/`.
  */
 
 import type { PriorWorkNotice } from '@src/application/ui/shared/prior-work-copy.ts';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import {
   type BucketedExecution,
@@ -39,162 +32,72 @@ import { OrphanSignals } from '@src/application/ui/tui/components/tasks-panel-in
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { useTasksPanelInput } from '@src/application/ui/tui/components/tasks-panel-internals/keymap.ts';
 
-export { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
-
 /**
- * The per-task extras the host view supplies as parallel id-keyed maps. They arrive separately
- * because each is derived from a different source (the session descriptor, the polled task
- * entities, the planned-leaf list, the sprint projection), but the panel immediately folds them
- * into one {@link TaskOverlay} per task so a card looks its extras up once.
+ * Per-task extras the host supplies as parallel id-keyed maps (each comes from a different source:
+ * descriptor, polled task entities, planned-leaf list, sprint projection); the panel folds them into
+ * one {@link TaskOverlay} per task. A missing map or key just omits that part of the card.
  */
 interface TaskOverlaySources {
-  /**
-   * Optional `taskId → RecoveryContext` map for tasks the launcher detected as resuming a
-   * prior aborted attempt. When set for a given task id the active-task header gets a second
-   * row: `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)`. Absent / empty when no
-   * task in the run is a resume.
-   */
+  /** Tasks resuming a prior aborted attempt: adds `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)` under the header. */
   readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
-  /**
-   * Map of task id → `verificationCriteria` bullets, sourced directly from `Task.verificationCriteria`
-   * by the host view (no disk read, no async loader). When supplied, each non-pending task's
-   * header renders a collapsed 3-line summary of the criteria with a `press e to expand` hint;
-   * pressing `e` while the panel owns input toggles the active task's full criteria block.
-   */
+  /** `Task.verificationCriteria` bullets: non-pending headers show a 3-line summary; `e` expands the active task's full list. */
   readonly taskCriteriaById?: ReadonlyMap<string, readonly string[]>;
-  /**
-   * Optional `taskId → blockedReason` map sourced from the polled task entities. When a task is
-   * blocked, its reason renders under the card header so the operator sees WHY (own failure vs
-   * `blocked upstream — …`) rather than a bare `blocked` status. Absent for runs with no blocks.
-   */
+  /** Why a task is blocked (own failure vs `blocked upstream — …`), shown under its header. */
   readonly blockedReasonById?: ReadonlyMap<string, string>;
-  /**
-   * Optional `taskId → structured block triage` map sourced from the polled task entities (the
-   * generator's own question / what-would-unblock-it, when its self-block signal supplied them —
-   * see {@link BlockedTriage}). Absent for a plain-reason block or a run with no blocks.
-   */
+  /** The generator's own question / what-would-unblock-it, when its self-block signal supplied them. */
   readonly blockedTriageById?: ReadonlyMap<string, BlockedTriage>;
-  /**
-   * Optional `taskId → warning summary` map sourced from the polled task entities. When a task
-   * settled `done` but its FINAL attempt carries an `AttemptWarning`, its one-line summary renders
-   * under the card header with the warning glyph so a flagged completion never reads as a clean
-   * pass. Absent for runs whose done tasks are all clean.
-   */
+  /** One-line `AttemptWarning` summary for a `done` task, so a flagged completion never reads as a clean pass. */
   readonly warningSummaryById?: ReadonlyMap<string, string>;
-  /** Optional `taskId → rejected-diff notice` map from the polled task entities (see `priorWorkNotice`). */
+  /** Rejected-diff notice from the polled task entities (see `priorWorkNotice`). */
   readonly priorWorkById?: ReadonlyMap<string, PriorWorkNotice>;
   /**
-   * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
-   * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
-   * verdict — never the timestamp-bucketed `TaskBucket.evaluations` signal stream, which mis-
-   * attributes evaluator signals to the wrong task under parallel/wave sprints (overlapping
-   * windows + AI-fabricated timestamps). Absent / no key for a task ⇒ "awaiting eval" while the
-   * card is active, or no verdict line otherwise.
+   * Authoritative verdict (LAST attempt's `evaluation.status`). The card renders THIS, never the
+   * timestamp-bucketed `TaskBucket.evaluations`, which mis-attributes evaluator signals under
+   * parallel waves. No key ⇒ "awaiting eval" while active, else no verdict line.
    */
   readonly taskEvaluationById?: ReadonlyMap<string, TaskEvaluation>;
-  /**
-   * Optional `taskId → step tree` map from the flow-progress projection (the work-item root of
-   * each task). An expanded card renders its children as the Prepare / Attempt / Round / Verify /
-   * Commit / Finish tree. Absent when the session has no plan tree.
-   */
+  /** Work-item root of each task from the flow-progress projection; an expanded card renders its children as the step tree. */
   readonly stepTreeByTaskId?: ReadonlyMap<string, StepView>;
-  /**
-   * Optional projected sprint state. When supplied the per-task header appends an ETA derived
-   * from `state.tasks[i].medianAttemptDurationMs * (max - currentRound) / max`. Absent ⇒ ETA is
-   * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
-   * of truth for whether to project: tests render TasksPanel in isolation without a projection,
-   * and the live dashboard threads it once `taskState` is polled.
-   *
-   * Stored by `order`, so entries are matched onto bucketed tasks by id rather than position.
-   */
+  /** Projected sprint state; when set the header appends an ETA from `medianAttemptDurationMs`. Matched to tasks by id. */
   readonly sprintState?: SprintState;
 }
 
 export interface TasksPanelProps extends TaskOverlaySources {
   readonly bucketed: BucketedExecution;
   readonly running: boolean;
-  /** Optional id → friendly name. Falls back to first 8 chars of the id. */
+  /** id → friendly name; falls back to the first 8 chars of the id. */
   readonly nameById?: ReadonlyMap<string, string>;
-  /** Max signals per task to render; older ones drop off the top. */
+  /** Max signals per task; older ones drop off the top. */
   readonly maxSignalsPerTask?: number;
   /**
-   * Optional card-count budget for the task list. When supplied and the run has more tasks than
-   * this, the panel renders an anchored window of `maxTasks` cards centred on the active /
-   * focused card (so the live work stays visible) and shows dim "▴ N more above" / "▾ N more
-   * below" cues for the hidden remainder. Without it the column grew unbounded with 3-4+ tasks
-   * and pushed the Recent-log + footer off-screen. Defaults to unbounded (every card rendered)
-   * so isolated unit renders are unchanged — the Execute view threads `layout.tasksMaxBlocks`.
+   * Card-count budget: beyond it the panel renders a window centred on the active / focused card
+   * with "▴ N more above" / "▾ N more below" cues. Absent ⇒ every card.
    */
   readonly maxTasks?: number;
-  /** Max orphan signals to render. */
   readonly maxOrphanSignals?: number;
   /**
-   * When `true` the panel claims keyboard input for row-cursor navigation (j/k or ↑/↓) and
-   * row expansion (Enter / Space). Defaults to `false` so unit tests that render the panel in
-   * isolation don't compete with any other `useInput` handler in the same Ink tree. The
-   * Implement view sets this `true` while the run is live and no overlay is open.
-   *
-   * The cursor traverses the flat sequence of visible signal rows (orphans first, then each
-   * task in order). When focused on a `commit-message` row, Enter / Space toggles expansion to
-   * reveal the body. The subject row shows the AI-proposed subject; the harness-appended
-   * ` (#123, !456)` ref suffix lands at `git commit -F` time and is not threaded back onto the
-   * signal. Expansion state lives in panel-local
-   * `useState` so it persists across re-renders within the session but resets if the panel
-   * unmounts (e.g. on `D` detach back to home).
+   * Claim keyboard input: card/row cursor (j/k, ↑/↓), expansion (Enter/Space; on a `commit-message`
+   * row it reveals the body). Default `false` so isolated renders don't compete with other
+   * `useInput` handlers. Expansion state is panel-local and resets on unmount.
    */
   readonly inputActive?: boolean;
-  /**
-   * Row budget for one task's step tree, overflow cues included; the window stays anchored on
-   * the running (or failed) row. Bounds Ink reconciliation cost on long gen-eval loops.
-   */
+  /** Row budget for one task's step tree, cues included; the window stays anchored on the running (or failed) row. */
   readonly maxSubStepsPerTask?: number;
-  /**
-   * Optional `v` handler — opens the read-only evaluation overlay for the FOCUSED card. Fires only
-   * for a card that has an entry in `taskEvaluationById`, so the chord is inert on a task with no
-   * recorded verdict rather than opening an empty overlay. Absent ⇒ `v` is a no-op (isolated unit
-   * renders and any host that doesn't wire the overlay).
-   */
+  /** `v` handler for the FOCUSED card; fires only for a card with an entry in `taskEvaluationById`. Absent ⇒ no-op. */
   readonly onOpenEvaluation?: (taskId: string) => void;
-  /**
-   * Wall-clock reference in milliseconds — used by the idle-ticker to compute the gap between
-   * the latest stream signal and "now". The execute view polls every 1s and passes the latest
-   * `Date.now()`; tests pass a fixed value. Defaults to `Date.now()` at render-time so
-   * isolated unit renders work without explicit wiring (no ticker fires without elapsed gap).
-   */
+  /** Wall-clock seed for the idle ticker. Default `Date.now()` at render, which freezes the clock in isolated renders. */
   readonly nowMs?: number;
-  /**
-   * Optional callback fired when the panel's focused card id changes (deduplicated — only called
-   * when the id value is different from the previous call). The sidebar minimap uses this to keep
-   * its highlight in sync with the main-area cursor without owning any input itself. Absent ⇒
-   * the panel is fully self-contained (existing callers are unaffected).
-   */
+  /** Fired (deduped) when the focused card id changes; keeps the sidebar minimap highlight in sync. */
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
-  /**
-   * Optional callback fired when the focused card's expansion state changes (deduplicated —
-   * only called when the boolean value differs from the previous call). The
-   * `TasksPanelHost` uses this to claim the `esc` keystroke (via `claimEscape()`)
-   * while an expanded card is focused, so pressing Esc collapses the card instead of popping the
-   * route. Absent ⇒ the panel is fully self-contained (existing callers are unaffected).
-   */
+  /** Fired (deduped) when the focused card's expansion changes; the host claims `esc` while expanded so Esc collapses the card. */
   readonly onExpandedCardChange?: (expanded: boolean) => void;
   /**
-   * Ids of tasks the host considers stuck (entity `status === 'blocked'` — own-failure block or
-   * dependency-gate block alike). Gates the `u` chord: {@link onUnblock} only fires for a
-   * FOCUSED card whose id is in this set, mirroring how `evaluationTaskIds` gates `v`. Sourced
-   * from the polled entities directly (the same source as `blockedReasonById`), independent of
-   * whatever correction a caller has or hasn't applied to `bucketed.status` — this is the
-   * unblockability signal, `bucketed.status` is the presentation signal, and they're allowed to
-   * travel separately. `TasksPanelHost` additionally empties this set WHILE A RUN IS LIVE (see its
-   * own docstring for why). Absent ⇒ treated as empty (no task is unblockable), so isolated unit
-   * renders that don't wire this are unaffected.
+   * Ids the host considers stuck (entity `status === 'blocked'`); gates the `u` chord, which fires
+   * only for a FOCUSED card in this set. Independent of `bucketed.status` (presentation signal).
+   * `TasksPanelHost` empties it while a run is live. Absent ⇒ empty.
    */
   readonly blockedTaskIds?: ReadonlySet<string>;
-  /**
-   * Optional `u` handler — revives the FOCUSED card's stuck task (see {@link blockedTaskIds}).
-   * Fires only when the focused card's id is in `blockedTaskIds`; otherwise the keystroke keeps
-   * travelling so it never eats `u` on a card with nothing to unblock. Absent ⇒ `u` is a no-op
-   * (isolated unit renders and any host that doesn't wire the affordance).
-   */
+  /** `u` handler: revives the focused card's stuck task. Absent ⇒ no-op. */
   readonly onUnblock?: (taskId: string) => void;
 }
 
@@ -212,93 +115,52 @@ interface TaskCardState {
 }
 
 /**
- * Card-cursor / expansion state cluster for the Tasks panel — which card is focused, which
- * cards are expanded, and the auto-expand-on-activation + focused-card-change side effects.
- * Extracted from `TasksPanel` (mirrors the `useTasksPanelInput` split next door) so the render
- * body only has to thread the resulting values, not own the effects that produce them.
+ * Card-cursor and expansion state: which card is focused, which are expanded, and the
+ * auto-expand-on-activation and focused-card reporting effects.
  */
 const useTaskCardState = (
   bucketed: BucketedExecution,
   onFocusedCardChange: ((taskId: string | undefined) => void) | undefined,
   onExpandedCardChange: ((expanded: boolean) => void) | undefined
 ): TaskCardState => {
-  // The active (first in-flight) task — anchor for the `e` criteria hotkey AND the default
-  // card-cursor position. Recomputed each render so the `useInput` callback always sees the
-  // latest active id. Settled-but-not-completed buckets (failed / aborted / dependency-blocked)
-  // are BEHIND the cursor: a task blocked upstream sits early in the list and would otherwise
-  // hold the anchor for the whole run while later tasks actually execute.
+  // First in-flight task: anchor for the `e` hotkey and the default cursor. Settled-but-not-completed
+  // buckets (failed / aborted / dependency-blocked) are BEHIND the cursor, or a task blocked
+  // upstream would hold the anchor while later tasks run.
   const activeTaskIdx = bucketed.tasks.findIndex(isInFlightBucket);
   const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
 
-  // First `blocked` bucket — the settled-run anchor of last resort. A run that ends with a task
-  // stuck on EITHER kind of block — a dependency gate, or its own failure (budget exhausted, red
-  // verify, generator self-block) — must not let that card fall behind an overflow cue just
-  // because it sits early in the list: without this, the settled fallback below would anchor on
-  // the LAST task and `computeListWindow` would window the blocked card off-screen behind a dim
-  // "N more above" cue the instant the run finished (see the `TaskCards` windowing docstring).
-  // Catching the own-failure case here relies on the caller having already run `bucketed` through
-  // `overlayEntityBlockedStatus` (the one production construction site, `TasksPanelHost`, does) —
-  // this component stays a pure renderer over whatever `TaskBucket.status` it's handed.
+  // Settled-run anchor of last resort: a task stuck on either kind of block must not be windowed
+  // off-screen behind an overflow cue when the run finishes. The own-failure case relies on the
+  // caller having run `bucketed` through `overlayEntityBlockedStatus` (`TasksPanelHost` does).
   const firstBlockedIdx = bucketed.tasks.findIndex((t) => t.status === 'blocked');
-  const firstBlockedId = firstBlockedIdx >= 0 ? bucketed.tasks[firstBlockedIdx]?.id : undefined;
-
-  // Per-task card expansion. The active (running) task auto-expands when it becomes active so
-  // the operator's eye anchors on the live stream — but the user can collapse it with Esc or
-  // Enter just like any other card. Other cards default collapsed to a one-line summary.
-  // Initial state seeds the active task on mount so the very first paint already shows the
-  // live stream (no `useEffect`-induced flicker).
-  // REQ-3 edge case: when ALL tasks are settled, activeTaskId is undefined — seed with the first
-  // blocked task (if any need the operator's attention) else the last task, so the operator sees
-  // a non-empty expanded card on first render and a blocked card is never the one left collapsed.
-  const lastTaskId = bucketed.tasks.length > 0 ? bucketed.tasks[bucketed.tasks.length - 1]?.id : undefined;
+  const firstBlockedId = bucketed.tasks[firstBlockedIdx]?.id;
+  const lastTaskId = bucketed.tasks.at(-1)?.id;
   const settledFallbackId = firstBlockedId ?? lastTaskId;
-  const seedId = activeTaskId ?? settledFallbackId;
-  const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(
-    () => new Set(seedId !== undefined ? [seedId] : [])
-  );
-  // Card cursor — index into `bucketed.tasks`. Default `undefined` means "no manual focus
-  // yet"; the panel anchors on the active task on first interaction.
+
+  // The active task (or, settled, the fallback) starts expanded so the first paint already shows
+  // the live stream; Esc / Enter collapse it like any other card.
+  const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(() => {
+    const seedId = activeTaskId ?? settledFallbackId;
+    return new Set(seedId !== undefined ? [seedId] : []);
+  });
+  // Index into `bucketed.tasks`; `undefined` = no manual focus yet, anchor on the active task.
   const [cardCursor, setCardCursor] = useState<number | undefined>(undefined);
 
-  // Seed `expandedTaskIds` with the active task whenever it transitions to a new id (post-mount
-  // transitions only — mount itself is handled by the lazy initial state). This gives the
-  // auto-expand-on-activation UX without making the expansion permanent: once the active id is
-  // in the set, Esc / Enter on it works the same as on any manually-expanded card.
-  // REQ-3: when the run settles (activeTaskId becomes undefined), ensure the first blocked task
-  // (or, absent one, the last task) card remains expanded so the operator sees either the thing
-  // that needs attention or a completion summary.
-  const prevActiveTaskIdRef = useRef<string | undefined>(activeTaskId);
-  useEffect(() => {
-    const prevId = prevActiveTaskIdRef.current;
-    prevActiveTaskIdRef.current = activeTaskId;
-    if (activeTaskId !== undefined && prevId !== activeTaskId) {
-      setExpandedTaskIds((prev) => {
-        if (prev.has(activeTaskId)) return prev;
-        const next = new Set(prev);
-        next.add(activeTaskId);
-        return next;
-      });
-    } else if (activeTaskId === undefined && prevId !== undefined && settledFallbackId !== undefined) {
-      // Transitioned to settled — expand the first blocked task (or the last task) as the
-      // post-run summary.
-      setExpandedTaskIds((prev) => {
-        if (prev.has(settledFallbackId)) return prev;
-        const next = new Set(prev);
-        next.add(settledFallbackId);
-        return next;
-      });
+  // Re-expand on active-task transitions (mount is handled by the initial state): the new active
+  // task, or on settling the fallback, so the operator sees what needs attention or a summary.
+  const [prevActiveTaskId, setPrevActiveTaskId] = useState(activeTaskId);
+  if (prevActiveTaskId !== activeTaskId) {
+    setPrevActiveTaskId(activeTaskId);
+    const target = activeTaskId ?? settledFallbackId;
+    if (target !== undefined) {
+      setExpandedTaskIds((prev) => (prev.has(target) ? prev : new Set(prev).add(target)));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- settledFallbackId is derived from bucketed.tasks; re-running on every task append would fight the guard (prevId check ensures we only act on activeTaskId transitions, not task additions).
-  }, [activeTaskId]);
+  }
 
   const isCardExpanded = (taskId: string): boolean => expandedTaskIds.has(taskId);
 
-  // The card cursor — defaults to the active task on first render. Once the run has settled
-  // (no active task), it falls back to the first BLOCKED task rather than unconditionally the
-  // last card: a blocked task earlier in the list is exactly what the operator needs to see and
-  // act on, and anchoring on the LAST card would window it off-screen behind an overflow cue the
-  // instant the run finishes (see `firstBlockedIdx` above). Only when nothing is blocked does it
-  // fall through to the last card. Stays put across re-renders so a moving cursor doesn't jump.
+  // Defaults to the active task; once settled, the first BLOCKED task (so it isn't windowed behind
+  // an overflow cue), else the last card. Stays put across re-renders.
   const effectiveCardCursor = useMemo(() => {
     if (cardCursor !== undefined && cardCursor >= 0 && cardCursor < bucketed.tasks.length) return cardCursor;
     if (activeTaskIdx >= 0) return activeTaskIdx;
@@ -308,35 +170,26 @@ const useTaskCardState = (
   const focusedCardId = effectiveCardCursor >= 0 ? bucketed.tasks[effectiveCardCursor]?.id : undefined;
   const focusedCardExpanded = focusedCardId !== undefined ? isCardExpanded(focusedCardId) : false;
 
-  // Report focused card id upward (passive sidebar minimap). Deduped — only fires when the id
-  // changes. Uses a ref for the callback so a non-memoised caller doesn't cause an extra effect
-  // run on every render; the ref is kept current on every render before the effect fires.
+  const reportFocusedCard = useEffectEvent((id: string | undefined) => onFocusedCardChange?.(id));
   const prevFocusedCardIdRef = useRef<string | undefined>(focusedCardId);
-  const onFocusedCardChangeRef = useRef(onFocusedCardChange);
-  onFocusedCardChangeRef.current = onFocusedCardChange;
   useEffect(() => {
     if (focusedCardId !== prevFocusedCardIdRef.current) {
       prevFocusedCardIdRef.current = focusedCardId;
-      onFocusedCardChangeRef.current?.(focusedCardId);
+      reportFocusedCard(focusedCardId);
     }
-  });
+  }, [focusedCardId]);
 
-  // Report the focused card's expansion state upward (Esc-claim seam). Same dedup + ref
-  // pattern as `onFocusedCardChange` above, with one deliberate difference: the "previous"
-  // ref seeds as `undefined` (not the current value) so the FIRST post-mount effect run always
-  // reports the mount-time state. The active task auto-expands from the lazy initial state (see
-  // above), so `focusedCardExpanded` is frequently already `true` on the very first render —
-  // seeding the ref with that same value (as `onFocusedCardChange` does) would suppress the one
-  // report the caller needs to claim `esc` before the operator's first keystroke.
+  // Unlike the focused-id report, the "previous" ref seeds `undefined` so the first post-mount run
+  // always reports: the active task usually starts expanded, and the host needs that report to
+  // claim `esc` before the operator's first keystroke.
+  const reportExpanded = useEffectEvent((expanded: boolean) => onExpandedCardChange?.(expanded));
   const prevFocusedCardExpandedRef = useRef<boolean | undefined>(undefined);
-  const onExpandedCardChangeRef = useRef(onExpandedCardChange);
-  onExpandedCardChangeRef.current = onExpandedCardChange;
   useEffect(() => {
     if (focusedCardExpanded !== prevFocusedCardExpandedRef.current) {
       prevFocusedCardExpandedRef.current = focusedCardExpanded;
-      onExpandedCardChangeRef.current?.(focusedCardExpanded);
+      reportExpanded(focusedCardExpanded);
     }
-  });
+  }, [focusedCardExpanded]);
 
   return {
     activeTaskIdx,
@@ -357,9 +210,8 @@ type TaskBlockProps = React.ComponentProps<typeof TaskBlock>;
 const EMPTY_OVERLAY: TaskOverlay = {};
 
 /**
- * Merge one id-keyed source into the accumulating overlays. `toField` turns a source value into
- * the overlay fragment it contributes, or `undefined` when it contributes nothing — which is how
- * an empty criteria / pending-sub-step list stays absent rather than rendering an empty block.
+ * Merge one id-keyed source into the accumulating overlays. `toField` returns the overlay fragment
+ * it contributes, or `undefined` for nothing (an empty criteria list stays absent, not an empty block).
  */
 const mergeOverlaySource = <V,>(
   into: Map<string, TaskOverlay>,
@@ -373,12 +225,9 @@ const mergeOverlaySource = <V,>(
 };
 
 /**
- * Fold the host's parallel id-keyed maps into one `taskId → TaskOverlay` lookup. Built once per
- * change of the source maps rather than once per card per render, which also turns the sprint
- * projection from a linear scan per card into a single keyed pass.
- *
- * The key set is the union of the sources' keys — a task with no extras never gets an entry and
- * falls back to {@link EMPTY_OVERLAY} at lookup time.
+ * Fold the host's parallel id-keyed maps into one `taskId → TaskOverlay` lookup, built once per
+ * source change rather than per card per render. A task with no extras gets no entry and falls
+ * back to {@link EMPTY_OVERLAY}.
  */
 const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, TaskOverlay> => {
   const overlays = new Map<string, TaskOverlay>();
@@ -390,18 +239,13 @@ const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, 
   mergeOverlaySource(overlays, sources.warningSummaryById, (warningSummary) => ({ warningSummary }));
   mergeOverlaySource(overlays, sources.taskEvaluationById, (taskEvaluation) => ({ taskEvaluation }));
   mergeOverlaySource(overlays, sources.stepTreeByTaskId, (stepTree) => ({ stepTree }));
-  // Keyed by id (not position) so the projection order — stored by `order` — doesn't have to
-  // mirror the bucketed order, which tracks the runtime sequence.
+  // Keyed by id: the projection is stored by `order`, which needn't mirror the runtime sequence.
   const projections = new Map((sources.sprintState?.tasks ?? []).map((p) => [p.id, p]));
   mergeOverlaySource(overlays, projections, (taskProjection) => ({ taskProjection }));
   return overlays;
 };
 
-/**
- * Render-derived values shared by every row this render — the card-cursor/expansion state
- * (via `useTaskCardState`), the folded per-task overlays, and the panel-level settings each card
- * needs, bundled so {@link buildTaskRowProps} takes one argument instead of a dozen positional ones.
- */
+/** Render-derived values shared by every task row, bundled so {@link buildTaskRowProps} takes one argument. */
 interface TaskRowDerived {
   readonly running: boolean;
   readonly nameById: ReadonlyMap<string, string> | undefined;
@@ -422,15 +266,9 @@ interface TaskRowDerived {
 const hasNoAttempt = (tree: StepView | undefined, noSignalsYet: boolean): boolean =>
   tree === undefined ? noSignalsYet : !tree.children.some((c) => c.iteration !== undefined);
 
-/**
- * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, the signal
- * slice bounds, and this task's overlay.
- */
+/** Pure derivation of one `TaskBlock` row: absolute index, display name, signal slice bounds, overlay. */
 const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerived): TaskBlockProps => {
-  // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
-  // the header readable when the launcher hasn't supplied a friendly name. The friendly
-  // name path goes through `nameById` and renders verbatim; if a future design makes
-  // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
+  // Stylistic 8-char short-uuid fallback (not a width clip); friendly names render verbatim.
   const display = derived.nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
   const sliceLen = Math.min(task.signals.length, derived.maxSignalsPerTask);
   const sliceStart = task.signals.length - sliceLen;
@@ -455,10 +293,8 @@ const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerive
 };
 
 /**
- * The windowed run of task cards. Keeping the active / focused card visible caps the rendered card
- * count at the terminal-derived budget so the column stops growing past the viewport; an absent
- * `maxTasks` means "no cap", preserving isolated-render behaviour (`computeListWindow` treats a
- * non-positive budget the same way, so an explicit `0` degrades identically).
+ * The windowed run of task cards: keeping the active / focused card visible caps the rendered
+ * count at the terminal-derived budget. Absent `maxTasks` means no cap.
  */
 const TaskCards = ({
   tasks,
@@ -474,8 +310,7 @@ const TaskCards = ({
     <>
       <OverflowRow direction="above" count={window.hiddenAbove} label="more above" />
       {tasks.slice(window.start, window.end).map((task, sliceIdx) => (
-        // `isActive` / `cardFocused` compare against absolute indices, so recover the absolute
-        // position from the slice offset.
+        // `isActive` / `cardFocused` compare absolute indices.
         <TaskBlock key={task.id} {...buildTaskRowProps(task, window.start + sliceIdx, derived)} />
       ))}
       <OverflowRow direction="below" count={window.hiddenBelow} label="more below" />
@@ -493,14 +328,13 @@ const EmptyTasksPanel = (): React.JSX.Element => (
 );
 
 /**
- * Memoized {@link buildOverlayByTaskId}. Keyed on the individual source maps rather than the
- * `sources` bag, which is a fresh rest-object on every render — so a card's `overlay` prop keeps
- * its reference (and with it the `TaskBlock` memo bail-out) until a source map actually changes.
+ * Memoized {@link buildOverlayByTaskId}, keyed on the individual source maps (the `sources` bag is
+ * a fresh rest-object every render) so a card's `overlay` keeps its reference and `TaskBlock` memo.
  */
 const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskOverlay> =>
   useMemo(
     () => buildOverlayByTaskId(sources),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the docstring: `sources` itself is a new object identity every render; its maps are the real inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `sources` is a new object every render; its maps are the real inputs.
     [
       sources.recoveringByTaskId,
       sources.taskCriteriaById,
@@ -520,22 +354,14 @@ const ACTIVE_ORPHAN_ROWS = 2;
 /** Stable empty-set reference for the `blockedTaskIds` default — never recreated per render. */
 const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
 
-/**
- * Bundles the "is anything settled yet" flag, the orphan-signal windowing offset, and the
- * `TaskRowDerived` record every task card reads from. Pulled out of `TasksPanel`'s render body
- * (mirrors the `useTaskCardState` / `useTasksPanelInput` splits already next door) purely to
- * keep the component under the file's function-length budget — it owns no hooks and no state
- * of its own, just the same arithmetic that used to sit inline right before the `return`.
- */
+/** Bundles the first-run flag, the orphan-signal slice offset and the {@link TaskRowDerived} record every card reads. */
 const buildRenderDerived = (
   bucketed: BucketedExecution,
   maxOrphanSignals: number,
   cardState: TaskCardState,
   rowSettings: Omit<TaskRowDerived, keyof TaskCardState | 'noSignalsYet'>
 ): { readonly orphanSliceStart: number; readonly derived: TaskRowDerived } => {
-  // First-run state — tasks exist but no harness signal has fired yet across the whole run.
-  // The kinds bar is suppressed (it's already empty when no signals are present) and the
-  // active-task block shows a `waiting for first attempt…` line below the spinner.
+  // Tasks exist but no harness signal has fired yet: the active card shows `waiting for first attempt…`.
   const noSignalsYet =
     bucketed.orphanSignals.length === 0 &&
     bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
@@ -560,10 +386,6 @@ export const TasksPanel = ({
   onUnblock,
   ...overlaySources
 }: TasksPanelProps): React.JSX.Element => {
-  // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
-  // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
-  // default, which freezes the clock at mount-time and so naturally suppresses the ticker
-  // unless a test explicitly supplies an old timestamp.
   const effectiveNowMs = nowMs ?? Date.now();
   // While a task runs, cross-task notes yield rows to its step tree.
   const orphanMax = bucketed.tasks.some((t) => t.status === 'running')
@@ -574,33 +396,21 @@ export const TasksPanel = ({
     [bucketed, maxSignalsPerTask, orphanMax]
   );
 
-  // Cursor identity is the focused row's stable key (not its index). When a new signal lands
-  // the index of the existing row may shift, but its key is unchanged, so the cursor sticks
-  // to the same row. When the focused key falls off the visible slice (cap-elision), the
-  // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
+  // Cursor identity is the focused row's stable key, so it sticks to its row as new signals shift
+  // indices; if the key falls off the visible slice it collapses to `undefined` and Enter/Space re-anchors.
   const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
-  // No lazy hydration — `taskCriteriaById` is supplied synchronously by the host view from
-  // `Task.verificationCriteria`. Empty array → render the placeholder; missing key (task not
-  // yet in view's poll) → criteria UI is suppressed for that task.
-  // Task ids whose criteria block is currently expanded (full bullet list). Default state is
-  // the 3-line summary. Toggled by pressing `e` while the panel owns input.
+  // Task ids whose criteria block shows the full bullet list (default: 3-line summary); toggled by `e`.
   const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
 
-  // One folded `taskId → TaskOverlay` lookup replacing the host's parallel maps — see
-  // `buildOverlayByTaskId`.
   const overlayByTaskId = useTaskOverlays(overlaySources);
 
-  // Card-cursor / expansion state — see `useTaskCardState`. Spread wholesale below (into both
-  // `useTasksPanelInput` and `derived`) rather than destructured field-by-field so this
-  // orchestrator stays a thin threading layer instead of re-enumerating the cluster's shape.
   const cardState = useTaskCardState(bucketed, onFocusedCardChange, onExpandedCardChange);
 
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
 
-  // Task ids the `v` chord may open — exactly those with a recorded verdict, so pressing `v` on a
-  // pending / not-yet-evaluated card falls through instead of opening an empty overlay.
+  // Task ids `v` may open: those with a recorded verdict, so `v` on an unevaluated card falls through.
   const evaluationTaskIds = useMemo(
     () => new Set(overlaySources.taskEvaluationById?.keys() ?? []),
     [overlaySources.taskEvaluationById]

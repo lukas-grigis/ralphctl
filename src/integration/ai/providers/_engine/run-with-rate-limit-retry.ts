@@ -1,11 +1,11 @@
 import { Result } from '@src/domain/result.ts';
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import type { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { type AttemptOutcome, abortedByCaller } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import type { ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import type { ProviderSlug } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
@@ -17,137 +17,61 @@ import {
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 
 /**
- * Shared rate-limit retry loop for the five headless AI provider adapters
- * (claude / codex / copilot / opencode / grok). Each adapter was carrying a near-identical ~70-line loop that
- * built argv ONCE before the loop and reused it verbatim every attempt — so the `sessionId`
- * `classifySpawnExit` captured onto a {@link RateLimitError} was never consumed: a 429 retry
- * re-spawned a COLD session instead of resuming the interrupted one. Centralising the loop here
- * fixes that everywhere at once and removes the duplication.
+ * The one rate-limit retry loop every headless adapter runs through. The adapter's `attempt` builds
+ * argv from the session it is GIVEN, so when a rate-limit outcome carries a captured session id the
+ * loop retries with `{ ...session, resume: id }` and the CLI resumes instead of cold-starting.
  *
- * The seam: the adapter supplies an `attempt(session)` function that takes the CURRENT session
- * and builds its own argv from it, then runs one spawn and returns an {@link AttemptOutcome}.
- * On a rate-limit outcome whose `error.sessionId` is defined, the loop rebuilds the next
- * attempt's session as `{ ...session, resume: <captured id> }` so the provider continues from
- * where it stopped (`--resume` / `exec resume`). The adapter never re-implements backoff,
- * banner emission, abort-during-backoff, or the resume-rebuild — only the per-attempt spawn.
- *
- * Stale-resume cold fallback (was codex-only; now shared — FINDING 4). When an attempt fails
- * with an `error` outcome whose message matches the adapter's optional `resumeStaleRe`, the
- * resume id is dropped for ONE cold respawn (latched via `coldRetried`, fired at most once per
- * call) and the session's optional `coldPrompt` — the full prompt a slim resumed continuation
- * omits — replaces the prompt. The cold retry MUST NOT consume a rate-limit slot — it re-runs the SAME attempt index
- * (the loop does not advance `attempt`), so a lost rollout / unknown-resume-id self-heals
- * without burning the 429 budget. An aborted run is exempt: a user cancel tears the run down
- * rather than spawning fresh work a competitor may now own.
- *
- * Observable semantics preserved per adapter:
- *  - backoff schedule (`rate-limit-backoff.ts`, overridable for tests),
- *  - abort-during-backoff → {@link AbortError} (the one error chains propagate transparently),
- *  - the rate-limit banner-show / banner-clear pair keyed by `<providerSlug>-<id|attempt>`,
- *  - codex's exec-resume invocation form (the adapter's own `attempt` rebuilds argv from the
- *    resumed session, so `buildCodexArgs` takes the `exec resume <id>` path unchanged).
+ * Stale-resume cold fallback: an `error` outcome matching `resumeStaleRe` on a resumed session
+ * drops `resume` (and swaps in `coldPrompt`) for ONE cold respawn of the SAME attempt index, so it
+ * never consumes a rate-limit slot. An aborted run is exempt — a cancel must not spawn fresh work.
  */
-
 export interface RunWithRateLimitRetryOptions {
-  /** The initial session — the first attempt runs with this; retries rebuild it with `resume`. */
+  /** The first attempt runs with this; retries rebuild it. */
   readonly session: AiSession;
-  /** Adapter-side retries on `RateLimitError` before surfacing the failure. */
+  /** Retries on `RateLimitError` before surfacing the failure. */
   readonly rateLimitRetries: number;
-  /** Wait schedule between retries. Defaults to {@link DEFAULT_BACKOFF_SCHEDULE}. */
   readonly backoffSchedule?: readonly number[];
-  /**
-   * `[0, 1)` source for the {@link applyJitter} spread on each backoff wait, defaulting to
-   * `Math.random`. Injectable so tests pin the exact jittered delay instead of asserting on
-   * live randomness.
-   */
+  /** `[0, 1)` source for {@link applyJitter}; injectable so tests pin the jittered delay. */
   readonly random?: () => number;
   readonly eventBus: EventBus;
-  /**
-   * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'` /
-   * `'opencode'` / `'grok'`). Keeps
-   * the banner id keyspace per-provider so concurrent adapters don't collide.
-   */
+  /** Keys the banner ids, so concurrent adapters don't collide. */
   readonly providerSlug: ProviderSlug;
-  /**
-   * Element name stamped onto the {@link AbortError} surfaced when a user cancel lands during a
-   * backoff sleep — mirrors `classifySpawnExit`'s abort shape so the chain runner propagates it.
-   */
   readonly providerName: string;
-  /**
-   * Optional stale-resume regex. When a non-rate-limit `error` outcome's message matches AND the
-   * session carries a `resume` id, the loop drops `resume` for one cold respawn (latched). Codex
-   * passes its `RESUME_STALE_RE`; claude / copilot pass their own conservative wording. Omit to
-   * disable the cold-fallback (hard-fail on a dead resume id, the legacy claude/copilot path).
-   */
-  readonly resumeStaleRe?: RegExp;
-  /**
-   * One spawn attempt against `session`. The adapter builds argv from `session` here, so the
-   * resume-rebuilt session naturally produces resume argv. Returns the classifier's outcome.
-   */
+  /** The CLI's "that resume id no longer exists" wording. */
+  readonly resumeStaleRe: RegExp;
   readonly attempt: (session: AiSession) => Promise<AttemptOutcome>;
 }
 
-/**
- * Rebuild a session for the next attempt with `resume` set to the captured id. Uses a spread so
- * the caller's session is never mutated; `exactOptionalPropertyTypes` is satisfied because we
- * always assign a concrete value (never `resume: undefined`).
- */
 const withResume = (session: AiSession, resumeId: string): AiSession => ({
   ...session,
   resume: resumeId as SessionId,
 });
 
-/**
- * Drop the resume id so the adapter's argv builder takes the cold-start path, and swap in the
- * caller's `coldPrompt` (the full first-attempt prompt) when one was supplied — the slim
- * continuation prompt presumes a conversation the cold spawn does not have. `delete` on a spread
- * copy (never the caller's session) — `exactOptionalPropertyTypes` forbids re-setting a key to
- * `undefined`, so omit the keys entirely.
- */
+/** The slim continuation prompt presumes a conversation the cold spawn does not have. */
 const withoutResume = (session: AiSession): AiSession => {
-  const cold: AiSession = { ...session, ...(session.coldPrompt !== undefined ? { prompt: session.coldPrompt } : {}) };
-  delete (cold as { resume?: unknown }).resume;
-  delete (cold as { coldPrompt?: unknown }).coldPrompt;
-  return cold;
+  const { resume: _resume, coldPrompt, ...rest } = session;
+  void _resume;
+  return { ...rest, ...(coldPrompt !== undefined ? { prompt: coldPrompt } : {}) };
 };
 
-interface HandleRateLimitOutcomeParams {
-  readonly eventBus: EventBus;
-  readonly providerSlug: ProviderSlug;
-  readonly providerName: string;
-  readonly session: AiSession;
-  readonly attemptIdx: number;
-  readonly maxAttempts: number;
-  readonly schedule: readonly number[];
-  readonly error: RateLimitError;
-  readonly random?: (() => number) | undefined;
-}
-
-/**
- * Result of one rate-limit-outcome handling pass: either an abort surfaced during the backoff
- * sleep (caller must stop and return it), or the rebuilt session the loop should retry with.
- */
 type RateLimitOutcomeResult =
   { readonly type: 'aborted'; readonly error: AbortError } | { readonly type: 'continue'; readonly session: AiSession };
 
+interface RateLimitStep {
+  readonly session: AiSession;
+  readonly attemptIdx: number;
+  readonly maxAttempts: number;
+  readonly error: RateLimitError;
+}
+
 /**
- * Handle one `rate-limit` attempt outcome: warn-log, rebuild the session with the captured
- * resume id (if any), and — unless this was the last allotted attempt — wait out the backoff
- * schedule behind a show/clear banner pair, short-circuiting on abort. Pulled out of the main
- * loop body purely to keep that loop under the complexity/line thresholds; same publishes, same
- * ordering, same abort semantics as before.
+ * Warn, carry the captured session id forward, and — unless this was the last attempt — wait out
+ * the jittered backoff behind a show/clear banner pair. A cancel cuts the wait short.
  */
-const handleRateLimitOutcome = async ({
-  eventBus,
-  providerSlug,
-  providerName,
-  session,
-  attemptIdx,
-  maxAttempts,
-  schedule,
-  error,
-  random,
-}: HandleRateLimitOutcomeParams): Promise<RateLimitOutcomeResult> => {
+const handleRateLimitOutcome = async (
+  { eventBus, providerSlug, providerName, backoffSchedule, random }: RunWithRateLimitRetryOptions,
+  { session, attemptIdx, maxAttempts, error }: RateLimitStep
+): Promise<RateLimitOutcomeResult> => {
   const bannerId = `rate-limit-${providerSlug}-${error.sessionId ?? String(attemptIdx + 1)}`;
   eventBus.publish({
     type: 'log',
@@ -156,20 +80,17 @@ const handleRateLimitOutcome = async ({
     meta: { attempt: attemptIdx + 1, maxAttempts, subCode: error.subCode },
     at: IsoTimestamp.now(),
   });
-  // Carry the interrupted session forward so the retry resumes it instead of cold-starting.
-  // Only when the provider captured an id — a 429 before any session id leaves nothing to
-  // resume, so the next attempt is necessarily cold.
+  // A 429 before any session id leaves nothing to resume, so the next attempt is cold.
   const nextSession = error.sessionId !== undefined ? withResume(session, error.sessionId) : session;
 
-  // Wait before retrying — gives a daily-quota throttle a chance to reset on a fresh window.
-  // Only between attempts, not after the last one. Abort short-circuits the sleep so a
-  // user-initiated cancel doesn't have to wait through a multi-hour backoff.
   if (attemptIdx >= maxAttempts - 1) {
     return { type: 'continue', session: nextSession };
   }
-  // Jitter disperses concurrent branches that computed the SAME base delay off a shared
-  // account-level limit, so they don't wake and re-collide in lockstep.
-  const delayMs = applyJitter(delayForRetry(attemptIdx + 1, schedule), random ?? Math.random);
+  // Jitter keeps parallel branches that hit one account-level limit from waking in lockstep.
+  const delayMs = applyJitter(
+    delayForRetry(attemptIdx + 1, backoffSchedule ?? DEFAULT_BACKOFF_SCHEDULE),
+    random ?? Math.random
+  );
   if (delayMs <= 0) {
     return { type: 'continue', session: nextSession };
   }
@@ -190,39 +111,19 @@ const handleRateLimitOutcome = async ({
     at: IsoTimestamp.now(),
   });
   await sleepCancellable(delayMs, nextSession.abortSignal);
-  // Clear once the wait completes (either elapsed or abort fired); the next attempt
-  // re-publishes if it also hits the rate-limit.
   eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
   if (nextSession.abortSignal?.aborted === true) {
-    // User cancel during the backoff sleep must surface as AbortError — the one error
-    // chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError is
-    // classified as a recoverable turn error and would wrongly self-block the task.
-    // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
-    return {
-      type: 'aborted',
-      error: new AbortError({
-        elementName: providerName,
-        reason: `${providerName}: aborted by caller during rate-limit backoff`,
-      }),
-    };
+    return { type: 'aborted', error: abortedByCaller(providerName, ' during rate-limit backoff') };
   }
   return { type: 'continue', session: nextSession };
 };
 
-/**
- * Stale-resume cold fallback predicate (FINDING 4 — shared, was codex-only). A `resume` spawn
- * that failed because the provider no longer has the session/thread would otherwise block the
- * task; the caller falls back to a COLD spawn (no resume) exactly once when this returns `true`.
- * An aborted run is exempt: a user cancel must tear the run down, not spawn fresh work a
- * competitor may now own.
- */
 const shouldColdRetry = (
   outcome: Extract<AttemptOutcome, { readonly kind: 'error' }>,
   session: AiSession,
-  resumeStaleRe: RegExp | undefined,
+  resumeStaleRe: RegExp,
   coldRetried: boolean
 ): boolean =>
-  resumeStaleRe !== undefined &&
   !coldRetried &&
   session.abortSignal?.aborted !== true &&
   session.resume !== undefined &&
@@ -241,58 +142,38 @@ const logColdRetry = (eventBus: EventBus, providerName: string, session: AiSessi
 export const runWithRateLimitRetry = async (
   opts: RunWithRateLimitRetryOptions
 ): Promise<Result<ProviderOutput, DomainError>> => {
-  const { eventBus, providerSlug, providerName, resumeStaleRe, attempt } = opts;
-  const schedule = opts.backoffSchedule ?? DEFAULT_BACKOFF_SCHEDULE;
-  // attempt 0 = first try; up to `rateLimitRetries` extra attempts after a rate-limit.
+  const { eventBus, providerName, resumeStaleRe, attempt } = opts;
   const maxAttempts = opts.rateLimitRetries + 1;
 
-  // Current session for this attempt — retries rebuild it with the captured resume id; the
-  // stale-resume cold fallback rebuilds it without one.
   let session = opts.session;
-  // Latch so the stale-resume cold fallback fires at most once per call.
   let coldRetried = false;
   let lastRateLimit: RateLimitError | undefined;
 
   for (let attemptIdx = 0; attemptIdx < maxAttempts; attemptIdx++) {
     const outcome = await attempt(session);
-    if (outcome.kind === 'success') {
-      return Result.ok(outcome.output) as Result<ProviderOutput, DomainError>;
-    }
+    if (outcome.kind === 'success') return Result.ok(outcome.output);
 
     if (outcome.kind === 'rate-limit') {
       lastRateLimit = outcome.error;
-      const result = await handleRateLimitOutcome({
-        eventBus,
-        providerSlug,
-        providerName,
-        session,
-        attemptIdx,
-        maxAttempts,
-        schedule,
-        error: outcome.error,
-        random: opts.random,
-      });
-      if (result.type === 'aborted') {
-        return Result.error(result.error) as Result<ProviderOutput, DomainError>;
-      }
+      const result = await handleRateLimitOutcome(opts, { session, attemptIdx, maxAttempts, error: outcome.error });
+      if (result.type === 'aborted') return Result.error(result.error);
       session = result.session;
       continue;
     }
 
-    // Re-running the SAME attempt index keeps the cold fallback from consuming a rate-limit
-    // slot; see `shouldColdRetry` for the full rationale.
     if (shouldColdRetry(outcome, session, resumeStaleRe, coldRetried)) {
       coldRetried = true;
       logColdRetry(eventBus, providerName, session);
       session = withoutResume(session);
+      // Re-run the SAME attempt index: the cold fallback must not consume a rate-limit slot.
       attemptIdx--;
       continue;
     }
 
-    return Result.error(outcome.error) as Result<ProviderOutput, DomainError>;
+    return Result.error(outcome.error);
   }
 
   return Result.error(
     lastRateLimit ?? new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limit retries exhausted' })
-  ) as Result<ProviderOutput, DomainError>;
+  );
 };

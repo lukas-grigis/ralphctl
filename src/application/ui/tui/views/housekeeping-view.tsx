@@ -21,7 +21,7 @@ import { glyphs, inkColors, LIST_CHROME_ROWS, listCapacity, spacing } from '@src
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useViewKeys } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
@@ -161,7 +161,7 @@ const CandidateList = ({
 
 const useHousekeepingModel = () => {
   const deps = useDeps();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { rows: termRows } = useBreakpoint();
   const mountedRef = useIsMounted();
 
@@ -242,7 +242,7 @@ const useHousekeepingModel = () => {
 export const HousekeepingView = (): React.JSX.Element => {
   const { state, rows, list, picked, totals, selected, confirming, setConfirming, note, purge } =
     useHousekeepingModel();
-  const ui = useUiState();
+  const ui = useOverlayState();
 
   const overlay = confirming ? (
     <ConfirmCard

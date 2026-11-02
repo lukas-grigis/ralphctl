@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, NoteSignal, ReproductionSignal } from '@src/domain/signal.ts';
+import type { NoteSignal, ReproductionSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { reproductionSignalSchema } from '@src/integration/ai/contract/_engine/signals/reproduction/schema.ts';
@@ -88,6 +88,3 @@ export const reproduceOutputContract: AiOutputContract<ReproduceSignal> = {
   migrations: {},
   exampleSignals: reproduceExampleSignals,
 };
-
-const _signalCheck: ReproduceSignal extends AiSignal ? true : false = true;
-void _signalCheck;

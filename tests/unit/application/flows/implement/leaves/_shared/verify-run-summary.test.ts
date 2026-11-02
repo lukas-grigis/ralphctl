@@ -4,14 +4,18 @@ import {
   formatRetryFeedback,
   lastSettledAttempt,
   runningAttempt,
-  VERIFY_TAIL_MAX_CHARS,
+  VERIFY_LOG_READ_MAX_BYTES,
+  VERIFY_OUTPUT_MAX_CHARS,
   verifyRunForPhase,
 } from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
-import { appendAttemptVerifyRun } from '@src/domain/entity/task-attempts.ts';
+import { appendAttemptVerifyRun, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { completeAttempt, type VerifyRun } from '@src/domain/entity/attempt.ts';
+import { markTaskBlocked, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { Result } from '@src/domain/result.ts';
-import { FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { composeVerifyBlocks } from '@src/application/flows/implement/leaves/generator.ts';
 
 const unwrap = <T, E>(r: Result<T, E>): T => {
   if (!r.ok) throw new Error(`unwrap failed: ${String(r.error)}`);
@@ -22,7 +26,7 @@ const unwrap = <T, E>(r: Result<T, E>): T => {
  * `verify-run-summary` formats the harness verify-script audit rows into the two prompt blocks the
  * generator leaf inlines (T4): `<pre_verify_results>` from the running attempt's pre-verify, and
  * `<retry_feedback>` from the prior attempt's FAILING post-verify. Both stay pure — the caller
- * fetches the log tail best-effort and passes it in.
+ * fetches the log best-effort and passes it in.
  */
 
 const preRun = (overrides: Partial<VerifyRun> = {}): VerifyRun => ({
@@ -109,25 +113,33 @@ describe('formatPreVerifyResults', () => {
     expect(out).toContain('FAILED (exit 2)');
   });
 
-  it('appends the log tail inside a fenced block when provided', () => {
+  it('appends the log inside a fenced block when provided', () => {
     const task = withRun(makeInProgressTaskWithRunningAttempt(), preRun());
     const out = formatPreVerifyResults(task, '  some log output  ');
-    expect(out).toContain('log tail:');
+    expect(out).toContain('log:');
     expect(out).toContain('```');
     expect(out).toContain('some log output');
   });
 
-  it('clamps an over-long log tail to the cap, keeping the END and marking the truncation', () => {
+  it('clamps an over-long log to its head and tail halves, marking how much of the middle was cut', () => {
     const task = withRun(makeInProgressTaskWithRunningAttempt(), preRun());
-    // HEAD sentinel must be dropped (it sits beyond the last-N window); TAIL sentinel must survive.
-    const longTail = `HEAD_SENTINEL${'z'.repeat(VERIFY_TAIL_MAX_CHARS)}TAIL_SENTINEL`;
-    const out = formatPreVerifyResults(task, longTail);
-    expect(out).toContain('…');
-    expect(out).toContain('TAIL_SENTINEL');
-    expect(out).not.toContain('HEAD_SENTINEL');
-    // The fenced tail body never exceeds the cap (+1 for the leading ellipsis marker).
-    const fenced = out.split('```')[1] ?? '';
-    expect(fenced.trim().length).toBeLessThanOrEqual(VERIFY_TAIL_MAX_CHARS + 1);
+    // The first compiler error sits at the head and the failing summary at the tail; the middle goes.
+    const pad = 'z'.repeat(VERIFY_OUTPUT_MAX_CHARS);
+    const log = `HEAD_SENTINEL${pad}MIDDLE_SENTINEL${pad}TAIL_SENTINEL`;
+    const fenced = (formatPreVerifyResults(task, log).split('```')[1] ?? '').trim();
+    const [head, marker, tail] = fenced.split('\n');
+    expect(head).toBe(log.slice(0, VERIFY_OUTPUT_MAX_CHARS / 2));
+    expect(tail).toBe(log.slice(-VERIFY_OUTPUT_MAX_CHARS / 2));
+    expect(marker).toBe(`…${String(log.length - VERIFY_OUTPUT_MAX_CHARS)} chars truncated…`);
+    expect(fenced).toContain('HEAD_SENTINEL');
+    expect(fenced).toContain('TAIL_SENTINEL');
+    expect(fenced).not.toContain('MIDDLE_SENTINEL');
+  });
+
+  it('inlines a log at the cap untouched', () => {
+    const task = withRun(makeInProgressTaskWithRunningAttempt(), preRun());
+    const log = 'y'.repeat(VERIFY_OUTPUT_MAX_CHARS);
+    expect(formatPreVerifyResults(task, log)).toContain(`\`\`\`\n${log}\n\`\`\``);
   });
 
   it('folds a skipped/synthetic row (empty command, no log) to empty string', () => {
@@ -138,7 +150,7 @@ describe('formatPreVerifyResults', () => {
     expect(formatPreVerifyResults(task, undefined)).toBe('');
   });
 
-  it('still renders a synthetic row when a log tail is present', () => {
+  it('still renders a synthetic row when a log is present', () => {
     const task = withRun(
       makeInProgressTaskWithRunningAttempt(),
       preRun({ command: '', outcome: 'success', durationMs: 0 })
@@ -167,5 +179,135 @@ describe('formatRetryFeedback', () => {
     expect(out).toContain('command: `pnpm verify`');
     expect(out).toContain('FAILED (exit 7)');
     expect(out).toContain('regression trace');
+  });
+});
+
+describe('composeVerifyBlocks', () => {
+  it('reads far more of the log than it inlines, so the clamped head is the head of the log', async () => {
+    const task = withRun(makeInProgressTaskWithRunningAttempt(), preRun({ exitCode: 2, outcome: 'failed' }));
+    const log = `FIRST_ERROR${'z'.repeat(10 * VERIFY_OUTPUT_MAX_CHARS)}LAST_LINE`;
+    const reads: Array<number | undefined> = [];
+    const reader = (_path: unknown, maxBytes?: number): Promise<string> => {
+      reads.push(maxBytes);
+      return Promise.resolve(log);
+    };
+    const { preVerifyOutput } = await composeVerifyBlocks(reader, absolutePath('/tmp/sprint'), task.id, task);
+    expect(reads).toEqual([VERIFY_LOG_READ_MAX_BYTES]);
+    expect(preVerifyOutput).toContain('FIRST_ERROR');
+    expect(preVerifyOutput).toContain('LAST_LINE');
+  });
+
+  describe('set-aside patch note in retry feedback', () => {
+    const SPRINT = absolutePath('/tmp/sprint');
+    /** Reader that only knows the given files; everything else is missing (`undefined`). */
+    const readerOf =
+      (files: Record<string, string>) =>
+      (path: unknown): Promise<string | undefined> =>
+        Promise.resolve(files[String(path)]);
+    const patchFor = (task: InProgressTask, n: number): string =>
+      `/tmp/sprint/logs/rejected-diff/${String(task.id)}/attempt-${String(n)}.patch`;
+
+    it('names the prior attempt patch, framed as optional and unverified, when the file exists', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain('FAILED (exit 1)');
+      // `implement/template.md` tells the generator how to read this note by this exact phrase.
+      expect(retryFeedback).toContain('set aside');
+      expect(retryFeedback).toContain(`\`git apply "${patchFor(task, 1)}"\``);
+      expect(retryFeedback).toContain('unverified lead');
+    });
+
+    it('stays true on later rounds: it dates the set-aside to the attempt start and claims nothing about the tree now', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain('At the start of this attempt');
+      expect(retryFeedback).toContain('If you have not applied it yet');
+      expect(retryFeedback).toContain('carry on from the current tree');
+      expect(retryFeedback).not.toContain('they are not in the working tree');
+      expect(retryFeedback).not.toContain('is back at the last commit');
+      expect(retryFeedback).not.toContain('start from the clean tree');
+    });
+
+    it('quotes the path inside the apply command, so a data root with spaces stays one argument', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const patch = `/tmp/my data/sprint/logs/rejected-diff/${String(task.id)}/attempt-1.patch`;
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patch]: 'diff' }),
+        absolutePath('/tmp/my data/sprint'),
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain(`\`git apply "${patch}"\``);
+    });
+
+    it('leaves the retry feedback byte-identical when no patch file exists', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(readerOf({}), SPRINT, task.id, task);
+      expect(retryFeedback).toBe(formatRetryFeedback(task, undefined));
+    });
+
+    it('ignores a patch file for a different attempt number', async () => {
+      const task = settleAndRetry(withRun(makeInProgressTaskWithRunningAttempt(), postRun()));
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 2)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).not.toContain('set aside');
+    });
+
+    it('adds no note when the prior post-verify was green, even if a stale patch exists', async () => {
+      const task = settleAndRetry(
+        withRun(makeInProgressTaskWithRunningAttempt(), postRun({ exitCode: 0, outcome: 'success' }))
+      );
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toBe('');
+    });
+
+    /** A red attempt 1 of the run an unblock revived, retried; the blocked run's one attempt is archived. */
+    const revivedThenRedRetry = (): InProgressTask => {
+      const failed = unwrap(failCurrentAttempt(makeInProgressTaskWithRunningAttempt(), FIXED_LATER, 'failed'));
+      const revived = unwrap(unblockTask(unwrap(markTaskBlocked(failed, 'stuck', 'own'))));
+      return settleAndRetry(withRun(unwrap(startNextAttempt(revived, FIXED_LATER, 'session-2')), postRun()));
+    };
+
+    it('offers no patch left over from a retired run, though unblocking restarted the attempt numbers', async () => {
+      const task = revivedThenRedRetry();
+      expect(lastSettledAttempt(task)?.n).toBe(1);
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 1)]: 'leftover from the retired run' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toBe(formatRetryFeedback(task, undefined));
+    });
+
+    it('offers the patch of the current run, numbered past the retired attempts', async () => {
+      const task = revivedThenRedRetry();
+      const { retryFeedback } = await composeVerifyBlocks(
+        readerOf({ [patchFor(task, 2)]: 'diff' }),
+        SPRINT,
+        task.id,
+        task
+      );
+      expect(retryFeedback).toContain(`\`git apply "${patchFor(task, 2)}"\``);
+    });
   });
 });

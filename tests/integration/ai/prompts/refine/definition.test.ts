@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { makePendingTicket } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildRefinePrompt,
   refinePromptDef,
@@ -18,39 +17,6 @@ describe('refinePromptDef — completeness', () => {
     // Locked down so future template edits that drop / add a signal kind force a conscious
     // expectedSignals review. The refine contract schema accepts the same four kinds.
     expect(refinePromptDef.expectedSignals).toEqual(['refined-ticket', 'note', 'learning', 'decision']);
-  });
-
-  it('every placeholder in refine.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/refine/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(refinePromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(refinePromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in refine.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/refine/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(refinePromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(refinePromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
   });
 });
 

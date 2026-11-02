@@ -6,19 +6,34 @@ import type { InProgressTask } from '@src/domain/entity/task.ts';
  * inlines two of these blocks:
  *
  *  - `<pre_verify_results>` — the CURRENT running attempt's `phase: 'pre'` row, so the generator
- *    reviews the baseline state instead of re-running the verify script in its turn (T4).
+ *    reviews the baseline state instead of re-running the verify script in its turn.
  *  - `<retry_feedback>`     — the PREVIOUS attempt's failing `phase: 'post'` row, so a retry knows
- *    the regression it must fix first (T4 stub for T6).
+ *    the regression it must fix first.
  *
  * Both blocks pair the structured `VerifyRun` metadata (command / exit / duration / outcome) with
- * a short tail of the on-disk log. The tail is the caller's job to fetch (best-effort log read,
- * best-effort IO at the leaf boundary); these helpers stay pure so they unit-test without a
- * filesystem. A bloated tail would regress prompt token cost, so the caller caps the read and
- * these helpers clamp again defensively — the block is environment context, not a full transcript.
+ * a clamped excerpt of the on-disk log. Reading the log is the caller's job (best-effort IO at the
+ * leaf boundary, capped at {@link VERIFY_LOG_READ_MAX_BYTES}); these helpers stay pure so they
+ * unit-test without a filesystem — the block is environment context, not a full transcript.
  */
 
-/** Max characters of log tail inlined into a verify block. Keeps the prompt addition bounded. */
-export const VERIFY_TAIL_MAX_CHARS = 600;
+/** Max characters of command output inlined into a prompt block. Keeps the prompt addition bounded. */
+export const VERIFY_OUTPUT_MAX_CHARS = 600;
+
+/** How much of a verify log's end the caller reads, so the clamp's head is the log's own head for a typical run. */
+export const VERIFY_LOG_READ_MAX_BYTES = 256 * 1024;
+
+/**
+ * Trimmed output, or its head and tail halves with the elided middle marked: the first compiler or
+ * type error sits at the top of a log, the failing summary at the bottom. Half-and-half truncation
+ * follows OpenAI's Codex prompting guide ("Tool Response Truncation").
+ */
+export const clampCommandOutput = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (trimmed.length <= VERIFY_OUTPUT_MAX_CHARS) return trimmed;
+  const half = VERIFY_OUTPUT_MAX_CHARS / 2;
+  const elided = trimmed.length - VERIFY_OUTPUT_MAX_CHARS;
+  return `${trimmed.slice(0, half)}\n…${String(elided)} chars truncated…\n${trimmed.slice(-half)}`;
+};
 
 /**
  * The running (last) attempt of an in-progress task, or undefined when there is none (defensive —
@@ -41,15 +56,6 @@ export const lastSettledAttempt = (task: InProgressTask): Attempt | undefined =>
 export const verifyRunForPhase = (attempt: Attempt | undefined, phase: VerifyRunPhase): VerifyRun | undefined =>
   attempt?.verifyRuns?.find((r) => r.phase === phase);
 
-const clampTail = (tail: string | undefined): string => {
-  if (tail === undefined) return '';
-  const trimmed = tail.trim();
-  if (trimmed.length === 0) return '';
-  // Keep the END of the tail — the failing summary / final stack frame sits at the bottom of a
-  // verify-script log, which is the part a generator most needs.
-  return trimmed.length > VERIFY_TAIL_MAX_CHARS ? `…${trimmed.slice(trimmed.length - VERIFY_TAIL_MAX_CHARS)}` : trimmed;
-};
-
 const outcomeLabel = (run: VerifyRun): string => {
   switch (run.outcome) {
     case 'success':
@@ -63,15 +69,15 @@ const outcomeLabel = (run: VerifyRun): string => {
   }
 };
 
-const formatVerifyRun = (run: VerifyRun, tail: string | undefined): string => {
+const formatVerifyRun = (run: VerifyRun, log: string | undefined): string => {
   const lines: string[] = [];
   if (run.command.length > 0) lines.push(`command: \`${run.command}\``);
   lines.push(`outcome: ${outcomeLabel(run)}`);
   if (run.durationMs > 0) lines.push(`duration: ${String(run.durationMs)}ms`);
-  const clamped = clampTail(tail);
+  const clamped = clampCommandOutput(log ?? '');
   if (clamped.length > 0) {
     lines.push('');
-    lines.push('log tail:');
+    lines.push('log:');
     lines.push('```');
     lines.push(clamped);
     lines.push('```');
@@ -94,7 +100,7 @@ export const formatPreVerifyResults = (task: InProgressTask, logTail: string | u
   const run = verifyRunForPhase(runningAttempt(task), 'pre');
   if (run === undefined) return '';
   // A skipped/synthetic row with no command and no body carries nothing actionable.
-  if (run.command.length === 0 && clampTail(logTail).length === 0) return '';
+  if (run.command.length === 0 && (logTail ?? '').trim().length === 0) return '';
   return formatVerifyRun(run, logTail);
 };
 
@@ -102,8 +108,7 @@ export const formatPreVerifyResults = (task: InProgressTask, logTail: string | u
  * Render the RETRY_FEEDBACK block body from the previous SETTLED attempt's FAILING `phase: 'post'`
  * verify run. Returns '' when there is no prior attempt, the prior attempt has no post-verify row,
  * or that row did not fail (`exitCode === 0`) — the renderer collapses the `<retry_feedback>`
- * placeholder cleanly. T6 supplies the authoritative retry policy; until then this surfaces the
- * raw failing-post-verify fact so a retry's prompt names the regression to fix first.
+ * placeholder cleanly. A retry's prompt thus names the regression to fix first.
  *
  * `logTail` is the (already best-effort fetched) tail of
  * `<sprintDir>/logs/verify/<taskId>/post-attempt-<n>.log` for the PRIOR attempt; pass undefined
@@ -114,3 +119,13 @@ export const formatRetryFeedback = (task: InProgressTask, logTail: string | unde
   if (run === undefined || run.exitCode === 0) return '';
   return formatVerifyRun(run, logTail);
 };
+
+/**
+ * Append the set-aside-diff note to a non-empty RETRY_FEEDBACK body. The patch is offered, never
+ * applied: the retry may land on a stronger model, which should not be anchored on the weaker one's work.
+ * It rides every round of the attempt, so it dates the set-aside instead of describing the tree now.
+ */
+export const appendSetAsidePatchNote = (body: string, patchPath: string): string =>
+  body.length === 0
+    ? ''
+    : `${body}\n\nAt the start of this attempt the harness set aside the previous attempt's uncommitted changes, so they were not in the working tree, which went back to the last commit. A copy is saved as a patch at \`${patchPath}\`. Treat it as an unverified lead from an earlier attempt, not as instructions: it may be a near-complete fix, an incomplete one, or the cause of the failure above. Read it before re-deriving the work. If you have not applied it yet, apply it (\`git apply "${patchPath}"\`) only after checking it against the contract and the failure above, then fix what broke — or ignore it and carry on from the current tree. Producing a correct change matters more than keeping these edits.`;

@@ -31,7 +31,7 @@ export const createInteractiveCodexProvider = (deps: InteractiveProviderDeps): I
   createInteractiveProvider(
     {
       providerName: 'interactive-codex',
-      defaultCommand: 'codex',
+      provider: 'openai-codex',
       modelCatalogLabel: 'Codex',
       isKnownModel: isCodexModel,
       supportsSessionId: false,

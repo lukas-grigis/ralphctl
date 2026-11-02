@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiSignal, DecisionSignal, IdeatedTicketsSignal, LearningSignal, NoteSignal } from '@src/domain/signal.ts';
+import type { DecisionSignal, IdeatedTicketsSignal, LearningSignal, NoteSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { ideatedTicketsSignalSchema } from '@src/integration/ai/contract/_engine/signals/ideated-tickets/schema.ts';
@@ -10,7 +10,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/legacy-array-migration.ts';
 
 /**
- * Per-leaf I/O contract for the ideate flow's interactive AI session — audit-[09]. The session
+ * Per-leaf I/O contract for the ideate flow's interactive AI session. The session
  * may emit:
  *
  *   - narrative fan-out: `learning`, `note`, `decision`
@@ -24,9 +24,8 @@ import { wrapLegacySignalArray } from '@src/integration/ai/contract/_engine/lega
  *
  * Migration chain:
  *
- *   `migrations[0]` accepts the legacy top-level-array shape today's leaves synthesise (until
- *   Wave 6 lands the prompt-side contract and the AI writes the canonical wrapper itself) and
- *   wraps it into the `{ schemaVersion, signals }` shape the validator expects.
+ *   `migrations[0]` wraps the legacy top-level-array shape (older forensic artifacts) into the
+ *   `{ schemaVersion, signals }` shape the validator expects.
  */
 
 type IdeateSignal = LearningSignal | NoteSignal | DecisionSignal | IdeatedTicketsSignal;
@@ -84,7 +83,7 @@ const ideateExampleSignals: readonly IdeateSignal[] = [
 ];
 
 /**
- * Ideate contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
+ * Ideate contract. Composed only from `contract/_engine/` building blocks.
  */
 export const ideateOutputContract: AiOutputContract<IdeateSignal> = {
   schemaVersion: 1,
@@ -95,6 +94,3 @@ export const ideateOutputContract: AiOutputContract<IdeateSignal> = {
   },
   exampleSignals: ideateExampleSignals,
 };
-
-const _signalCheck: IdeateSignal extends AiSignal ? true : false = true;
-void _signalCheck;

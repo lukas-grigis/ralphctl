@@ -57,7 +57,6 @@ describe('TaskBlock — RoundAttemptChip per-attempt round', () => {
       })
     );
     expect(r.lastFrame() ?? '').toContain('attempt 1/3 · resumed');
-    r.unmount();
   });
 
   it('folds the division heuristic on a 2nd attempt (round 4/3 → attempt 2/3 · round 1/3)', () => {
@@ -67,7 +66,6 @@ describe('TaskBlock — RoundAttemptChip per-attempt round', () => {
     expect(frame).toContain('attempt 2/3');
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('round 4/3');
-    r.unmount();
   });
 
   it('trusts live tracker coords over the division heuristic (the crashed-attempt-1 incident)', () => {
@@ -83,7 +81,6 @@ describe('TaskBlock — RoundAttemptChip per-attempt round', () => {
     expect(frame).toContain('round 1/3');
     expect(frame).not.toContain('attempt 1/3');
     expect(frame).not.toContain('round 2/3');
-    r.unmount();
   });
 
   it('falls back to a bare round when no per-attempt cap is known (cannot overshoot)', () => {
@@ -92,6 +89,5 @@ describe('TaskBlock — RoundAttemptChip per-attempt round', () => {
 
     expect(frame).toContain('round 3');
     expect(frame).not.toContain('round 3/');
-    r.unmount();
   });
 });

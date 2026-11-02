@@ -4,7 +4,6 @@ import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import {
   createImplementFlow,
-  IMPLEMENT_TASK_TERMINAL_LEAF,
   planImplementWaves,
   type CreateImplementFlowOpts,
 } from '@src/application/flows/implement/flow.ts';
@@ -161,7 +160,6 @@ const buildParallelElement = (
       locksRoot: implementDeps.locksRoot,
       eventBus: implementDeps.eventBus,
       maxConcurrency: maxParallel,
-      flowId: 'implement',
       sessionId,
       buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
     })
@@ -435,12 +433,11 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const evaluatorProviderId = implementPair.evaluator.provider;
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Implement — ${snapshot.sprint.name}`,
     taskNames,
     maxTurns: settings.harness.maxTurns,
     maxAttempts: settings.harness.maxAttempts,
-    terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
     generatorModel,
     evaluatorModel,

@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { PullRequestCreator, PullRequestCreatorInput } from '@src/business/scm/pull-request-creator.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -36,6 +34,7 @@ import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import type { AiSignalEvent } from '@src/business/observability/events.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { inMemoryExecutionRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const fakeSprintRepo = (sprint: Sprint): SprintRepository =>
   ({
@@ -44,26 +43,6 @@ const fakeSprintRepo = (sprint: Sprint): SprintRepository =>
       return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
     },
   }) as SprintRepository;
-
-const inMemoryExecutionRepo = (
-  initial: SprintExecution
-): { repo: SprintExecutionRepository; saves: SprintExecution[] } => {
-  let current = initial;
-  const saves: SprintExecution[] = [];
-  const repo: SprintExecutionRepository = {
-    async findById(id: SprintId) {
-      if (id !== current.sprintId)
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-      return Result.ok(current);
-    },
-    async save(exec: SprintExecution) {
-      current = exec;
-      saves.push(exec);
-      return Result.ok(undefined);
-    },
-  } as SprintExecutionRepository;
-  return { repo, saves };
-};
 
 const recordingPullRequestCreator = (
   url: string

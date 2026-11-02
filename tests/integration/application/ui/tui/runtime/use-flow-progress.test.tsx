@@ -49,7 +49,6 @@ describe('useFlowProgress', () => {
     live.version += 1;
     r.rerender(<Probe descriptor={descriptor} />);
     expect(r.lastFrame()).toContain('one:completed two:running');
-    r.unmount();
   });
 
   it('returns undefined without a plan tree', () => {
@@ -63,7 +62,6 @@ describe('useFlowProgress', () => {
     } as SessionDescriptor;
     const r = render(<Probe descriptor={descriptor} />);
     expect(r.lastFrame()).toBe('');
-    r.unmount();
   });
 
   it("reads the verdicts of the descriptor's own run", () => {
@@ -118,6 +116,5 @@ describe('useFlowProgress', () => {
     };
     const r = render(<VerdictProbe />);
     expect(r.lastFrame()).toContain('Round#1:passed');
-    r.unmount();
   });
 });

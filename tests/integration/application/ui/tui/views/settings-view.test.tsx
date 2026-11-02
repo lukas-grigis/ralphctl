@@ -116,7 +116,6 @@ describe('SettingsView', () => {
     }
     // The active (initial) section is Presets; its card title renders below the strip.
     expect(frame).toContain('Apply: Mixed');
-    result.unmount();
   });
 
   it('shows an animated Spinner (not static text) while settings are loading', () => {
@@ -127,7 +126,6 @@ describe('SettingsView', () => {
     expect(frame).toContain('Loading…');
     // The braille spinner's first frame glyph; its presence proves <Spinner> mounted.
     expect(frame).toContain('⠋');
-    result.unmount();
   });
 
   it('shows the storage paths card when the storage section is active', async () => {
@@ -137,7 +135,6 @@ describe('SettingsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Storage paths');
     expect(frame).toContain('App root');
-    result.unmount();
   });
 
   it('exposes ←/→ section, ↑/↓ move, ↵/e edit hints', async () => {
@@ -147,7 +144,6 @@ describe('SettingsView', () => {
     expect(frame).toContain('section');
     expect(frame).toContain('move');
     expect(frame).toContain('edit');
-    result.unmount();
   });
 
   it('renders Implement as a parent card with indented generator and evaluator sub-rows', async () => {
@@ -162,7 +158,6 @@ describe('SettingsView', () => {
     expect(frame).not.toContain('AI — Implement (evaluator)');
     expect(frame).toContain('generator');
     expect(frame).toContain('evaluator');
-    result.unmount();
   });
 
   it('persisting one role leaves the other role untouched on subsequent loads', async () => {
@@ -226,7 +221,6 @@ describe('SettingsView', () => {
       // the next section — Readiness fields (e.g. `AI — Readiness`) must NOT be on screen.
       expect(frame).not.toContain('AI — Readiness');
       expect(frame).not.toContain('AI — Plan');
-      result.unmount();
     });
 
     it('caps ↑ at the first row inside a section', async () => {
@@ -246,7 +240,6 @@ describe('SettingsView', () => {
       // Only Harness fields are visible — the previous section (Ideate) must not bleed in.
       expect(frame).toContain('Max turns');
       expect(frame).not.toContain('AI — Ideate');
-      result.unmount();
     });
   });
 
@@ -270,7 +263,6 @@ describe('SettingsView', () => {
       // Every Claude catalog model must be selectable; no "+ custom" affordance lingers.
       expect(frame).toContain('claude-sonnet-4-6');
       expect(frame).not.toContain('+ custom');
-      result.unmount();
     });
   });
 
@@ -293,7 +285,6 @@ describe('SettingsView', () => {
     await goToSection(result.stdin, 'refine');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain(offCatalogModel);
-    result.unmount();
   });
 
   describe('provider availability gate', () => {

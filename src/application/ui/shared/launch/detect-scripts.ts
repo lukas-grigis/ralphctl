@@ -1,5 +1,5 @@
 import type { Element } from '@src/application/chain/element.ts';
-import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/flow.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
@@ -22,11 +22,9 @@ export const launchDetectScripts = async (ctx: LaunchContext): Promise<LaunchRes
       runsRoot: deps.storage.runsRoot,
     },
     {
-      projectId: snapshot.project.id,
       // Reuse the readiness row — both flows are read-only inventory round-trips.
       model: settings.ai.readiness.model,
       ...(effort !== undefined ? { effort } : {}),
-      ...(extras.repositoryId !== undefined ? { repositoryId: extras.repositoryId } : {}),
     }
   );
   const runner = createRunner<DetectScriptsCtx>({
@@ -39,7 +37,7 @@ export const launchDetectScripts = async (ctx: LaunchContext): Promise<LaunchRes
   });
   return {
     ok: true,
-    runner: bridge(runner) as Runner<unknown>,
+    runner: bridge(runner),
     title: `Detect scripts — ${snapshot.project.displayName}`,
   };
 };

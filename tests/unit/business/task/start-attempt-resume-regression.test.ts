@@ -57,9 +57,8 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const next = result.value;
+    const resultValue = result.getOrThrow();
+    const next = resultValue;
 
     expect(next.status).toBe('in_progress');
     expect(next.attempts).toHaveLength(priorAttemptCount + 1);
@@ -112,9 +111,8 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const next = result.value;
+    const value = result.getOrThrow();
+    const next = value;
 
     // Status repaired to `in_progress`; leftover attempt settled `aborted`; a fresh `running`
     // attempt appended — exactly the in_progress crash-resume outcome.
@@ -173,11 +171,10 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.status).toBe('in_progress');
-    expect(result.value.attempts.map((a) => a.status)).toEqual(['aborted', 'running']);
-    expect(budgetedAttemptCount(result.value)).toBe(1);
+    const resultValue = result.getOrThrow();
+    expect(resultValue.status).toBe('in_progress');
+    expect(resultValue.attempts.map((a) => a.status)).toEqual(['aborted', 'running']);
+    expect(budgetedAttemptCount(resultValue)).toBe(1);
     expect(writes).toHaveLength(1);
   });
 
@@ -211,9 +208,8 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const next = result.value;
+    const value = result.getOrThrow();
+    const next = value;
 
     expect(next.status).toBe('in_progress');
     expect(next.attempts).toHaveLength(1);

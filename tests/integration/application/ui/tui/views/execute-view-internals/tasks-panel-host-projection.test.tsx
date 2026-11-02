@@ -76,7 +76,6 @@ describe('TasksPanelHost — task projection chips', () => {
     expect(line).toContain('1×');
     expect(line).toContain('abc1234');
     expect(line).not.toContain('abc1234d');
-    r.unmount();
   });
 
   it('scales the median attempt time to the rounds left in the cap', async () => {
@@ -85,6 +84,5 @@ describe('TasksPanelHost — task projection chips', () => {
     await waitForPredicate(() => (r.lastFrame() ?? '').includes('Projected task'));
 
     expect(r.lastFrame() ?? '').toMatch(/~36m\s+00s remaining/);
-    r.unmount();
   });
 });

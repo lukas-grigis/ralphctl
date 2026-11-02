@@ -99,9 +99,7 @@ describe('createFsSprintRepository', () => {
   it('list returns chronological order via UUIDv7 lex sort', async () => {
     const repo = createFsSprintRepository({ root });
     const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
-    await new Promise((r) => setTimeout(r, 5)); // ensure UUIDv7 timestamps differ
     const b = makeDraftSprintBundle({ slug: 'b' }).sprint;
-    await new Promise((r) => setTimeout(r, 5));
     const c = makeDraftSprintBundle({ slug: 'c' }).sprint;
     await repo.save(c);
     await repo.save(a);
@@ -354,29 +352,10 @@ describe('createFsSprintRepository', () => {
     await expect(fs.stat(legacyDir)).rejects.toThrow();
   });
 
-  it('list dedupes by id when a legacy <id>/ and slugged <id>--<slug>/ transiently coexist', async () => {
-    const repo = createFsSprintRepository({ root });
-    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
-    // Write BOTH a slugged (canonical) dir and a legacy bare dir for the SAME id — a crash-left pair.
-    const slugged = sprintDir(root, sprint.id, sprint.slug);
-    await fs.mkdir(slugged, { recursive: true });
-    await fs.writeFile(join(slugged, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
-    const legacyDir = join(sprintsDir(root), String(sprint.id));
-    await fs.mkdir(legacyDir, { recursive: true });
-    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
-
-    const all = await repo.list();
-    if (!all.ok) throw new Error('list failed');
-    // The sprint appears EXACTLY once, not twice.
-    expect(all.value.filter((s) => s.id === sprint.id)).toHaveLength(1);
-  });
-
   it('reads sprint.json files concurrently while preserving id-asc list order and NotFound tolerance', async () => {
     const repo = createFsSprintRepository({ root });
     const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
-    await new Promise((r) => setTimeout(r, 5)); // ensure UUIDv7 timestamps differ
     const b = makeDraftSprintBundle({ slug: 'b' }).sprint;
-    await new Promise((r) => setTimeout(r, 5));
     const c = makeDraftSprintBundle({ slug: 'c' }).sprint;
     await repo.save(a);
     await repo.save(b);
@@ -417,7 +396,6 @@ describe('createFsSprintRepository', () => {
   it('list parses the id from the leading --segment of a mixed (legacy + slugged) dir set', async () => {
     const repo = createFsSprintRepository({ root });
     const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
-    await new Promise((r) => setTimeout(r, 5));
     const b = makeDraftSprintBundle({ slug: 'b' }).sprint;
     // a → new slugged dir (via save); b → legacy bare dir (hand-written).
     await repo.save(a);

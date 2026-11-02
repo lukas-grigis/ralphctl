@@ -42,21 +42,7 @@
  * `claude-haiku-5-5` (Claude Code >= 2.1.293) succeeds Haiku 4.5: $0.10/$0.50 per MTok ($0.50/$2.50
  * for prompts over 100K tokens), natively 1M, all five effort levels, CLI default `medium`. `claude-haiku-4-5` (no effort dimension) stays for pinned configs.
  */
-export type ClaudeModel =
-  | 'claude-haiku-4-5'
-  | 'claude-haiku-5-5'
-  | 'claude-sonnet-4-6'
-  | 'claude-sonnet-5'
-  | 'claude-sonnet-5-5'
-  | 'claude-opus-4-8'
-  | 'claude-opus-4-8[1m]'
-  | 'claude-opus-5'
-  | 'claude-opus-5-5'
-  | 'claude-fable-5'
-  | 'claude-fable-5[1m]'
-  | 'claude-fable-5-1';
-
-export const CLAUDE_MODELS: readonly ClaudeModel[] = [
+export const CLAUDE_MODELS = [
   'claude-haiku-4-5',
   'claude-haiku-5-5',
   'claude-sonnet-4-6',
@@ -70,6 +56,8 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   'claude-fable-5[1m]',
   'claude-fable-5-1',
 ] as const;
+
+export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
 
 export const isClaudeModel = (s: string): s is ClaudeModel => (CLAUDE_MODELS as readonly string[]).includes(s);
 

@@ -26,6 +26,11 @@ leaves an effort-capable provider on its CLI's built-in default, which moves bet
 models ran at `high`). The only
 path that still reaches the CLI default is an opencode row with no row or global effort. Readiness,
 distill, the implement roles, create-pr and review all resolve through the same function.
+Claude Code ranks the `CLAUDE_CODE_EFFORT_LEVEL` env var above `--effort`, so the headless Claude adapter sets
+it to the resolved level on every spawn that carries one — an operator's exported value would otherwise silently
+override every row, preset and escalation rung. With no resolved effort the inherited value is left alone. The
+interactive adapter passes only `--effort`: the env var also outranks an in-session `/effort` or `/model` pick,
+so pinning it would lock the operator out of changing effort mid-session.
 **Per-model narrowing:** every layer is then clamped to the row's MODEL when the catalog knows its effort
 list — `CLAUDE_MODEL_EFFORT_LEVELS` (`settings-models/claude.ts`: `claude-haiku-4-5` has no effort,
 `claude-sonnet-4-6` no `xhigh`), `COPILOT_MODEL_EFFORT_LEVELS` (`settings-models/copilot.ts`, from the Copilot SDK's `listModels()`),
@@ -49,7 +54,7 @@ rows migrate to `low` at parse time. OpenCode accepts `minimal | low | medium | 
 model — OpenCode aggregates other vendors, and the accepted `--variant` levels belong to whichever vendor
 sits behind the `provider/model` id. Two deliberate carve-outs follow from that: the shipped per-flow
 default is NOT stamped on an opencode row (`resolve-effort.ts`), matching
-`EFFORT_CAPABLE_PROVIDERS` in `escalation-map.ts`, because a level the upstream model never supported
+its absence from `FIXED_EFFORT_RUNG` in `escalation-map.ts`, because a level the upstream model never supported
 would turn a working spawn into a hard failure; and `--variant` exists only on the `run` subcommand, so
 the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. This headless/interactive
 asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
@@ -65,7 +70,7 @@ loading old files only: `settings set` refuses any row effort outside the provid
 model id, naming its successor) rather than letting the save rewrite it. A Grok rejection
 (`Couldn't apply reasoning effort` / `unknown effort level`) classifies as the same `ProviderConfigRejection`
 as Copilot's and Codex's. `grok-4.7-build-fast` has no published effort
-data and passes through. Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
+data and passes through. Grok has a `FIXED_EFFORT_RUNG` entry. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs one
 tier above its EFFECTIVE effort — the explicit level, or, only when genuinely unset, the model's own

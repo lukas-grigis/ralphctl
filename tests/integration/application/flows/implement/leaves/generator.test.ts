@@ -39,6 +39,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 
 describe('generatorLeaf', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
@@ -93,6 +94,23 @@ describe('generatorLeaf', () => {
     expect(content).toContain(task.name);
     // Marker line from the implement template — proves a fully-rendered prompt is on disk.
     expect(content).toContain('# Task Execution Protocol');
+  });
+
+  it('spawns full-auto with cwd at the repo, mounting the sandbox then the sprint dir', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const deps = buildDeps();
+    const controller = new AbortController();
+    const result = await generatorLeaf(deps, task.id).execute(baseCtx(task), controller.signal);
+    expect(result.ok).toBe(true);
+
+    const session = deps.provider.recordedSessions[0];
+    expect(session?.cwd).toBe(deps.cwd);
+    expect(session?.additionalRoots).toEqual([root.root, deps.sprintDir]);
+    expect(session?.permissions).toBe(FULL_AUTO);
+    expect(session?.role).toBe('generator');
+    expect(String(session?.outputDir)).toBe(join(String(root.root), 'rounds', '1', 'generator'));
+    expect(String(session?.bodyFile)).toBe(join(String(root.root), 'rounds', '1', 'generator', 'body.txt'));
+    expect(session?.abortSignal).toBe(controller.signal);
   });
 
   it('folds the spawn`s reported usage onto the per-attempt cost accumulators (settle reads these)', async () => {
@@ -829,7 +847,7 @@ describe('generatorLeaf', () => {
     });
   });
 
-  // Select-K prior-attempt summaries (arXiv 2604.16529) — the current task's own settled attempt
+  // Select-K prior-attempt summaries (arXiv 2604.16529, PDR half) — the current task's own settled attempt
   // history, distinct from `priorLearnings` (cross-sprint) and `priorEpisodes` (sibling tasks).
   // Unlike those two, this section is round-relevant context, so it rides BOTH the full prompt
   // (round 1) and the continuation prompt (round 2+) — see `buildGeneratorPrompt`'s `sharedValues`.

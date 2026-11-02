@@ -21,6 +21,8 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 export interface SpawnScript {
   /** utf-8 chunks emitted on stdout, in order, one macrotask after construction. */
   readonly stdoutChunks?: readonly string[];
+  /** utf-8 chunks emitted on stdout between `exit` and `close` — a real child's late pipe data. */
+  readonly stdoutAfterExit?: readonly string[];
   /** utf-8 chunks emitted on stderr, after the stdout chunks. */
   readonly stderrChunks?: readonly string[];
   /** Exit code reported on `exit` / `close`. Defaults to `0`. */
@@ -109,13 +111,16 @@ export const createScriptedChild = (
   let resolved: SpawnScript | undefined;
   let exited = false;
 
-  const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
+  const finish = (code: number | null, signal: NodeJS.Signals | null, lateStdout: readonly string[] = []): void => {
     if (exited) return;
     exited = true;
     child.emit('exit', code, signal);
     // Real children flush their streams between `exit` and `close`; the engine reaps on one and
     // settles on the other, so both have to fire and in that order.
-    setTimeout(() => child.emit('close', code, signal), 0);
+    setTimeout(() => {
+      for (const chunk of lateStdout) stdout.emit('data', chunk);
+      child.emit('close', code, signal);
+    }, 0);
   };
 
   Object.assign(child, {
@@ -138,8 +143,8 @@ export const createScriptedChild = (
     for (const chunk of resolved.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of resolved.stderrChunks ?? []) stderr.emit('data', chunk);
     if (resolved.hang === true) return;
-    const { exitCode = 0, exitSignal = null, exitDelayMs = 0 } = resolved;
-    setTimeout(() => finish(exitCode, exitSignal), exitDelayMs);
+    const { exitCode = 0, exitSignal = null, exitDelayMs = 0, stdoutAfterExit } = resolved;
+    setTimeout(() => finish(exitCode, exitSignal, stdoutAfterExit), exitDelayMs);
   }, 0);
 
   return child as unknown as ChildProcessWithoutNullStreams;

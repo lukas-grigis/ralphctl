@@ -191,6 +191,13 @@ describe.each(ROWS)('InteractiveAiProvider conformance — $provider', (row) => 
     expect(Object.values(call.env ?? {}).join('\x00')).not.toContain('SENTINEL-BODY-');
   });
 
+  it('spawns the PROVIDER_TRAITS binary — the one the launch pre-flight probes', async () => {
+    const { fake, runPromise } = await runSession();
+    fake.emitExit(0);
+    await runPromise;
+    expect(fake.calls[0]!.command).toBe(PROVIDER_TRAITS[row.provider].binary);
+  });
+
   it('grants every root the engine folded — cwd, additionalRoots, and the prompt / output dir', async () => {
     const { fake, runPromise } = await runSession();
     fake.emitExit(0);

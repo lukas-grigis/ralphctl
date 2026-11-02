@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { UiStateProvider, useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -33,7 +33,7 @@ const publishBanner = (bus: Bus): void => {
 
 /** Holds a `claimPrompt()` token for as long as it is mounted — exactly what PromptHost does. */
 const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => {
-  const ui = useUiState();
+  const ui = useOverlayState();
   useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
   return <TextPrompt message="name" onSubmit={onSubmit} onCancel={() => undefined} />;
 };
@@ -59,7 +59,7 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
   it('keeps the banner and delivers the character when a claimed prompt is up', async () => {
     const bus = createInMemoryEventBus();
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(<Harness bus={bus} withPrompt onSubmit={onSubmit} />);
+    const { stdin, lastFrame } = render(<Harness bus={bus} withPrompt onSubmit={onSubmit} />);
     await tick(50); // let the claim effect commit
 
     publishBanner(bus);
@@ -77,12 +77,11 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
 
     expect(onSubmit).toHaveBeenCalledWith('draft');
     expect(lastFrame() ?? '').toContain(BANNER_TEXT);
-    unmount();
   });
 
   it('still dismisses on `d` when nothing has claimed the keyboard', async () => {
     const bus = createInMemoryEventBus();
-    const { stdin, lastFrame, unmount } = render(<Harness bus={bus} withPrompt={false} onSubmit={() => undefined} />);
+    const { stdin, lastFrame } = render(<Harness bus={bus} withPrompt={false} onSubmit={() => undefined} />);
 
     publishBanner(bus);
     await waitForPredicate(() => (lastFrame() ?? '').includes(BANNER_TEXT));
@@ -91,6 +90,5 @@ describe('StatusBanner — `d` stands down while a prompt owns the keyboard', ()
     await waitForPredicate(() => !(lastFrame() ?? '').includes(BANNER_TEXT));
 
     expect(lastFrame() ?? '').not.toContain(BANNER_TEXT);
-    unmount();
   });
 });

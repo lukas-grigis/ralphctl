@@ -19,7 +19,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 const BANNER_LINE_MAX = 200;
 /** Number of recent non-blank lines kept on the bus when a setup-script fails. */
 const MAX_TAIL_LINES = 20;
-/** Display-clip marker (audit-[03]). Mirrors `glyphs.clipEllipsis` in TUI tokens — duplicated
+/** Display-clip marker. Mirrors `glyphs.clipEllipsis` in TUI tokens — duplicated
  *  here because the chains layer cannot import from UI (ESLint fence). One char, U+2026. */
 const CLIP_ELLIPSIS = '…';
 /** Event-bus event type for dismissible TUI banners. Named constant so the string literal
@@ -57,7 +57,7 @@ const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(pa
 /**
  * Builds the failure error for a setup script that spawned but exited non-zero: detects the
  * pnpm-no-TTY marker for a targeted hint, surfaces the last few output lines as error-level
- * logs (audit-[03]: clip at display, never at persistence), and shows the failed-gate banner.
+ * logs (clip at display, never at persistence), and shows the failed-gate banner.
  * Returns the `InvalidStateError` for the caller to wrap in `Result.error`.
  */
 export const buildSetupFailureError = (
@@ -115,7 +115,7 @@ export const buildSetupFailureError = (
  * Surface the last few lines of script output as error-level logs so the TUI's Recent-log tail
  * renders the actionable bit alongside the headline. The full output already landed verbatim at
  * `<sprintDir>/logs/setup/<repo-id>.log`; these bus events are a *display* surface, so per-line +
- * per-count clipping is valid here (audit-[03]: clip at display, never at persistence).
+ * per-count clipping is valid here (clip at display, never at persistence).
  *
  * Clip unit: JS string `.length` (UTF-16 code units) at the per-line cap. ralphctl's setup output
  * is shell stdout — overwhelmingly ASCII (paths, exit codes, npm/pnpm diagnostic strings);

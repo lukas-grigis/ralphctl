@@ -11,29 +11,10 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { type Element, flattenLeaves } from '@src/application/chain/element.ts';
-import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { buildAttemptBody } from '@src/application/flows/implement/leaves/attempt-body.ts';
-import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
-import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
-import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
-import { resolveLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
-import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
-import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
-import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
-import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { createPerTaskSubchain } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
-import { type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
-import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
-import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
-import {
-  buildPreflightLeaves,
-  setupRepoEntriesForTasks,
-  uniqueRepoCwdsForTasks,
-} from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
-import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
-import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
@@ -42,7 +23,6 @@ import {
   buildParallelImplementEpilogue,
   type CreateImplementFlowOpts,
   createImplementFlow,
-  IMPLEMENT_TASK_TERMINAL_LEAF,
   planImplementWaves,
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
@@ -61,9 +41,8 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 /**
  * A serialisable snapshot of an element tree: name + optional label + recursively-snapshotted
  * children. Walking `Element.children` (never executing) is exactly what the TUI does to render the
- * upfront plan, so this captures the OBSERVABLE chain shape — the thing the serial-shape fence must
- * keep byte-for-byte stable through the prologue/epilogue extraction. Names, labels, child count,
- * and nesting are all compared.
+ * upfront plan, so this captures the OBSERVABLE chain shape. Names, labels, child count, and nesting
+ * are all compared.
  */
 interface ShapeNode {
   readonly name: string;
@@ -136,136 +115,63 @@ const makeOpts = (
 };
 
 /**
- * The pre-refactor serial chain shape, reconstructed inline from the exact same leaf factories the flow
- * used to call directly (a flat `implement-locked` list wrapped in `with-repo-lock`). The central
- * safety claim is that the prologue/epilogue extraction did NOT change this shape; asserting the
- * live `createImplementFlow` equals this independent reconstruction proves it byte-for-byte without
- * coupling the test to every leaf's exact name string. If a future edit drifts the serial structure,
- * this reference and the live flow diverge and the assertion fails.
- *
- * This mirrors `flow.ts` as it stood before the refactor: prologue leaves inline, then `implement-tasks`,
- * then epilogue leaves inline — no `implement-prologue` / `implement-epilogue` wrappers.
+ * Every executed leaf as `name [label]`, task ids replaced by `<task name>` so the list is stable.
+ * This is the serial run order the TUI rail and chain.log show.
  */
-const reconstructPreRefactorSerialFlow = (
-  deps: ImplementDeps,
-  opts: CreateImplementFlowOpts
-): Element<ImplementCtx> => {
-  const readConfig = (): Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-  }> =>
-    Promise.resolve({
-      maxTurns: deps.config.harness.maxTurns,
-      escalateOnPlateau: deps.config.harness.escalateOnPlateau,
-      escalationMap: deps.config.harness.escalationMap,
-      maxAttempts: deps.config.harness.maxAttempts,
-    });
+const leafLines = (flow: Element<ImplementCtx>, tasks: readonly Task[]): readonly string[] =>
+  flattenLeaves(flow).map((l) => {
+    const name = tasks.reduce((n, t) => n.replaceAll(String(t.id), `<${t.name}>`), l.name);
+    return l.label !== undefined ? `${name} [${l.label}]` : name;
+  });
 
-  const uniqueRepoCwds = uniqueRepoCwdsForTasks(opts.repositories, opts.todoTasks);
-  const setupRepoEntries = setupRepoEntriesForTasks(opts.repositories, opts.todoTasks);
+const PROLOGUE_LEAVES = [
+  'load-sprint [Read sprint]',
+  'assert-sprint-status [Check sprint status]',
+  'activate-sprint [Activate sprint]',
+  'load-sprint-execution [Load execution]',
+  'load-tasks [Load tasks]',
+  'load-learnings [Load learnings]',
+  'resolve-branch [Resolve branch]',
+  'preflight-task-1-/repos/main [Check working tree · main]',
+  'progress-journal-activate [Update journal]',
+  'setup-script-runner [Setup script · main]',
+];
 
-  const perTaskChains = opts.todoTasks.map((task) =>
-    createPerTaskSubchain(
-      deps,
-      {
-        sprintDir: opts.sprintDir,
-        progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
-        generator: {
-          providerId: opts.generatorProviderId,
-          model: opts.generatorModel,
-          ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
-        },
-        evaluator: {
-          providerId: opts.evaluatorProviderId,
-          model: opts.evaluatorModel,
-          ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
-        },
-        memoryRoot: opts.memoryRoot,
-        projectId: opts.projectId,
-        projectSlug: opts.projectSlug,
-      },
-      task,
-      resolveRepoOrThrow(opts.repositories, task),
-      readConfig
-    )
-  );
+const taskLeaves = (taskName: string): readonly string[] =>
+  [
+    'dependency-gate-<task> [Check dependencies]',
+    'resume-budget-gate-<task> [Check attempt budget]',
+    'branch-preflight-<task> [Check branch]',
+    'build-task-workspace-<task> [Build workspace]',
+    'install-skills-<task> [Install skills]',
+    'reset-reproduction-<task> [Reset reproduction]',
+    'reproduce-<task> [Reproduce defect]',
+    'start-attempt-<task> [Start attempt]',
+    'pre-task-verify-<task> [Verify baseline]',
+    'restore-blocked-diff-<task> [Restore diff]',
+    'resolve-round-num-<task> [Number round]',
+    'stamp-meta-generator-<task> [Record session]',
+    'stamp-role-meta-generator-<task> [Record role]',
+    'generator-<task> [Generate]',
+    'stamp-meta-evaluator-<task> [Record session]',
+    'stamp-role-meta-evaluator-<task> [Record role]',
+    'evaluator-<task> [Evaluate]',
+    'finalize-gen-eval-<task> [Settle rounds]',
+    'post-task-verify-<task> [Verify]',
+    'commit-task-<task> [Commit]',
+    'quarantine-retry-diff-<task> [Stash retry diff]',
+    'settle-attempt-<task> [Settle attempt]',
+    'append-learnings-<task> [Save learnings]',
+    'progress-journal-<task> [Update journal]',
+    'quarantine-blocked-diff-<task> [Stash blocked diff]',
+    'uninstall-skills-<task> [Remove skills]',
+  ].map((l) => l.replace('<task>', `<${taskName}>`));
 
-  const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
-  const preflightLeaves = buildPreflightLeaves(
-    { gitRunner: deps.gitRunner, interactive: deps.interactive, clock: deps.clock, logger: deps.logger },
-    uniqueRepoCwds,
-    dirtyTreePolicy
-  );
-  const inner = sequential<ImplementCtx>('implement-locked', [
-    loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),
-    activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
-    loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
-    loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    loadLearningsLeaf<ImplementCtx>(
-      { logger: deps.logger },
-      {
-        path: async () => {
-          const resolved = await resolveLearningsLedgerPath(opts.memoryRoot, opts.projectId);
-          if (!resolved.ok) throw resolved.error;
-          return resolved.value;
-        },
-        output: (ctx, candidates) => ({ ...ctx, priorLearnings: candidates }),
-      }
-    ),
-    resolveBranchLeaf(
-      {
-        gitRunner: deps.gitRunner,
-        sprintExecutionRepo: deps.sprintExecutionRepo,
-        interactive: deps.interactive,
-        logger: deps.logger,
-      },
-      { cwds: uniqueRepoCwds }
-    ),
-    sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
-    appendJournalSeparatorLeaf<ImplementCtx>(
-      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
-      { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
-    ),
-    setupScriptRunnerLeaf(
-      {
-        shellScriptRunner: deps.shellScriptRunner,
-        clock: deps.clock,
-        eventBus: deps.eventBus,
-        sprintExecutionRepo: deps.sprintExecutionRepo,
-        logger: deps.logger,
-      },
-      { repos: setupRepoEntries, sprintDir: opts.sprintDir }
-    ),
-    sequential<ImplementCtx>('implement-tasks', perTaskChains),
-    saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    guard<ImplementCtx>(
-      'transition-sprint-to-review-when-settled',
-      (ctx) => {
-        const tasks = ctx.tasks ?? [];
-        const someDone = tasks.some((t) => t.status === 'done');
-        const noneRunnable = !tasks.some((t) => t.status === 'todo' || t.status === 'in_progress');
-        return someDone && noneRunnable;
-      },
-      sequential<ImplementCtx>('transition-to-review-and-journal', [
-        transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
-        appendJournalSeparatorLeaf<ImplementCtx>(
-          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
-          { progressFile: opts.progressFile, status: 'review', name: 'progress-journal-review' }
-        ),
-      ])
-    ),
-  ]);
-
-  return sequential<ImplementCtx>('implement', [
-    withRepoLock(
-      { fileLocker: deps.fileLocker, locksRoot: deps.locksRoot, worktreePath: opts.sprintDir, eventBus: deps.eventBus },
-      inner
-    ),
-  ]);
-};
+const EPILOGUE_LEAVES = [
+  'save-tasks [Save tasks]',
+  'transition-sprint-to-review [Move sprint to review]',
+  'progress-journal-review [Update journal]',
+];
 
 /** The `implement-locked` body under `implement → with-repo-lock(…)`. */
 const lockedBody = (flow: Element<ImplementCtx>): Element<ImplementCtx> => {
@@ -292,37 +198,44 @@ const traceNames = async (element: Element<ImplementCtx>): Promise<readonly stri
 };
 
 describe('createImplementFlow — serial chain shape (leaf-order fence)', () => {
-  it('runs exactly the pre-refactor leaves, in order, with the same labels (the central safety claim)', () => {
-    const task = makeTodoTask({ name: 'do-work' });
-    const opts = makeOpts([task]);
+  it('runs the prologue, the task subchain and the epilogue leaves in order, with their labels', () => {
+    const task = makeTodoTask({ name: 't1' });
+    const flow = createImplementFlow(stubDeps(), makeOpts([task]));
 
-    const live = flattenLeaves(createImplementFlow(stubDeps(), opts)).map((l) => snapshot(l));
-    const reference = flattenLeaves(reconstructPreRefactorSerialFlow(stubDeps(), opts)).map((l) => snapshot(l));
-
-    expect(live).toStrictEqual(reference);
+    expect(leafLines(flow, [task])).toStrictEqual([...PROLOGUE_LEAVES, ...taskLeaves('t1'), ...EPILOGUE_LEAVES]);
   });
 
-  it('runs exactly the pre-refactor leaves for a multi-task sprint', () => {
+  it('runs one task subchain per todo task, in order, between the prologue and the epilogue', () => {
     const t1 = makeTodoTask({ name: 't1', order: 1 });
     const t2 = makeTodoTask({ name: 't2', order: 2 });
-    const opts = makeOpts([t1, t2]);
+    const flow = createImplementFlow(stubDeps(), makeOpts([t1, t2]));
 
-    const live = flattenLeaves(createImplementFlow(stubDeps(), opts)).map((l) => snapshot(l));
-    const reference = flattenLeaves(reconstructPreRefactorSerialFlow(stubDeps(), opts)).map((l) => snapshot(l));
-
-    expect(live).toStrictEqual(reference);
+    expect(leafLines(flow, [t1, t2])).toStrictEqual([
+      ...PROLOGUE_LEAVES,
+      ...taskLeaves('t1'),
+      ...taskLeaves('t2'),
+      ...EPILOGUE_LEAVES,
+    ]);
   });
 
-  it('a prologue failure traces the same names as the pre-refactor flat chain, skips included', async () => {
+  it('a prologue failure skips every later sibling of the flat locked body by name', async () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
 
-    const live = await traceNames(lockedBody(createImplementFlow(failingSprintDeps(), opts)));
-    const reference = await traceNames(lockedBody(reconstructPreRefactorSerialFlow(failingSprintDeps(), opts)));
-
-    expect(live).toStrictEqual(reference);
-    expect(live[0]).toBe('load-sprint:failed');
-    expect(live).toContain('implement-tasks:skipped');
-    expect(live).toContain('save-tasks:skipped');
+    expect(await traceNames(lockedBody(createImplementFlow(failingSprintDeps(), opts)))).toStrictEqual([
+      'load-sprint:failed',
+      'assert-sprint-status:skipped',
+      'activate-sprint:skipped',
+      'load-sprint-execution:skipped',
+      'load-tasks:skipped',
+      'load-learnings:skipped',
+      'resolve-branch:skipped',
+      'preflight-tasks:skipped',
+      'progress-journal-activate:skipped',
+      'setup-script-runner:skipped',
+      'implement-tasks:skipped',
+      'save-tasks:skipped',
+      'transition-sprint-to-review-when-settled:skipped',
+    ]);
   });
 
   it('nesting the segments as executed sequentials WOULD rename the skips — why the grouping is display-only', async () => {
@@ -410,7 +323,7 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
   const readConfig = () =>
     Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
 
-  const buildSubchain = (includeBranchPreflight: boolean): ShapeNode => {
+  const buildSubchain = (worktree: boolean): ShapeNode => {
     const task = makeTodoTask({ name: 'do-work' });
     const opts = makeOpts([task]);
     const subchain = createPerTaskSubchain(
@@ -418,13 +331,12 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
         projectSlug: opts.projectSlug,
-        includeBranchPreflight,
+        worktree,
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),
@@ -453,13 +365,13 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
   });
 
   it('keeps the terminal uninstall-skills leaf as the LAST element on the serial path', () => {
-    const children = taskBodyChildren(buildSubchain(true));
+    const children = taskBodyChildren(buildSubchain(false));
     const last = children[children.length - 1];
     expect(last?.name).toMatch(/^uninstall-skills-/);
   });
 
   it('splices the quarantine guard immediately BEFORE the terminal leaf on the serial path', () => {
-    const children = taskBodyChildren(buildSubchain(true));
+    const children = taskBodyChildren(buildSubchain(false));
     const allNames = children.map((c) => c.name);
     const quarantineIdx = allNames.findIndex((n) => n.startsWith('quarantine-blocked-diff-guard-'));
     const terminalIdx = allNames.findIndex((n) => n.startsWith('uninstall-skills-'));
@@ -474,8 +386,8 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     // Order is load-bearing: a pre-verify block must never find the quarantined diff already popped
     // (the zero-turn block would skip re-quarantine and the diff would be lost), and the baseline
     // must measure HEAD, not HEAD plus previously rejected work.
-    for (const serial of [true, false]) {
-      const body = attemptBodyChildren(buildSubchain(serial));
+    for (const worktree of [false, true]) {
+      const body = attemptBodyChildren(buildSubchain(worktree));
       expect(body[0]?.name).toMatch(/^start-attempt-/);
       expect(body[1]?.name).toMatch(/^pre-task-verify-/);
       expect(body[2]?.name).toMatch(/^restore-blocked-diff-guard-/);
@@ -484,11 +396,11 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     }
   });
 
-  it('OMITS the quarantine leaf on the parallel path (includeBranchPreflight === false)', () => {
-    const allNames = names(buildSubchain(false));
+  it('OMITS the quarantine leaf on the parallel path (worktree: true)', () => {
+    const allNames = names(buildSubchain(true));
     expect(allNames.some((n) => n.startsWith('quarantine-blocked-diff'))).toBe(false);
     // The terminal leaf is still the last body element on the parallel path.
-    const children = taskBodyChildren(buildSubchain(false));
+    const children = taskBodyChildren(buildSubchain(true));
     expect(children[children.length - 1]?.name).toMatch(/^uninstall-skills-/);
   });
 });
@@ -504,7 +416,6 @@ describe('createPerTaskSubchain — reproduce placement (serial-path fence)', ()
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
@@ -579,13 +490,11 @@ describe('createPerTaskSubchain — agent-definition install/uninstall splicing'
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
         projectSlug: opts.projectSlug,
-        includeBranchPreflight: true,
         ...bindings,
       },
       task,
@@ -680,7 +589,6 @@ describe('createPerTaskSubchain — best-of-N gen-eval segment (construction-tim
       {
         sprintDir: opts.sprintDir,
         progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
         generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
@@ -920,7 +828,6 @@ describe('buildAttemptBody — settle-attempt wiring (eventBus reaches the real 
     const opts = {
       sprintDir: absolutePath('/sprints/s1'),
       progressFile: absolutePath('/sprints/s1/progress.md'),
-      terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
       generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
       evaluator: { providerId: 'openai-codex', model: 'gpt-5.5' },
       memoryRoot: absolutePath('/data/memory'),

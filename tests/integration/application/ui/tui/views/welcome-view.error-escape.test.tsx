@@ -81,7 +81,6 @@ describe("WelcomeView — the error card's escape hatch actually works", () => {
     await waitForPredicate(() => routes.at(-1)?.id === 'home');
 
     expect(routes.at(-1)?.id).toBe('home');
-    result.unmount();
   });
 
   it('routes to home on ↵ as well, so the hinted continue key is not a lie', async () => {
@@ -91,7 +90,6 @@ describe("WelcomeView — the error card's escape hatch actually works", () => {
     await waitForPredicate(() => routes.at(-1)?.id === 'home');
 
     expect(routes.at(-1)?.id).toBe('home');
-    result.unmount();
   });
 
   it('keeps advertising esc while the gate is up', async () => {
@@ -100,6 +98,5 @@ describe("WelcomeView — the error card's escape hatch actually works", () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Failed to save settings');
     expect(frame).toContain('Press esc to skip welcome');
-    result.unmount();
   });
 });

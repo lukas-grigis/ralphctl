@@ -1,5 +1,6 @@
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Logger, LogLevel, LogMeta } from '@src/business/observability/logger.ts';
+import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
+import type { EventLogLevel } from '@src/domain/value/log-level.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
@@ -21,7 +22,7 @@ export interface EventBusLoggerDeps {
 export const createEventBusLogger = (deps: EventBusLoggerDeps): Logger => loggerForScope(deps, '');
 
 const loggerForScope = (deps: EventBusLoggerDeps, scope: string): Logger => {
-  const emit = (level: LogLevel, message: string, meta?: LogMeta): void => {
+  const emit = (level: EventLogLevel, message: string, meta?: LogMeta): void => {
     const prefixed = scope.length > 0 ? `[${scope}] ${message}` : message;
     const fullMeta = scope.length > 0 ? { scope, ...(meta ?? {}) } : meta;
     deps.eventBus.publish({

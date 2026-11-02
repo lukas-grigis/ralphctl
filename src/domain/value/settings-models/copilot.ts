@@ -43,39 +43,7 @@
  * the same string on the Copilot and Claude-Code catalogs. The escalation ladder is scoped per
  * provider (`escalation-map.ts`), so the collision no longer constrains either ladder.
  */
-export type CopilotModel =
-  // OpenAI
-  | 'gpt-5.3-codex'
-  | 'gpt-5.4-nano'
-  | 'gpt-5.6-sol'
-  | 'gpt-5.6-terra'
-  | 'gpt-5.6-luna'
-  | 'gpt-6-astra'
-  | 'gpt-6-sol'
-  | 'gpt-6.1-sol'
-  | 'gpt-6-luna'
-  // Anthropic
-  | 'claude-haiku-4.5'
-  | 'claude-haiku-5.5'
-  | 'claude-opus-4.8'
-  | 'claude-opus-4.8-fast'
-  | 'claude-opus-5'
-  | 'claude-opus-5.5'
-  | 'claude-fable-5'
-  | 'claude-fable-5.1'
-  | 'claude-sonnet-5'
-  | 'claude-sonnet-5.5'
-  // Google
-  | 'gemini-3.8-flash'
-  // Microsoft
-  | 'mai-code-1.1-flash'
-  // Moonshot
-  | 'kimi-k3'
-  // xAI
-  | 'grok-4.6'
-  | 'grok-4.7';
-
-export const COPILOT_MODELS: readonly CopilotModel[] = [
+export const COPILOT_MODELS = [
   // OpenAI
   'gpt-5.3-codex',
   'gpt-5.4-nano',
@@ -107,6 +75,8 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'grok-4.6',
   'grok-4.7',
 ] as const;
+
+export type CopilotModel = (typeof COPILOT_MODELS)[number];
 
 export const isCopilotModel = (s: string): s is CopilotModel => (COPILOT_MODELS as readonly string[]).includes(s);
 

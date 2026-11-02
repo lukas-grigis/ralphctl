@@ -15,9 +15,8 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { rootSessionId } from '@src/application/session/session.ts';
+import { signalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
@@ -48,7 +47,7 @@ import {
   bestOfNStashMessage,
   composeCandidateSummary,
   findSignal,
-  signalTexts,
+  candidateSignalTexts,
 } from '@src/application/flows/implement/leaves/best-of-n-record.ts';
 
 // `MAX_BEST_OF_N_CANDIDATES` is NOT re-exported — used only internally, above, for the loop's
@@ -88,32 +87,6 @@ interface CandidateLeafInput {
   readonly priorLearnings?: string;
   readonly priorEpisodes?: string;
 }
-
-/** Per-call `AiSession` for one candidate spawn — mirrors `reproduce.ts`'s `buildReproduceSession`. */
-const buildCandidateSession = (opts: {
-  readonly cwd: AbsolutePath;
-  readonly prompt: Prompt;
-  readonly model: string;
-  readonly effort: string | undefined;
-  readonly signalsFile: AbsolutePath;
-  readonly outputDir: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly abortSignal: AbortSignal | undefined;
-}): AiSession => {
-  const chainSessionId = rootSessionId();
-  return {
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    permissions: FULL_AUTO,
-    signalsFile: opts.signalsFile,
-    outputDir: opts.outputDir,
-    bodyFile: opts.bodyFile,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-    ...(opts.abortSignal !== undefined ? { abortSignal: opts.abortSignal } : {}),
-  };
-};
 
 /** Outcome of one candidate's generator spawn — `undefined` on any recoverable failure. */
 type SpawnOutcome =
@@ -214,7 +187,8 @@ const runCandidateSession = async (
   const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
   if (!promptWrote.ok) return { kind: 'fatal', error: promptWrote.error };
 
-  const session = buildCandidateSession({
+  const session = signalsSession({
+    permissions: FULL_AUTO,
     cwd: opts.cwd,
     prompt: prompt.value,
     model: opts.generator.model,
@@ -364,7 +338,7 @@ const buildCandidateRecord = async (
     );
   }
   const attribution = input.preOutcome !== undefined ? attributeVerify(input.preOutcome, verifyOutcome) : undefined;
-  const texts = signalTexts(spawn.signals);
+  const texts = candidateSignalTexts(spawn.signals);
   const summary = composeCandidateSummary({
     hadDiff: captured.hadDiff,
     changedFiles: captured.changedFiles,

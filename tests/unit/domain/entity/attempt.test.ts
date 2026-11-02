@@ -1,21 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import {
-  type AbortCause,
-  completeAttempt,
-  isVerifiedAttempt,
-  recordAttemptVerification,
-  startAttempt,
-  verifyAttempt,
-} from '@src/domain/entity/attempt.ts';
+import { type AbortCause, completeAttempt, startAttempt, verifyAttempt } from '@src/domain/entity/attempt.ts';
 import { FIXED_LATER, FIXED_NOW } from '@tests/fixtures/domain.ts';
 
 describe('startAttempt', () => {
   it('produces a running attempt', () => {
     const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('running');
-    expect(r.value.finishedAt).toBeNull();
+    const value = r.getOrThrow();
+    expect(value.status).toBe('running');
+    expect(value.finishedAt).toBeNull();
   });
 
   it('rejects non-positive n', () => {
@@ -33,12 +25,11 @@ const seed = () => {
 
 describe('verifyAttempt', () => {
   it('transitions to verified when verification is set', () => {
-    const att = recordAttemptVerification(seed());
+    const att = { ...seed(), verification: {} };
     const r = verifyAttempt(att, FIXED_LATER);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.status).toBe('verified');
-    expect(isVerifiedAttempt(r.value)).toBe(true);
+    const rValue = r.getOrThrow();
+    expect(rValue.status).toBe('verified');
+    expect(rValue.verification).toEqual({});
   });
 
   it('rejects verified completion without verification', () => {
@@ -107,9 +98,8 @@ describe('startAttempt — recovering context', () => {
       startedAt: FIXED_NOW,
       recovering: { fromAttemptN: 3, cause: 'process-crash', abortedAt: FIXED_LATER },
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.recovering).toEqual({
+    const value = r.getOrThrow();
+    expect(value.recovering).toEqual({
       fromAttemptN: 3,
       cause: 'process-crash',
       abortedAt: FIXED_LATER,
@@ -118,8 +108,7 @@ describe('startAttempt — recovering context', () => {
 
   it('omits recovering on a clean start (no resume)', () => {
     const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.recovering).toBeUndefined();
+    const rValue = r.getOrThrow();
+    expect(rValue.recovering).toBeUndefined();
   });
 });

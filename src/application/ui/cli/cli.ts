@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { flowRegistry } from '@src/application/registry.ts';
-import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
 import { reportFatal } from '@src/application/ui/cli/report-cli-error.ts';
 import { registerExportRequirementsCommand } from '@src/application/ui/cli/commands/export-requirements.ts';
@@ -19,6 +18,14 @@ import { registerAgentsCommand } from '@src/application/ui/cli/commands/agents.t
 import { registerSkillsCommand } from '@src/application/ui/cli/commands/skills.ts';
 import { registerPromptsCommand } from '@src/application/ui/cli/commands/prompts.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
+
+/** The root command's parsed options: commander yields each flag as a string, or leaves it undefined. */
+interface ImplementRoleFlagOpts {
+  readonly implementGeneratorProvider?: string;
+  readonly implementGeneratorModel?: string;
+  readonly implementEvaluatorProvider?: string;
+  readonly implementEvaluatorModel?: string;
+}
 
 /** Build and run the CLI. */
 export const runCli = async (argv: readonly string[]): Promise<void> => {
@@ -48,7 +55,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       '--implement-evaluator-model <model>',
       'override settings.ai.implement.evaluator.model for this launch (requires --implement-evaluator-provider)'
     )
-    .action(async (opts: Record<string, unknown>, command: Command) => {
+    .action(async (opts: ImplementRoleFlagOpts, command: Command) => {
       // An unrecognized first operand lands here (the root action) because there is no matching subcommand.
       const verb = command.args[0];
       if (verb !== undefined) {
@@ -62,20 +69,18 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       }
 
       const parsed = parseImplementRoleOverrides({
-        ...(typeof opts.implementGeneratorProvider === 'string'
-          ? { generatorProvider: opts.implementGeneratorProvider }
-          : {}),
-        ...(typeof opts.implementGeneratorModel === 'string' ? { generatorModel: opts.implementGeneratorModel } : {}),
-        ...(typeof opts.implementEvaluatorProvider === 'string'
-          ? { evaluatorProvider: opts.implementEvaluatorProvider }
-          : {}),
-        ...(typeof opts.implementEvaluatorModel === 'string' ? { evaluatorModel: opts.implementEvaluatorModel } : {}),
+        generatorProvider: opts.implementGeneratorProvider,
+        generatorModel: opts.implementGeneratorModel,
+        evaluatorProvider: opts.implementEvaluatorProvider,
+        evaluatorModel: opts.implementEvaluatorModel,
       });
       if (!parsed.ok) {
         process.stderr.write(`ralphctl: ${parsed.error}\n`);
         process.exitCode = 1;
         return;
       }
+      // Lazy: Ink costs ~300 ms to load, so only the bare-`ralphctl` path pays it (ESLint fences a static import).
+      const { launchTui } = await import('@src/application/ui/tui/launch.ts');
       await launchTui({ ...(parsed.overrides !== undefined ? { implementRoleOverrides: parsed.overrides } : {}) });
     });
 

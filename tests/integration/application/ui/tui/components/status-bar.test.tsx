@@ -99,6 +99,5 @@ describe('StatusBar — hint group separator', () => {
     const flat = stripAnsi(result.lastFrame() ?? '').replace(/\s+/g, ' ');
     expect(flat).toContain('u unblock (3) ·');
     expect(flat).not.toMatch(/unblock \(3\) es/);
-    result.unmount();
   });
 });

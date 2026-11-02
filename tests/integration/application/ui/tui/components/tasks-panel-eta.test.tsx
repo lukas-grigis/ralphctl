@@ -46,7 +46,6 @@ describe('TasksPanel ETA chip', () => {
 
     expect(frame).toContain('round 2/5');
     expect(frame).toMatch(/~1m\s+30s remaining/);
-    r.unmount();
   });
 
   it('renders "no ETA yet" when the projection has no median (first round of first task)', () => {
@@ -56,7 +55,6 @@ describe('TasksPanel ETA chip', () => {
 
     expect(frame).toContain('round 2/5');
     expect(frame).toContain('no ETA yet');
-    r.unmount();
   });
 
   it('omits ETA when sprintState is not supplied', () => {
@@ -66,7 +64,6 @@ describe('TasksPanel ETA chip', () => {
     expect(frame).toContain('round 2/5');
     expect(frame).not.toContain('remaining');
     expect(frame).not.toContain('no ETA yet');
-    r.unmount();
   });
 
   it('omits ETA on tasks that are not the active one', () => {
@@ -99,7 +96,6 @@ describe('TasksPanel ETA chip', () => {
 
     // task-1 is completed; task-2 is the active non-completed but has no round started yet.
     expect(frame).not.toContain('remaining');
-    r.unmount();
   });
 
   it('measures remaining rounds within the current attempt, not the task-wide round', () => {
@@ -111,7 +107,6 @@ describe('TasksPanel ETA chip', () => {
 
     expect(frame).toContain('round 2/5');
     expect(frame).toMatch(/~1m\s+30s remaining/);
-    r.unmount();
   });
 
   it('omits ETA when the gen-eval cap has already been reached', () => {
@@ -122,6 +117,5 @@ describe('TasksPanel ETA chip', () => {
 
     expect(frame).toContain('round 5/5');
     expect(frame).not.toContain('remaining');
-    r.unmount();
   });
 });

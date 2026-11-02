@@ -60,7 +60,6 @@ const parallelPlan = (tasks: readonly Task[]): PlanNode => {
     locksRoot: absolutePath('/locks'),
     eventBus: d.eventBus,
     maxConcurrency: 2,
-    flowId: 'implement',
     sessionId: () => 'sub',
     buildWaves: () =>
       buildWaveBranches(

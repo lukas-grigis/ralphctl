@@ -88,10 +88,7 @@ export const parseTaskList = (
   }
   const specs = parsed.data;
 
-  const repoByPath = new Map<string, RepositoryId>();
-  for (const repo of input.project.repositories) {
-    repoByPath.set(String(repo.path), repo.id);
-  }
+  const repoByPath = new Map<string, RepositoryId>(input.project.repositories.map((r) => [String(r.path), r.id]));
 
   // Pass 1: resolve user-supplied task ids → minted TaskIds (for blockedBy resolution).
   const idMapResult = buildIdMap(specs);
@@ -101,10 +98,7 @@ export const parseTaskList = (
   // Pass 2: domain-aware validation (path → repo, ticketRef → ticketId, blockedBy → TaskId)
   // and TodoTask construction.
   const tasks: TodoTask[] = [];
-  for (let i = 0; i < specs.length; i++) {
-    const t = specs[i];
-    if (t === undefined) continue;
-
+  for (const [i, t] of specs.entries()) {
     const built = buildTask(t, i, {
       repoByPath,
       idMap,
@@ -137,9 +131,7 @@ export const parseTaskList = (
  */
 const buildIdMap = (specs: readonly TaskImportSpec[]): Result<Map<string, TaskId>, ParseError> => {
   const idMap = new Map<string, TaskId>();
-  for (let i = 0; i < specs.length; i++) {
-    const t = specs[i];
-    if (t === undefined) continue;
+  for (const [i, t] of specs.entries()) {
     if (t.id !== undefined && t.id.trim().length > 0) {
       if (idMap.has(t.id)) {
         return Result.error(
@@ -295,15 +287,7 @@ const scheduleAndFlatten = (tasks: readonly TodoTask[]): Result<ScheduledTasks, 
 
   // No-op detection: if the flattened sequence matches emission order task-for-task, return the
   // input unchanged so callers (and the reorder log) see a strict no-op.
-  let changed = flattened.length !== tasks.length;
-  if (!changed) {
-    for (let i = 0; i < flattened.length; i++) {
-      if (flattened[i]?.id !== tasks[i]?.id) {
-        changed = true;
-        break;
-      }
-    }
-  }
+  const changed = flattened.length !== tasks.length || flattened.some((t, i) => t.id !== tasks[i]?.id);
   if (!changed) return Result.ok({ tasks, changed: false });
 
   // Renumber `order` to match the post-flatten 1-based position.

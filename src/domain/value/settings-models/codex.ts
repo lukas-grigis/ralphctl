@@ -29,17 +29,7 @@
  * unknowns. `codex-auto-review` is the synthetic model id the CLI uses for its review
  * subcommand and is kept here so review chains can name it.
  */
-export type CodexModel =
-  | 'gpt-6.1-sol'
-  | 'gpt-6-astra'
-  | 'gpt-6-sol'
-  | 'gpt-6-luna'
-  | 'gpt-5.6-sol'
-  | 'gpt-5.6-terra'
-  | 'gpt-5.6-luna'
-  | 'codex-auto-review';
-
-export const CODEX_MODELS: readonly CodexModel[] = [
+export const CODEX_MODELS = [
   'gpt-6.1-sol',
   'gpt-6-astra',
   'gpt-6-sol',
@@ -49,6 +39,8 @@ export const CODEX_MODELS: readonly CodexModel[] = [
   'gpt-5.6-luna',
   'codex-auto-review',
 ] as const;
+
+export type CodexModel = (typeof CODEX_MODELS)[number];
 
 export const isCodexModel = (s: string): s is CodexModel => (CODEX_MODELS as readonly string[]).includes(s);
 

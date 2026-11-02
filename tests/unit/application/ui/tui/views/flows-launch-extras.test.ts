@@ -8,7 +8,7 @@ import type { SkillCandidatesResult } from '@src/application/ui/shared/launcher.
 import type { CustomizePickerResult } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import { applySkillsRememberChoice, buildLaunchExtras } from '@src/application/ui/tui/views/flows-launch-extras.ts';
 import type { FlowEntry } from '@src/application/registry.ts';
-import type { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import type { SessionScratchApi } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 const repoFor = (initial: Settings, failSave = false): { repo: SettingsRepository; saved: { value?: Settings } } => {
   const saved: { value?: Settings } = {};
@@ -129,7 +129,7 @@ describe('applySkillsRememberChoice — merge-preserve persistence', () => {
 
 describe('buildLaunchExtras — skillsOverride mapping', () => {
   const entry = { manifest: { id: 'refine', title: 'Refine' } } as FlowEntry;
-  const ui = { sessionRepositoryId: undefined } as unknown as ReturnType<typeof useUiState>;
+  const ui = { sessionRepositoryId: undefined } as unknown as SessionScratchApi;
 
   it('maps picker skills.disabled to skillsOverride, including the empty re-enable case', () => {
     const withDisables = buildLaunchExtras(rememberPicker([DEFAULT_A]), entry, undefined, ui, DEFAULT_SETTINGS);

@@ -36,7 +36,7 @@ export interface DimensionTrajectoryInput {
 /**
  * Count, walking the history from the most-recent turn backwards, how many consecutive turns the
  * given dimension stayed in the failed set. Stops at the first turn where the dimension passed (or
- * the history runs out). The latest turn is `history[history.length - 1]`.
+ * the history runs out). The latest turn is `history.at(-1)`.
  */
 const consecutiveFailing = (history: readonly PlateauTurnRecord[], dimension: string): number => {
   let streak = 0;
@@ -61,7 +61,7 @@ export const composeDimensionTrajectory = (input: DimensionTrajectoryInput): str
   // Need at least two turns to have a trajectory to diff (latest vs prior).
   if (history.length < 2) return '';
 
-  const latest = history[history.length - 1];
+  const latest = history.at(-1);
   const prior = history[history.length - 2];
   if (latest === undefined || prior === undefined) return '';
 

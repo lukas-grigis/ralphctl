@@ -2,20 +2,16 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS_HINT, isAiProvider } from '@src/domain/entity/settings.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 
-/**
- * Validate and shape the four bare-`ralphctl` flags that override the persisted `settings.ai.implement` pair for one
- * launch.
- */
-
+/** Validate and shape the four bare-`ralphctl` flags that override the persisted `settings.ai.implement` pair for one launch. */
 export type ParseImplementRoleOverridesResult =
   | { readonly ok: true; readonly overrides: NonNullable<LaunchExtras['implementRoleOverrides']> | undefined }
   | { readonly ok: false; readonly error: string };
 
 export interface ImplementRoleFlagsInput {
-  readonly generatorProvider?: string;
-  readonly generatorModel?: string;
-  readonly evaluatorProvider?: string;
-  readonly evaluatorModel?: string;
+  readonly generatorProvider?: string | undefined;
+  readonly generatorModel?: string | undefined;
+  readonly evaluatorProvider?: string | undefined;
+  readonly evaluatorModel?: string | undefined;
 }
 
 const parseRole = (
@@ -23,18 +19,12 @@ const parseRole = (
   provider: string | undefined,
   model: string | undefined
 ): { ok: true; row?: { provider: AiProvider; model: string } } | { ok: false; error: string } => {
-  // Validate well-formed pair: both flags or neither. The error message names the missing counterpart so the operator
-  // sees exactly which flag to add.
-  if (provider !== undefined && model === undefined) {
+  // Both flags or neither; name the missing counterpart so the operator knows which flag to add.
+  if ((provider === undefined) !== (model === undefined)) {
+    const [have, need] = provider === undefined ? ['model', 'provider'] : ['provider', 'model'];
     return {
       ok: false,
-      error: `--implement-${role}-provider requires --implement-${role}-model (both must be supplied together).`,
-    };
-  }
-  if (model !== undefined && provider === undefined) {
-    return {
-      ok: false,
-      error: `--implement-${role}-model requires --implement-${role}-provider (both must be supplied together).`,
+      error: `--implement-${role}-${have} requires --implement-${role}-${need} (both must be supplied together).`,
     };
   }
   if (provider === undefined || model === undefined) {

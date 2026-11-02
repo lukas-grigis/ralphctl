@@ -1,32 +1,4 @@
-/**
- * UI-facing context-window helper — maps a provider-reported model id to its total token-context
- * budget and a compact display label.
- *
- * Lives in `domain/` (not `integration/`) for two reasons:
- *  1. The `Settings` entity and its model identifiers are domain-owned; the table belongs next to
- *     the other per-provider catalogs (`claude.ts`, `copilot.ts`, …).
- *  2. The TUI (`application/`) cannot import the integration-layer adapter
- *     (`providers/_engine/context-window.ts`) without violating the four-module layer rule.
- *
- * `src/integration/ai/providers/_engine/context-window.ts` re-exports {@link contextWindowFor}
- * from here rather than keeping its own table — this module is the single source of truth for
- * the model → window map.
- *
- * Scope discipline: only entries we are confident about. A guess here surfaces as a wrong label or
- * a wrong % bar in the TUI; an omission surfaces as "no label rendered". Prefer the latter — add a
- * model only when the vendor publishes the figure.
- *
- *  - **Claude (Anthropic)** — 200 000 for Haiku 4.5, Sonnet 4.6 and the bare Opus 4.8 id: Claude
- *    Code only runs Opus 4.8 at 1M on some plans (Pro needs usage credits), so 200K is the figure
- *    every account gets. The `[1m]` suffix IS Claude Code's 1M-token long-context selector.
- *    Haiku 5.5 (`claude-haiku-5-5`), Sonnet 5 / 5.5, Opus 5 / 5.5 and Fable 5.1 have no `[1m]`
- *    variant because each always runs at its native 1 000 000 window, so the bare id carries 1M.
- *  - **Copilot / Codex** — omitted; the CLIs do not surface per-model window sizes.
- *  - **Grok (xAI)** — 500 000 for `grok-4.7`, `grok-4.7-build-fast` (same model, faster serving),
- *    `grok-4.6`, and `grok-4.5` (docs.x.ai).
- *
- * Pure domain — no `node:*` I/O.
- */
+/** Maps a provider-reported model id to its total token-context budget and a compact display label. */
 
 const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   // Claude (claude-code adapter — Anthropic direct)

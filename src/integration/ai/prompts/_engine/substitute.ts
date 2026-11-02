@@ -73,13 +73,13 @@ export const substitute = (
   untrusted: Readonly<Record<string, string>> = {}
 ): string =>
   template.replace(PLACEHOLDER_PATTERN, (match, key: string) => {
-    if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+    if (!Object.hasOwn(values, key)) return match;
     // Defensive: a Record<string, string> may still contain `undefined` at runtime when
     // constructed from looser sources. Treat that the same as "absent" so we don't render
     // the literal "undefined".
     const value = values[key];
     if (value === undefined) return match;
-    const source = Object.prototype.hasOwnProperty.call(untrusted, key) ? untrusted[key] : undefined;
+    const source = Object.hasOwn(untrusted, key) ? untrusted[key] : undefined;
     // Cap first, then prefix: the notice must survive tail-compression of an oversized value.
     const capped =
       COMPRESSIBLE_KEYS.has(key) && value.length > PRECAPPED_SECTION_CHAR_CAP
@@ -101,7 +101,7 @@ export const assertTemplateKeysFilled = (
   where: string
 ): Result<Prompt, ParseError> => {
   const missing = extractPlaceholders(template).filter((key) => values[key] === undefined);
-  if (missing.length === 0) return Result.ok(rendered as Prompt) as Result<Prompt, ParseError>;
+  if (missing.length === 0) return Result.ok(rendered as Prompt);
   return Result.error(
     new ParseError({
       subCode: 'schema-mismatch',

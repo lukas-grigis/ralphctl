@@ -16,8 +16,6 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 
@@ -112,44 +110,26 @@ describe('session-manager', () => {
     expect(record?.descriptor.pinnedSprintLabel).toBeUndefined();
   });
 
-  it('sessionHintsFromLaunchResult round-trips pinned project/sprint fields', () => {
+  it('copies supplied pinned fields onto the descriptor', () => {
+    const sessions = createSessionManager();
     const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
     const runner = createRunner({ id: 'r-hints', element: flow, initialCtx: {} });
 
-    const result = {
-      ok: true as const,
-      runner: runner as ReturnType<typeof createRunner>,
+    sessions.register({
+      runner,
+      flowId: 'implement',
       title: 'Implement',
       pinnedProjectId: 'proj-abc' as ProjectId,
       pinnedProjectLabel: 'Test Project',
       pinnedSprintId: 'sprint-xyz' as SprintId,
       pinnedSprintLabel: 'Test Sprint',
-    } satisfies Extract<LaunchResult, { ok: true }>;
+    });
 
-    const hints = sessionHintsFromLaunchResult(result);
-
-    expect(hints.pinnedProjectId).toBe('proj-abc');
-    expect(hints.pinnedProjectLabel).toBe('Test Project');
-    expect(hints.pinnedSprintId).toBe('sprint-xyz');
-    expect(hints.pinnedSprintLabel).toBe('Test Sprint');
-  });
-
-  it('sessionHintsFromLaunchResult omits pinned fields when not set on LaunchResult', () => {
-    const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
-    const runner = createRunner({ id: 'r-no-hints', element: flow, initialCtx: {} });
-
-    const result = {
-      ok: true as const,
-      runner: runner as ReturnType<typeof createRunner>,
-      title: 'Refine',
-    } satisfies Extract<LaunchResult, { ok: true }>;
-
-    const hints = sessionHintsFromLaunchResult(result);
-
-    expect(hints.pinnedProjectId).toBeUndefined();
-    expect(hints.pinnedProjectLabel).toBeUndefined();
-    expect(hints.pinnedSprintId).toBeUndefined();
-    expect(hints.pinnedSprintLabel).toBeUndefined();
+    const descriptor = sessions.get('r-hints')?.descriptor;
+    expect(descriptor?.pinnedProjectId).toBe('proj-abc');
+    expect(descriptor?.pinnedProjectLabel).toBe('Test Project');
+    expect(descriptor?.pinnedSprintId).toBe('sprint-xyz');
+    expect(descriptor?.pinnedSprintLabel).toBe('Test Sprint');
   });
 
   describe('eviction', () => {

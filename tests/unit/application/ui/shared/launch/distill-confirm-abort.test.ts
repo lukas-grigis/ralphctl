@@ -48,12 +48,11 @@ import {
   FIXED_PROJECT_ID,
 } from '@tests/fixtures/domain.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
+import { inMemorySprintRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 // The launchers PATH-check the AI CLI first; pin every provider as installed so CI (no CLIs) reaches the gate.
 vi.mock('@src/integration/system/detect-cli.ts', async () => {
@@ -68,21 +67,6 @@ vi.mock('@src/integration/system/detect-cli.ts', async () => {
 // ---------------------------------------------------------------------------
 // Minimal fakes
 // ---------------------------------------------------------------------------
-
-/** Sprint repo that always resolves the seeded sprint (close-sprint needs findById + save). */
-const inMemorySprintRepo = (initial: Sprint): SprintRepository => {
-  let current = initial;
-  return {
-    async findById(id: SprintId) {
-      if (current.id === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-    },
-    async save(sprint: Sprint) {
-      current = sprint;
-      return Result.ok(undefined);
-    },
-  } as SprintRepository;
-};
 
 /**
  * Build a scripted `InteractivePrompt` whose `askConfirm` cycles through the supplied
@@ -233,7 +217,7 @@ const makeSnapshot = (
 
 const buildCtx = (interactive: InteractivePrompt, snapshot: AppStateSnapshot): LaunchContext => {
   const sprint = snapshot.sprint ?? makeReviewSprint();
-  const sprintRepo = inMemorySprintRepo(sprint);
+  const sprintRepo = inMemorySprintRepo(sprint).repo;
   return {
     deps: {
       interactive,

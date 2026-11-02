@@ -29,11 +29,31 @@ Codex can't fine-grained-deny edits on existing repo files. Use topology to cons
 `codex exec resume` accepts no `-s` / `--add-dir` and comes back read-only, so a resumed spawn
 re-declares both as `-c sandbox_mode="workspace-write"` and `-c sandbox_workspace_write.writable_roots=[…]`.
 Spawns don't pass `--ephemeral` (resume needs the rollout), so each one leaves a session under `~/.codex/sessions`.
+Network is set on fresh and resumed spawns alike. `-c sandbox_workspace_write.network_access=<bool>` is
+`true` only when the profile allows both the network and the shell (FULL_AUTO). Codex defaults it to `false`,
+which made every generator install or fetch fail. Codex cannot deny the shell, so READ_ONLY sessions — which
+declare no shell — keep `network_access=false`; otherwise a session reading untrusted repo content could
+exfiltrate through `curl`. `-c web_search=…` follows `canAccessNetwork`: `"live"` with shell, Codex's
+`"cached"` default without it (READ_ONLY), and `"disabled"` when the profile denies the network (create-pr).
+The interactive Codex adapter takes no permission profile and keeps Codex's own defaults.
+
+Claude Code caveat: read-only sessions use `bypassPermissions` plus `--disallowedTools`, never
+`--permission-mode plan` — in `claude -p` plan mode asks for approval on every tool, reads included, and
+no human is there to answer, so the run ends with no `signals.json`. Full-auto can't use `acceptEdits`
+either: it still prompts for `Bash` and hangs on stdin. Deny rules win over `bypassPermissions`.
 
 Claude Code caveat: 2.1.302 turned fork subagents (a subagent that copies the parent's whole
 context) on by default in `claude -p`. Every headless claude spawn sets `CLAUDE_CODE_FORK_SUBAGENT=0`
 — whether a fork inherits `--disallowedTools` is unverified, and each fork re-bills the parent's
 context. Interactive handoffs leave the operator's own setting alone.
+
+Vendor memory on the evaluator side: Claude Code's auto memory, Codex memories and Grok's opt-in memory
+carry notes from one session into later ones (Claude and Grok share them across every worktree of a
+repo), so notes a generator writes would load into the evaluator that grades it. Every spawn with `role: 'evaluator'` (the evaluator
+turns and the best-of-N judge) turns it off — Claude `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, Codex
+`-c memories.use_memories=false -c memories.generate_memories=false`, Grok `GROK_MEMORY=0`. Copilot loads
+memory in prompt mode only with `--enable-memory`, which no adapter passes. The generator keeps the
+operator's memory; ralphctl's own learnings ledger stays the curated channel.
 
 OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
 create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
@@ -51,7 +71,8 @@ project/session directory is the real safety boundary, not the CLI's permission 
 already documented above for OpenAI Codex. One clarification worth keeping in mind when reading
 that flag: `--auto` promotes the tool classes an operator set to `ask`, but per OpenCode's
 permissions documentation it does not override a class set to `deny` — an explicit denial in the
-operator's `opencode.json` stays enforced.
+operator's `opencode.json` stays enforced. The precise headless fix — a generated per-session config
+whose `permission` block denies tool classes and grants `external_directory` per root — is not wired yet.
 
 The interactive adapter (TUI handoff — ideate, plan, refine) has no `--auto` flag at all on
 its default command, so it uses OpenCode's config-level `permission.external_directory` map
@@ -262,7 +283,7 @@ retries with `--description` when glab rejects the flag) and `glab issue comment
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the
-way into `implementSession()` via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
+way into the spawned `AiSession` (`signalsSession()`) via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
 review, create-pr, readiness, detect-scripts, detect-skills) — the signal reaches the headless provider's
 SIGTERM→SIGKILL kill ladder, abort-aware exit classification, and cancellable rate-limit sleep. Without this
 threading a cancel would let the spawned child run to natural completion, stranding the repo lock and leaving

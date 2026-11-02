@@ -11,14 +11,14 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { ExecuteBody, type ExecuteBodyProps } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
 
-const LAYOUT = useResponsiveLayout({ columns: 100, rows: 40, isRunning: false });
+const LAYOUT = resolveResponsiveLayout({ columns: 100, rows: 40, isRunning: false });
 
 const DESCRIPTOR: SessionDescriptor = {
   id: 'sess-1',
@@ -39,7 +39,6 @@ const baseProps = (bucketed: BucketedExecution, taskState: ExecuteBodyProps['tas
   elapsed: '5s',
   layout: LAYOUT,
   termColumns: 100,
-  termRows: 40,
   bucketed,
   executionState: undefined,
   taskState,
@@ -62,7 +61,6 @@ const baseProps = (bucketed: BucketedExecution, taskState: ExecuteBodyProps['tas
   onCancelAttempt: () => undefined,
   onCancelFlow: () => undefined,
   onDismissCancelScope: () => undefined,
-  pinnedSprintStale: false,
   nextSteps: { steps: [], forensics: [] },
 });
 

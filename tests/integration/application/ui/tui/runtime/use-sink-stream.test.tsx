@@ -51,7 +51,6 @@ describe('useSinkStream coalescing', () => {
     expect(commitsFromFlood).toBeLessThanOrEqual(2);
     // Trailing window of the last 5 values.
     expect(r.lastFrame()).toBe('45,46,47,48,49');
-    r.unmount();
   });
 
   it('seeds mount-replay from the bus buffer and paints it in one frame', async () => {
@@ -63,6 +62,5 @@ describe('useSinkStream coalescing', () => {
 
     // replay default true → trailing 5 of the pre-existing buffer.
     expect(r.lastFrame()).toBe('5,6,7,8,9');
-    r.unmount();
   });
 });

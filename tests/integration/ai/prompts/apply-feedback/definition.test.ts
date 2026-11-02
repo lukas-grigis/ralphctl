@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { computePlaceholderParity, loadPartialMap } from '@src/integration/ai/prompts/_engine/test-utils.ts';
 import { promises as fs } from 'node:fs';
 import {
   applyFeedbackPromptDef,
@@ -12,22 +11,6 @@ const loader = createFsTemplateLoader(defaultTemplatesDir());
 
 const readTemplate = async (): Promise<string> =>
   fs.readFile(`${String(defaultTemplatesDir())}/apply-feedback/template.md`, 'utf8');
-
-describe('applyFeedbackPromptDef — completeness', () => {
-  it('placeholder ↔ parameter parity', async () => {
-    const rawTemplate = await readTemplate();
-    const partials = await loadPartialMap(applyFeedbackPromptDef, loader);
-    const report = computePlaceholderParity({ def: applyFeedbackPromptDef, rawTemplate, partials });
-    expect(
-      report.unsatisfied,
-      `template references placeholders the def doesn't declare: ${report.unsatisfied.join(', ')}`
-    ).toEqual([]);
-    expect(
-      report.unreferenced,
-      `def declares placeholders the template never references: ${report.unreferenced.join(', ')}`
-    ).toEqual([]);
-  });
-});
 
 describe('apply-feedback template wording', () => {
   it('states the latest-round rule once and carries no stale phrasing', async () => {

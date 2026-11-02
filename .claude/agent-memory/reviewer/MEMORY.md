@@ -39,3 +39,5 @@
 - [lesson_ensure_helper_must_return_resolvable_path.md](lesson_ensure_helper_must_return_resolvable_path.md) — Best-effort "ensure dir" returning the target after a failed move splits data from side files; `chflags uchg` probe
 - [lesson_verify_cli_claims_from_published_package.md](lesson_verify_cli_claims_from_published_package.md) — Sandbox reaches npm: `npm view` dist-tags, `npm pack` + `strings` to confirm external CLI env vars/flags
 - [lesson_prompt_shell_quoting_is_shell_specific.md](lesson_prompt_shell_quoting_is_shell_specific.md) — POSIX single-quoting in prompt templates is untested on cmd/PowerShell; the sh round-trip test can't see it
+- [lesson_refactor_deleted_predicate_test_inlines_invariant.md](lesson_refactor_deleted_predicate_test_inlines_invariant.md) — Refactor drift classes: deleted predicate tests, Record dispatch prototype keys, Promise.all ordering, rest-spread vs whitelist
+- [recipe_review_branch_in_sibling_worktree.md](recipe_review_branch_in_sibling_worktree.md) — Gate a branch from its sibling worktree when pnpm rejects the Node engine; npx tool list

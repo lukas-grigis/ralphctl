@@ -27,11 +27,12 @@ import { persistBestOfNGrantConsumedLeaf } from '@src/application/flows/implemen
 import { bestOfNSelectionLeaf } from '@src/application/flows/implement/leaves/best-of-n-selection.ts';
 
 /**
- * Best-of-N execution — the escalation policy's opt-in top-of-ladder remedy (see
+ * Best-of-N execution — the escalation policy's top-of-ladder remedy (on by default) (see
  * `business/task/escalation-policy.ts`'s `'best-of-n'` decision). When a task's granted attempt
  * runs, this composite REPLACES round 1's normal generator phase with a candidate-sampling loop
- * (arXiv 2604.16529: harness-level N-candidate selection) + a selection cascade (arXiv 2507.23370:
- * Trae's ablation order — execution filter, then dedupe, then judge), applies the winning diff,
+ * (arXiv 2604.16529, RTV: harness-level N-candidate selection) + a selection cascade (adapted from
+ * arXiv 2507.23370, Trae — whose own order is dedupe, then regression-test filter, then selector
+ * agent; ralphctl runs the execution filter first, then dedupe, then judge), applies the winning diff,
  * then hands off to round 1's NORMAL evaluator turn and — for rounds 2+, if the round-1 evaluator
  * doesn't reach a terminal verdict — the SAME `generatorLeaf` / `evaluatorLeaf` every other attempt
  * uses. No bespoke settle logic: the attempt rejoins `finalize-gen-eval` / `settle-attempt` exactly
@@ -90,7 +91,7 @@ export const hasBestOfNCompositeRun = (ctx: ImplementCtx): boolean => ctx.bestOf
  * A best-of-N grant never lands before a task's 3rd attempt (the escalation policy only grants at
  * `nudgedAtTop`, itself downstream of a prior plateau + nudge), and every earlier attempt already
  * wrote at least one `rounds/<N>/` directory to disk — so on the granted attempt's very first turn
- * `currentRoundNum` was already 3 or higher and the substitute never fired; the whole opt-in
+ * `currentRoundNum` was already 3 or higher and the substitute never fired; the whole
  * remedy silently degraded to a plain gen-eval loop. `ctx.bestOfNLoopTurn` is attempt-scoped
  * (reset by `start-attempt`, like `currentRoundNum` itself), so turn 1 of THIS composite is always
  * `1` regardless of how many rounds prior attempts of the same task already wrote to disk.

@@ -1,12 +1,13 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { type ProviderSpawnCall, makeProviderSpawn } from '@tests/fixtures/provider-spawn-fake.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -94,7 +95,11 @@ interface HeadlessRow {
    * pointer at an unreadable path opens a session with no brief at all.
    */
   readonly mountsPromptFileDir: boolean;
+  /** One stdout record that names the session, in this CLI's stream vocabulary. */
+  readonly sessionLine: (id: string) => string;
 }
+
+const jsonLine = (record: Record<string, unknown>): string => `${JSON.stringify(record)}\n`;
 
 const ROWS: readonly HeadlessRow[] = [
   {
@@ -104,6 +109,7 @@ const ROWS: readonly HeadlessRow[] = [
     promptDelivery: 'stdin',
     rootGrant: { kind: 'per-root', read: spaceSeparatedRoots },
     mountsPromptFileDir: false,
+    sessionLine: (id) => jsonLine({ type: 'system', subtype: 'init', session_id: id }),
   },
   {
     provider: 'openai-codex',
@@ -112,6 +118,7 @@ const ROWS: readonly HeadlessRow[] = [
     promptDelivery: 'stdin',
     rootGrant: { kind: 'per-root', read: spaceSeparatedRoots },
     mountsPromptFileDir: false,
+    sessionLine: (id) => jsonLine({ type: 'thread.started', thread_id: id }),
   },
   {
     provider: 'github-copilot',
@@ -124,6 +131,7 @@ const ROWS: readonly HeadlessRow[] = [
     promptFileName: 'copilot-prompt.md',
     rootGrant: { kind: 'per-root', read: equalsSeparatedRoots },
     mountsPromptFileDir: true,
+    sessionLine: (id) => jsonLine({ type: 'result', sessionId: id }),
   },
   {
     provider: 'opencode',
@@ -132,6 +140,7 @@ const ROWS: readonly HeadlessRow[] = [
     promptDelivery: 'stdin',
     rootGrant: { kind: 'blanket-auto' },
     mountsPromptFileDir: false,
+    sessionLine: (id) => jsonLine({ type: 'step_start', sessionID: id }),
   },
   {
     provider: 'xai-grok',
@@ -141,6 +150,7 @@ const ROWS: readonly HeadlessRow[] = [
     promptFileName: 'grok-prompt.md',
     rootGrant: { kind: 'unrestricted' },
     mountsPromptFileDir: true,
+    sessionLine: (id) => jsonLine({ type: 'end', sessionId: id }),
   },
 ];
 
@@ -214,6 +224,12 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     expect(call.args.join(' ')).toContain(row.promptFileName);
   });
 
+  it('spawns the PROVIDER_TRAITS binary — the one the launch pre-flight probes', async () => {
+    const { fake, promise } = await run();
+    await promise;
+    expect(fake.calls[0]!.command).toBe(PROVIDER_TRAITS[row.provider].binary);
+  });
+
   it('mounts every writable root the session declared, or names its over-grant', async () => {
     const { fake, promise } = await run();
     await promise;
@@ -264,9 +280,12 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     const { fake, promise } = await run({ effort: EFFORT });
     await promise;
 
-    expect(fake.calls[0]!.args.join(' ').includes(EFFORT)).toBe(
-      PROVIDER_TRAITS[row.provider].effortForwarding.headless
-    );
+    const call = fake.calls[0]!;
+    const inArgv = call.args.join(' ').includes(EFFORT);
+    expect(inArgv).toBe(PROVIDER_TRAITS[row.provider].effortForwarding.headless);
+    // The overlay may only mirror the flag (headless claude pins CLAUDE_CODE_EFFORT_LEVEL, which outranks it);
+    // effort routed through the environment alone is something the declaration does not describe.
+    if (!inArgv) expect(Object.values(call.env ?? {}).join('\x00')).not.toContain(EFFORT);
   });
 
   it('leaves an omitted effort out of argv entirely', async () => {
@@ -290,6 +309,73 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     if (result.ok) return;
     expect(result.error.code).toBe('aborted');
     expect(fake.calls[0]!.kills[0]).toBe('SIGTERM');
+  });
+
+  it('surfaces a cancel during rate-limit backoff as AbortError, without re-spawning', async () => {
+    // InvalidStateError here would read as a recoverable turn error and self-block the task.
+    const controller = new AbortController();
+    const cap = createCapturingBus();
+    const fake = makeProviderSpawn([{ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 }]);
+    const provider = row.create({
+      rateLimitRetries: 2,
+      backoffSchedule: [30_000],
+      eventBus: cap.bus,
+      spawn: fake.spawn,
+      mkTempPath: () => join(String(tmp.root), 'codex-body.txt'),
+      readFile: () => Promise.resolve(''),
+      unlink: () => Promise.resolve(),
+    });
+    const promise = provider.generate(session({ abortSignal: controller.signal }));
+    // banner-show is published right before the sleep, so aborting after it can only cut the sleep short.
+    await vi.waitFor(() => expect(cap.events.some((e) => e.type === 'banner-show')).toBe(true));
+    controller.abort();
+    // Far below the 30s backoff: a sleep that ignores the signal would blow this timeout.
+    const result = await promise;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.name).toBe('AbortError');
+    expect(fake.calls).toHaveLength(1);
+  }, 3_000);
+
+  it('persists session-id.txt beside signals.json, and on a crash too, so the thread stays resumable', async () => {
+    const sidPath = join(String(outputDir), 'session-id.txt');
+    const clean = await run({}, [{ stdoutChunks: [row.sessionLine('sid-clean')], exitCode: 0 }]);
+    const ok = await clean.promise;
+    expect(ok.ok && ok.value.sessionId).toBe('sid-clean');
+    expect(await readFile(sidPath, 'utf8')).toBe('sid-clean\n');
+
+    const crashed = await run({}, [
+      { stdoutChunks: [row.sessionLine('sid-doomed')], stderrChunks: ['boom\n'], exitCode: 2 },
+    ]);
+    expect((await crashed.promise).ok).toBe(false);
+    expect(await readFile(sidPath, 'utf8')).toBe('sid-doomed\n');
+  });
+
+  it('emits one TokenUsageEvent on success, stamped with the provider and chainSessionId — none on failure', async () => {
+    const ok = await run({ chainSessionId: 'chain-run-42' }, [
+      { stdoutChunks: [row.sessionLine('sid-u')], exitCode: 0 },
+    ]);
+    expect((await ok.promise).ok).toBe(true);
+    const usage = ok.cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({ provider: row.provider, sessionId: 'sid-u', chainSessionId: 'chain-run-42' });
+
+    const failed = await run({}, [{ stdoutChunks: [row.sessionLine('sid-f')], stderrChunks: ['boom\n'], exitCode: 2 }]);
+    expect((await failed.promise).ok).toBe(false);
+    expect(failed.cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
+  });
+
+  it('recovers a non-zero exit (143) when signals.json landed, marking recoveredFromExit', async () => {
+    // macOS surfaces an idle-watchdog SIGTERM as code 143, signal null.
+    await writeFile(String(signalsFile), '{"signals":[]}', 'utf8');
+    const { cap, promise } = await run({}, [{ exitCode: 143 }]);
+    const result = await promise;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.recoveredFromExit).toEqual({ code: 143, signal: null });
+    expect(cap.logs.some((l) => l.level === 'warn' && l.message.includes('signals.json captured'))).toBe(true);
   });
 
   it('spawns nothing when the caller aborted before generate()', async () => {

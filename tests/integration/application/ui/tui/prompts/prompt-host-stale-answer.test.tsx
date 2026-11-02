@@ -29,6 +29,5 @@ describe('PromptHost stale answers', () => {
     expect(second.resolve).not.toHaveBeenCalled();
     expect(second.reject).not.toHaveBeenCalled();
     expect(queue.size).toBe(1);
-    result.unmount();
   });
 });

@@ -24,7 +24,7 @@ const longOptions: ReadonlyArray<Choice<unknown>> = Array.from({ length: 20 }, (
 describe('MultiSelectPrompt', () => {
   it('space toggles the focused option and Enter submits the selection', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write(' ');
@@ -36,12 +36,11 @@ describe('MultiSelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(['alpha', 'bravo']);
-    unmount();
   });
 
   it('a selects all and Enter submits every value', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('a');
@@ -49,12 +48,11 @@ describe('MultiSelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(['alpha', 'bravo', 'charlie']);
-    unmount();
   });
 
   it('n clears the selection after select-all', async () => {
     const onSubmit = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     stdin.write('a');
@@ -64,12 +62,11 @@ describe('MultiSelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith([]);
-    unmount();
   });
 
   it('Esc cancels', async () => {
     const onCancel = vi.fn();
-    const { stdin, unmount } = render(
+    const { stdin } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={() => undefined} onCancel={onCancel} />
     );
     stdin.write(UP); // no-op at top
@@ -77,11 +74,10 @@ describe('MultiSelectPrompt', () => {
     stdin.write(ESC);
     await tick(150);
     expect(onCancel).toHaveBeenCalled();
-    unmount();
   });
 
   it('renders every option in the initial frame when the list is short', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
@@ -91,20 +87,18 @@ describe('MultiSelectPrompt', () => {
     expect(frame).toContain('Charlie');
     // Position indicator should NOT appear when list fits the window.
     expect(frame).not.toMatch(/\bof 3\b/);
-    unmount();
   });
 
   it('hint advertises ↑/↓ move (the cursor-movement keys it handles)', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
     expect(lastFrame() ?? '').toContain('↑/↓ move');
-    unmount();
   });
 
   it('renders only the windowed slice when the list exceeds VISIBLE_ROWS', async () => {
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       <MultiSelectPrompt message="Pick" options={longOptions} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
@@ -116,11 +110,10 @@ describe('MultiSelectPrompt', () => {
     expect(frame).not.toContain('Label-19');
     // Position indicator surfaces the cursor over total.
     expect(frame).toContain('1 of 20');
-    unmount();
   });
 
   it('scrolls the window so the new focused option is visible after navigating past it', async () => {
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <MultiSelectPrompt message="Pick" options={longOptions} onSubmit={() => undefined} onCancel={() => undefined} />
     );
     await tick();
@@ -133,12 +126,11 @@ describe('MultiSelectPrompt', () => {
     expect(frame).toContain('Label-10');
     expect(frame).not.toContain('Label-0 ');
     expect(frame).toContain('11 of 20');
-    unmount();
   });
 
   it('selection survives scrolling: toggling option 0 then scrolling out and back keeps [x] on option 0', async () => {
     const onSubmit = vi.fn();
-    const { stdin, lastFrame, unmount } = render(
+    const { stdin, lastFrame } = render(
       <MultiSelectPrompt message="Pick" options={longOptions} onSubmit={onSubmit} onCancel={() => undefined} />
     );
     await tick();
@@ -167,6 +159,5 @@ describe('MultiSelectPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith(['value-0']);
-    unmount();
   });
 });

@@ -37,7 +37,7 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
@@ -280,7 +280,7 @@ const skillsKeyBindings = ({
 
 export const SkillsView = (): React.JSX.Element => {
   const deps = useDeps();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const bp = useBreakpoint();
 
   const { state, reload } = useAsyncLoad<SkillsViewState>(

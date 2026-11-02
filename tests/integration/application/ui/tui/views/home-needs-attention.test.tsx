@@ -19,6 +19,13 @@ import {
   makeProject,
 } from '@tests/fixtures/domain.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import type * as SpinnerModule from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
+
+// A frozen spinner keeps the 30s clock advance below from replaying ~330 spinner renders.
+vi.mock('@src/application/ui/tui/runtime/use-spinner-frame.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof SpinnerModule>()),
+  useSpinnerFrame: () => 0,
+}));
 
 const project = makeProject({ displayName: 'Mainline' });
 const sprint = makeActiveSprint();
@@ -91,7 +98,6 @@ describe('Home — needs attention', () => {
     expect(frame.indexOf('NEEDS ATTENTION')).toBeLessThan(frame.indexOf('WORK'));
     // The cursor lands on it, so its resume hint is on screen.
     expect(frame).toContain('↵ resumes Implement');
-    result.unmount();
   });
 
   it('shows nothing interrupted while another live process owns the sprint', async () => {
@@ -99,7 +105,6 @@ describe('Home — needs attention', () => {
     await waitForViewReady(result, (f) => f.includes('WORK'));
     await new Promise((r) => setTimeout(r, 80));
     expect(result.lastFrame() ?? '').not.toContain('[INTERRUPTED]');
-    result.unmount();
   });
 
   it('lists a run parked on a prompt as [WAITING] and opens it', async () => {
@@ -124,7 +129,6 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('[WAITING] Refine — Mainline');
     expect(frame).toContain('NEEDS ATTENTION');
-    result.unmount();
   });
 
   it("keeps counting a [WAITING] run's age while Home stays open", async () => {
@@ -164,8 +168,7 @@ describe('Home — needs attention', () => {
     expect(result.lastFrame() ?? '').toContain('Refine — Mainline · <1m');
     await vi.advanceTimersByTimeAsync(30_000);
     await until('Refine — Mainline · 1m');
-    result.unmount();
-  }, 60_000); // 30s of fake timers replays every spinner frame as a render — slow on a loaded runner
+  });
 
   it.each([
     [80, 24],
@@ -176,7 +179,6 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Start a flow');
     expect(frame).toContain('ralphctl');
-    result.unmount();
   });
 
   it('shows every menu group when the terminal is tall enough', async () => {
@@ -185,6 +187,5 @@ describe('Home — needs attention', () => {
     const frame = result.lastFrame() ?? '';
     for (const group of ['WORK', 'OBSERVE', 'SYSTEM']) expect(frame).toContain(group);
     expect(frame).toContain('Housekeeping');
-    result.unmount();
   });
 });

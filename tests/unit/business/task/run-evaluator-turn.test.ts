@@ -321,12 +321,11 @@ describe('runEvaluatorTurnUseCase', () => {
       logger: noopLogger,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.exit?.kind).toBe('crashed');
-    if (result.value.exit?.kind !== 'crashed') return;
-    expect(result.value.exit.abortCause).toBe('watchdog-killed');
-    expect(result.value.exit.signalOrExitCode).toBe('SIGTERM');
+    const value = result.getOrThrow();
+    expect(value.exit?.kind).toBe('crashed');
+    if (value.exit?.kind !== 'crashed') return;
+    expect(value.exit.abortCause).toBe('watchdog-killed');
+    expect(value.exit.signalOrExitCode).toBe('SIGTERM');
   });
 
   it('propagates an AbortError (user cancel) instead of self-blocking', async () => {

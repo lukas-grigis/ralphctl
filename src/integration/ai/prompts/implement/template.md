@@ -118,7 +118,10 @@ sessions and may be stale.
   created before finishing — they would otherwise be committed with the task.
 - **Stay in scope.** Change what the steps request or clearly require. Do not add unrequested
   abstractions, docstrings, documentation, supporting files, or compatibility shims; when you spot a
-  worthwhile extra, list it in a `note` signal rather than doing it. Add tests only where the steps or
+  worthwhile extra, list it in a `note` signal rather than doing it. Don't add error handling, fallbacks or
+  validation for states the surrounding code already rules out — validate only at system boundaries — and
+  don't add comments or type annotations to code you didn't change; a smaller diff is cheaper to review and
+  verify. Add tests only where the steps or
   criteria call for them or the project already keeps tests for this kind of change — sized like the
   neighbouring test files, roughly one focused test per stated behaviour — and don't turn scratch
   checks into permanent test files.
@@ -190,7 +193,8 @@ on the first attempt, not to discover problems after the fact.
 4. **Working tree state** — inspect the working tree for uncommitted changes before writing anything.
    Two kinds are expected: the reproduction test named in `<reproduction>`, and earlier work on this
    task (signalled by a non-empty `<prior_critique>`, `<retry_feedback>`, `<prior_attempts>` or
-   `<restored_work>`). Build on those. Any other uncommitted change is unknown state — emit
+   `<restored_work>` — except that a `<retry_feedback>` saying its changes were set aside means the
+   tree holds none of them until you apply the saved patch). Build on those. Any other uncommitted change is unknown state — emit
    `task-blocked` naming the files rather than building on it.
 5. **Git log orientation** — run `git log --oneline -20` to see what prior tasks on this branch have
    committed. Cross-reference with `<prior_progress>` to avoid re-implementing or conflicting with

@@ -13,13 +13,11 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import {
@@ -56,6 +54,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
+import { inMemorySprintRepo, inMemoryExecutionRepo, inMemoryTaskRepo } from '@tests/fixtures/in-memory-repos.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
@@ -67,93 +66,6 @@ const FAKE_MEMORY_ROOT = absolutePath(mkdtempSync(join(tmpdir(), 'ralphctl-imple
 const FAKE_PROJECT_ID = 'proj-implement-e2e';
 const FAKE_PROJECT_SLUG = slug('proj-implement-e2e');
 afterAll(() => rmSync(String(FAKE_MEMORY_ROOT), { recursive: true, force: true }));
-
-const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
-  let current: Sprint = initial;
-  return {
-    repo: {
-      async findById(id: SprintId) {
-        if (current.id === id) return Result.ok(current);
-        return Result.error(new NotFoundError({ entity: 'sprint', id: String(id) }));
-      },
-      async save(sprint: Sprint) {
-        current = sprint;
-        return Result.ok(undefined);
-      },
-      async list() {
-        return Result.ok([current]);
-      },
-    } as unknown as SprintRepository,
-    current: () => current,
-  };
-};
-
-const inMemoryExecutionRepo = (
-  initial: SprintExecution
-): { repo: SprintExecutionRepository; current: () => SprintExecution } => {
-  let current = initial;
-  const repo: SprintExecutionRepository = {
-    async findById(id: SprintId) {
-      if (current.sprintId === id) return Result.ok(current);
-      return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
-    },
-    async save(next: SprintExecution) {
-      current = next;
-      return Result.ok(undefined);
-    },
-    async remove() {
-      return Result.ok(undefined);
-    },
-  };
-  return { repo, current: () => current };
-};
-
-interface InMemoryTaskRepoState {
-  readonly repo: TaskRepository;
-  readonly tasks: () => readonly Task[];
-  readonly updates: ReadonlyArray<{ readonly task: Task }>;
-  readonly saveAlls: ReadonlyArray<readonly Task[]>;
-}
-
-const inMemoryTaskRepo = (initial: readonly Task[]): InMemoryTaskRepoState => {
-  let store: Task[] = [...initial];
-  const updates: Array<{ readonly task: Task }> = [];
-  const saveAlls: Array<readonly Task[]> = [];
-  const repo: TaskRepository = {
-    async findBySprintId(_id) {
-      void _id;
-      const page: readonly Task[] = store;
-      return Result.ok(page);
-    },
-    async findById(_sprintId, taskId) {
-      const t = store.find((tt) => tt.id === taskId);
-      if (t === undefined) return Result.error(new NotFoundError({ entity: 'task', id: String(taskId) }));
-      return Result.ok(t);
-    },
-    async update(_sprintId, task) {
-      const idx = store.findIndex((t) => t.id === task.id);
-      if (idx >= 0) store[idx] = task;
-      else store = [...store, task];
-      updates.push({ task });
-      return Result.ok(undefined);
-    },
-    async saveAll(_sprintId, tasks) {
-      store = [...tasks];
-      saveAlls.push(tasks);
-      return Result.ok(undefined);
-    },
-  };
-  return {
-    repo,
-    tasks: () => store,
-    get updates() {
-      return updates;
-    },
-    get saveAlls() {
-      return saveAlls;
-    },
-  };
-};
 
 /**
  * Tracks a synthetic `HEAD` so resolve-branch + branch-preflight see a coherent working tree.

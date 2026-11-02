@@ -1,4 +1,5 @@
 import { RALPHCTL_DEBUG_TRACE_ENV } from '@src/application/bootstrap/wire.ts';
+import type { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 
@@ -6,6 +7,15 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
 export const fail = (message: string): void => {
   process.stderr.write(`error: ${message}\n`);
   process.exitCode = 1;
+};
+
+/** Narrowing guard for the fail-and-return idiom: `if (!okOrFail(r)) return;` reports `prefix + error.message` on failure. */
+export const okOrFail = <R extends Result<unknown, { readonly message: string }>>(
+  r: R,
+  prefix = ''
+): r is Extract<R, { readonly ok: true }> => {
+  if (!r.ok) fail(prefix + r.error.message);
+  return r.ok;
 };
 
 /** Cancellation exit code — 128 + SIGINT, the shell convention. */

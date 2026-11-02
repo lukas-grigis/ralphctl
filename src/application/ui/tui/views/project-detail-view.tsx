@@ -29,7 +29,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useOverlayState, type OverlayApi } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -187,7 +187,7 @@ const launchPerRepoFlow = async (
 };
 
 interface ProjectDetailShortcutArgs extends LaunchPerRepoFlowCtx {
-  readonly ui: ReturnType<typeof useUiState>;
+  readonly ui: OverlayApi;
   readonly selection: ReturnType<typeof useSelection>;
   readonly edit: ReturnType<typeof useEditField>;
   readonly project: Project | undefined;
@@ -394,7 +394,7 @@ const DetailContent = ({
 export const ProjectDetailView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
-  const ui = useUiState();
+  const ui = useOverlayState();
   const { projectId } = useViewProps<ProjectDetailProps>();
   const sessions = useSessionManager();
   const queue = usePromptQueue();

@@ -81,11 +81,9 @@ it done; when a behaviour regresses, untick it.
       same array.
 - [x] **Trigger predicates** — each `FlowManifest.triggers` declares pre-launch readiness conditions
       (`requiresProject`, `currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`,
-      `minResumableTasks`). TUI menu disables and explains unmet triggers. `maxBlockedTasks` /
-      `maxBlockedTasksHint` are the one field pair on `FlowTriggers` that is NOT an enablement gate —
-      closing a sprint with blocked work is a confirm, never a refusal, so `evaluateTriggers` never
-      consumes them; `close-sprint`'s own launcher reads the threshold off its manifest to decide when
-      to name blocked tasks explicitly. The `minResumableTasks` failure sentence also branches on an
+      `minResumableTasks`). TUI menu disables and explains unmet triggers. Blocked tasks never gate
+      `close-sprint` — closing with blocked work is a confirm, never a refusal, and its launcher names
+      the blocked tasks in that confirm. The `minResumableTasks` failure sentence also branches on an
       optional `blockedTaskCount` input — "every remaining task is blocked, unblock one" instead of the
       generic "run Plan first" when that is why the count is zero.
 
@@ -415,9 +413,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       cursor survives reorder/eviction. `↑/↓` primary, `j`/`k` alias, `PgUp`/`PgDn` page, `Home`/`End` jump.
       `▴/▾` overflow cues. A view that owns its list cursor passes `suppressScrollArrows` to its `ViewShell`
       (translated to `ScrollRegion`'s internal `suppressArrows`) so `↑/↓` / `PgUp`/`PgDn` aren't double-handled.
-- [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no
-      rail column) at `md` (100–139), single-column below `md`. The sidebar rail grows fluidly 36→56 cols at
-      `xl`+ via `resolveRailWidth`. The step tree and strip render `Element.label` when present; long labels
+- [x] **Responsive Execute view** — sidebar layout at `lg`+ (≥140), compact (no
+      rail column) at `md` (100–139), single-column below `md`. The step tree and strip render `Element.label` when present; long labels
       are clipped with `…` to the column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
       demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`

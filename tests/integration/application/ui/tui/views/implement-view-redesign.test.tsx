@@ -11,7 +11,7 @@
  *   Ask #4: Active task shows its step tree (done steps, then pending ◇ ones).
  *
  * Uses the ImplementSidebar + ExecuteBody directly so the fixtures are deterministic (no
- * live EventBus wiring needed). Height invariants use useResponsiveLayout directly, which
+ * live EventBus wiring needed). Height invariants use resolveResponsiveLayout directly, which
  * is a pure function (no React hook state).
  */
 
@@ -23,7 +23,7 @@ import { taskFlowProgress } from '@tests/fixtures/flow-progress.ts';
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -167,9 +167,9 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
   it('renders TokenBudgetCard at the bottom of the sidebar (cumulative data)', () => {
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -193,14 +193,13 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     expect(frame).toContain('Tokens');
     // Cumulative token data: "session: N (cumulative)" label (user ask #6).
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('renders empty-state placeholder when no tokenUsage provided', () => {
     const descriptor = makeDescriptor();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -216,15 +215,14 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Tokens');
-    unmount();
   });
 
   it('task minimap displays both tasks', () => {
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame } = render(
       React.createElement(ImplementSidebar, {
         sidebarWidth: layout.sidebarWidth,
         sidebarTaskNavRows: layout.sidebarTaskNavRows,
@@ -243,7 +241,6 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
     // Both task names appear (truncated to sidebarWidth budget)
     expect(frame).toContain('Implement auth');
     expect(frame).toContain('Add rate limit');
-    unmount();
   });
 });
 
@@ -255,12 +252,12 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
   const renderBodyAt180 = (): { frame: string; unmount: () => void } => {
     const cols = 180;
     const rows = 50;
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
     const task = bucketed.tasks[0]!;
 
-    // HeaderCard's elapsed text now ticks via its own internal `useLiveClock` (leaf-isolated
+    // HeaderCard's elapsed text now ticks via its own internal `useTickingClock` (leaf-isolated
     // render hygiene — see execute-view-internals/elapsed-label.tsx) rather than reading a
     // precomputed `elapsed` prop. Freeze the system clock at the instant this fixture claims
     // "now" is (BASE_MS + 3 min) so the label's `Date.now()` seed is deterministic; restored
@@ -286,7 +283,6 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
             elapsed: '3m00s',
             layout,
             termColumns: cols,
-            termRows: rows,
             bucketed,
             executionState: undefined,
             taskState: undefined,
@@ -307,7 +303,6 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
             onCancelAttempt: vi.fn(),
             onCancelFlow: vi.fn(),
             onDismissCancelScope: vi.fn(),
-            pinnedSprintStale: false,
             nextSteps: { steps: [], forensics: [] },
           })
         ),
@@ -320,36 +315,32 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
   };
 
   it('Ask #1 — HeaderCard renders at the top', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     expect(frame).toContain('Visual Test Sprint');
     expect(frame).toContain('3m00s');
     expect(frame).toContain('claude-opus-4');
-    unmount();
   });
 
   it('Ask #2 — TokenBudgetCard in the sidebar (cumulative label, not clipped)', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     expect(frame).toContain('Tokens');
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('Ask #3 — long cross-task note ellides (full 240-char string absent from frame)', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     // The full note must not appear verbatim
     expect(frame).not.toContain(LONG_NOTE);
     // The beginning of the note should be visible (truncated)
     expect(frame).toContain('cross-task-note:');
-    unmount();
   });
 
   it('Ask #4 — active task shows its step tree with pending steps', () => {
-    const { frame, unmount } = renderBodyAt180();
+    const { frame } = renderBodyAt180();
     // ◇ glyph from glyphs.phasePending — rendered for unexecuted leaves
     expect(frame).toContain('◇');
     expect(frame).toContain('Generate');
     expect(frame).toContain('Commit');
-    unmount();
   });
 });
 
@@ -357,13 +348,13 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
   const renderBodyAt220 = (): { frame: string; unmount: () => void } => {
     const cols = 220;
     const rows = 60;
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
     const descriptor = makeDescriptor();
     const bucketed = makeBucketed();
     const task = bucketed.tasks[0]!;
 
     // See the 180×50 describe block above — HeaderCard's elapsed text ticks via its own
-    // internal `useLiveClock`, so the system clock is frozen for the render + frame capture.
+    // internal `useTickingClock`, so the system clock is frozen for the render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
     // See the 180×50 describe block above — TasksPanelHost needs a DepsProvider ancestor for its
     // `u`-chord unblock handler.
@@ -385,7 +376,6 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
             elapsed: '3m00s',
             layout,
             termColumns: cols,
-            termRows: rows,
             bucketed,
             executionState: undefined,
             taskState: undefined,
@@ -406,7 +396,6 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
             onCancelAttempt: vi.fn(),
             onCancelFlow: vi.fn(),
             onDismissCancelScope: vi.fn(),
-            pinnedSprintStale: false,
             nextSteps: { steps: [], forensics: [] },
           })
         ),
@@ -419,31 +408,27 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
   };
 
   it('Ask #1 — HeaderCard at top (xxl breakpoint)', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('Visual Test Sprint');
     expect(frame).toContain('3m00s');
-    unmount();
   });
 
   it('Ask #2 — TokenBudgetCard in sidebar at xxl (cumulative label)', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('Tokens');
     expect(frame).toContain('cumulative');
-    unmount();
   });
 
   it('Ask #3 — long note ellides at xxl width', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).not.toContain(LONG_NOTE);
     expect(frame).toContain('cross-task-note:');
-    unmount();
   });
 
   it('Ask #4 — step tree visible at xxl', () => {
-    const { frame, unmount } = renderBodyAt220();
+    const { frame } = renderBodyAt220();
     expect(frame).toContain('◇');
     expect(frame).toContain('Commit');
-    unmount();
   });
 });
 
@@ -451,14 +436,14 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
 // Height budget invariant (pure function — no render needed)
 // ---------------------------------------------------------------------------
 
-describe('useResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
+describe('resolveResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
   it.each([
     [180, 50],
     [220, 60],
     [140, 35],
     [240, 50],
   ] as const)('sidebar sections fit at %d×%d', (cols, rows) => {
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
 
     expect(layout.sidebarLayout).toBe(true);
     // PAGE_CHROME_ROWS(10) + SIDEBAR_CHROME_ROWS(20) + logRows: on tighter terminals

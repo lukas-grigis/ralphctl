@@ -22,7 +22,7 @@ import { createSessionManager } from '@src/application/ui/tui/runtime/session-ma
 import { planToElement, taskFlowPlan } from '@tests/fixtures/flow-progress.ts';
 import type { PlanNode } from '@src/application/chain/plan-tree.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import { resolveResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/responsive-layout.ts';
 
 // Hoisted controls — the mock factory reads from this state holder so each test can set its
 // own columns/rows before rendering. `vi.hoisted` ensures the variable exists when the mock
@@ -83,19 +83,17 @@ describe('ExecuteView width regimes', () => {
   };
 
   it('renders single-column stack below 100 cols — Tasks section, strip in the header', async () => {
-    const { frame, unmount } = await renderAt(80);
+    const { frame } = await renderAt(80);
     expect(frame).not.toContain('Flow steps');
     expect(frame).toContain('Tasks');
     expect(frame).toMatch(/steps .*Load tasks/);
-    unmount();
   });
 
   it('renders compact layout at 100 cols — no rail column, strip in the header, full-width Tasks', async () => {
-    const { frame, unmount } = await renderAt(100);
+    const { frame } = await renderAt(100);
     expect(frame).toContain('Tasks');
     expect(frame).not.toContain('Flow steps');
     expect(frame).toMatch(/steps .*Load tasks/);
-    unmount();
   });
 
   it('shows a Steps tree in place of the Tasks panel for a flow without task work items', async () => {
@@ -118,7 +116,7 @@ describe('ExecuteView width regimes', () => {
   });
 
   it('renders sidebar layout at 140 cols — sidebar order: Baseline → Steps → Tasks → Tokens, no column labels', async () => {
-    const { frame, unmount } = await renderAt(140);
+    const { frame } = await renderAt(140);
     // The sidebar replaces the legacy "Flow steps" rail with "Steps" section.
     // [nav] and [tasks] column labels have been removed (user ask #4).
     expect(frame).not.toContain('[nav]');
@@ -140,11 +138,10 @@ describe('ExecuteView width regimes', () => {
     const tokensIdx = frame.indexOf('Tokens');
     expect(baselineIdx).toBeLessThan(stepsIdx);
     expect(stepsIdx).toBeLessThan(tokensIdx);
-    unmount();
   });
 
   it('renders sidebar layout at 180 cols — no column labels, Baseline card present', async () => {
-    const { frame, unmount } = await renderAt(180);
+    const { frame } = await renderAt(180);
     expect(frame).not.toContain('[nav]');
     expect(frame).not.toContain('[tasks]');
     expect(frame).toContain('Baseline');
@@ -152,18 +149,16 @@ describe('ExecuteView width regimes', () => {
     expect(frame).toContain('Steps');
     // HeaderCard renders the session title and flow meta.
     expect(frame).toContain('Tokens');
-    unmount();
   });
 
   it('renders sidebar layout at 240 cols (xxl breakpoint) — sidebar ~2/5 wide, no column labels', async () => {
-    const { frame, unmount } = await renderAt(240);
+    const { frame } = await renderAt(240);
     expect(frame).not.toContain('[nav]');
     expect(frame).not.toContain('[tasks]');
     expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
     expect(frame).toContain('Tokens');
-    unmount();
   });
 });
 
@@ -171,7 +166,7 @@ describe('ExecuteView width regimes', () => {
 // Height-budget regression tests (Bug A)
 // ---------------------------------------------------------------------------
 
-describe('useResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
+describe('resolveResponsiveLayout — sidebar height budget never exceeds terminal rows', () => {
   const COMMON_SIZES: Array<{ cols: number; rows: number; label: string }> = [
     { cols: 180, rows: 50, label: '180×50' },
     { cols: 140, rows: 35, label: '140×35' },
@@ -181,7 +176,7 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
   ];
 
   it.each(COMMON_SIZES)('sidebar sections fit within terminal rows at $label', ({ cols, rows }) => {
-    const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: cols, rows, isRunning: true });
 
     // sidebarTaskNavRows + sidebarFlowStepsRows must not exceed the available body rows
     const usedBodyRows = layout.sidebarTaskNavRows + layout.sidebarFlowStepsRows;
@@ -200,7 +195,7 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
   it('tasksMaxBlocks in sidebar layout grows with terminal height without exceeding it', () => {
     // At 50 rows, running=true: logRows = max(6, min(16, 50-38)) = 12.
     // mainBodyRows = 50 - 10 - 12 = 28. Budget = floor(28/3) = 9.
-    const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
+    const layout = resolveResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
     expect(layout.tasksMaxBlocks).toBeGreaterThanOrEqual(3);
     // Must not exceed a reasonable fraction of terminal rows (not the whole screen)
     expect(layout.tasksMaxBlocks).toBeLessThanOrEqual(Math.ceil(50 / 2));

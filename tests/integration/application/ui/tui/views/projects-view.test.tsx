@@ -43,7 +43,6 @@ describe('ProjectsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No projects yet');
     expect(frame).toContain('Press c to create');
-    result.unmount();
   });
 
   it('renders one row per project with name + slug + repo count', async () => {
@@ -56,7 +55,6 @@ describe('ProjectsView', () => {
     expect(frame).toContain('1 project(s)');
     // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
     expect(frame).not.toContain('j/k');
-    result.unmount();
   });
 
   it('windows a long list: shows the visible head and a "N more" overflow cue below', async () => {
@@ -70,7 +68,6 @@ describe('ProjectsView', () => {
     expect(frame).toContain(glyphs.moreBelow);
     expect(frame).toContain('2 more');
     expect(frame).toContain('6 project(s)');
-    result.unmount();
   });
 
   // Only the first two repos render inline; the rest collapse into a "+N more repositor(y|ies)"
@@ -95,7 +92,6 @@ describe('ProjectsView', () => {
     expect(frame).toContain('+1 more repository');
     expect(frame).not.toContain('repositoryies');
     expect(frame).not.toContain('repositories');
-    result.unmount();
   });
 
   it('overflow line reads plural "repositories" when more than one repo is hidden', async () => {
@@ -108,7 +104,6 @@ describe('ProjectsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('+2 more repositories');
     expect(frame).not.toContain('repositoryies');
-    result.unmount();
   });
 
   it('c pushes the create-project route', async () => {
@@ -117,7 +112,6 @@ describe('ProjectsView', () => {
     result.stdin.write('c');
     await waitForPredicate(() => routeIds().includes('create-project'));
     expect(routeIds()).toContain('create-project');
-    result.unmount();
   });
 
   it("pressing 'e' opens a rename prompt and persists the new displayName", async () => {
@@ -150,7 +144,6 @@ describe('ProjectsView', () => {
     await waitForPredicate(() => save.mock.calls.length > 0);
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0]?.[0]?.displayName).toBe('New Label');
-    result.unmount();
   });
 
   it('rename re-reads the project before saving, so a concurrent repository edit survives', async () => {
@@ -185,6 +178,5 @@ describe('ProjectsView', () => {
     const saved = save.mock.calls[0]?.[0];
     expect(saved?.displayName).toBe('New Label');
     expect(saved?.repositories[0]?.verifyScript).toBe('make check');
-    result.unmount();
   });
 });

@@ -189,15 +189,17 @@ through `update` too and applies to the sprint as it is on disk.
   `<sprintDir>/chain.log`.
 
 **Reproduction-first leaf.** Before the attempt loop, `per-task-subchain.ts` runs an unconditional reset
-(`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix`,
-once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
+(`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix` by
+`deriveHeadlineTaskKind` — the task name decides when it matches a keyword, so a passing "fix" in a
+feature's description does not buy the extra spawn; once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
 writes and runs one failing test demonstrating the reported defect; the harness re-runs the claimed
-command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run actually
-fails — a reproduction that passes proves nothing. The validated test path, run command, and the
-session's own list of relevant existing tests then ride into every generator and evaluator turn of that
-task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
-claimed command that turns out to pass on re-run all degrade silently to today's behaviour — no
-reproduction context, task proceeds unaffected. The same holds for the session's bounded "could not
+command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run fails on its
+own — a pass, or a run killed on timeout or the output cap, proves nothing. The validated test path,
+run command, and the session's own list of relevant existing tests then ride into every generator and
+evaluator turn of that task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
+claimed command that passes (or is killed) on re-run all degrade silently to no reproduction context,
+and the task proceeds. A test the re-run discarded also leaves the tree: that one path goes into the stash
+under `ralphctl/<sprintId>/<taskId>/discarded-reproduction`, which nothing restores. The same holds for the session's bounded "could not
 reproduce" exit (`reproduced: false` plus a `reason`): the leaf logs a warning, the task card shows
 "not reproduced — <reason>", and no re-run happens. The accepted artifact is also saved to
 `implement/<task-id>/reproduce/artifact.json`. On a relaunch whose earlier work is still quarantined
@@ -242,7 +244,7 @@ logic. Every other attempt of the task, before and after the granted one, takes 
 escalation policy and the attempt budget before settling. `plateau` and `budget-exhausted` exits
 consult `decideEscalation` — escalate/nudge fail the running attempt so the outer loop re-enters on the
 stronger model (a model-rung `escalate` also carries the evaluator's own lockstep effort bump, when it
-has headroom); a plateau at the top of the ladder, already nudged, grants the opt-in `best-of-n` rung
+has headroom); a plateau at the top of the ladder, already nudged, grants the `best-of-n` rung (on by default)
 once per task when configured; topped-out and attempt-budget-exhausted keep the work (done-with-warning).
 `malformed`
 exits (evaluator failure) get a plain same-model fresh-attempt retry (no ladder rung) while budget
@@ -309,7 +311,10 @@ the same wave already completed back to `todo`.
 
 On the task's next attempt after an operator unblock — a relaunch; restore is cross-launch only, because a
 same-run retry within budget stashes its rejected diff under a different key
-(`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores — `restore-blocked-
+(`ralphctl/<sprintId>/<taskId>/attempt-<N>-rejected-diff`), which nothing restores; it also saves a copy
+as `<sprintDir>/logs/rejected-diff/<taskId>/attempt-<N>.patch` (skipped over 256 KiB; here `<N>` also counts
+retired attempts, so an unblocked task can't be offered an earlier run's patch), which the retry's
+`<retry_feedback>` names as an optional, unverified patch the agent may apply or ignore — `restore-blocked-
 diff.ts` honours the recorded decision. `fresh` never probes the tree and never pops: the entry stays in the
 stash and the reproduce leaf behaves as on a first launch. `continue` (and a legacy fact with no decision)
 looks the stash up by that SAME message key (never a raw stash index) and pops it back, so the
@@ -443,11 +448,10 @@ opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every o
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
 § Skills subsystem).
 
-Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact (no rail column) at `md` (100–139),
+Execute view: sidebar layout at `lg`+ (≥140), compact (no rail column) at `md` (100–139),
 single-column below `md`. The header carries a main-step strip at every width; a flow without task work items
-(plan, refine, review, …) shows a Steps tree where the Tasks panel would be (`DESIGN-SYSTEM.md` § 7.8). The
-sidebar rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
-(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`
+(plan, refine, review, …) shows a Steps tree where the Tasks panel would be (`DESIGN-SYSTEM.md` § 7.8). Named breakpoints
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`
 from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
 Global keys: `g` progress, `S` / `P` pick sprint / project;
 `b` banner toggle is global, `y` yank is Execute-local. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
@@ -513,7 +517,7 @@ See `PERFORMANCE.md § Verify-gate cost and scoping` for the full picture.
 **Red post-verify retry.** A post-task verify that comes back red with attribution `regressed`
 (evaluator-passed attempt, harness-rejected) now grants a retry within the task's attempt budget
 (`task.maxAttempts ?? harness.maxAttempts`) rather than blocking immediately. The failing verify command
-and log tail are injected into the next attempt's generator prompt via the `RETRY_FEEDBACK_SECTION`
+and the head and tail of its log are injected into the next attempt's generator prompt via the `RETRY_FEEDBACK_SECTION`
 placeholder (the quarantine leaf stashes the rejected diff so the retry starts from the last clean commit).
 Budget exhaustion still transitions to `blocked` and the commit guard independently keys on the block
 reason, so red work never lands regardless of budget.

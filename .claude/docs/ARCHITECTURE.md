@@ -527,7 +527,7 @@ CLI surface is deliberately smaller than v0.6.x — the interactive chains stay 
 
 ## Result types
 
-`Result<T, E>` and `AsyncResult<T, E>` come from `typescript-result`, but every consumer imports from
+`Result<T, E>` comes from `typescript-result`, but every consumer imports from
 `src/domain/result.ts` — the canonical re-export point. The underlying library may only be imported by that one
 file; ESLint enforces it.
 
@@ -747,8 +747,8 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `TaskPlanSignal`                                         | `plan` flow projects the emitted task envelope (`tasksJson`) onto the sprint task list via `planSprintUseCase` (`parsePlanOutput` → `parseTaskList` resolves cross-references)                                                                                                                                                                                                                                                                                |
 | `IdeatedTicketsSignal`                                   | `ideate` flow projects the requirements body + task envelope (`outputJson`) onto the sprint and approves the ticket via `addApprovedTicketUseCase` (`parseIdeateOutput` → `parseTaskList`)                                                                                                                                                                                                                                                                    |
 | `PrContentSignal`                                        | `create-pr` flow reads the AI-authored PR `title`/`body` off ctx and prefers it over the template-derived default when threading into `gh pr create` / `glab mr create`                                                                                                                                                                                                                                                                                       |
-| `ReproductionSignal`                                     | `reproduce` leaf (once per `bugfix`-classified task, before the generator's first turn) — harness re-runs `runCommand` and only accepts `testPath`/`observedFailure` when the re-run actually fails (`reproduced: false` + `reason` is the bounded "could not reproduce" exit — nothing to re-run); `relevantTests` and the artifact feed both generator and evaluator prompts                                                                                |
-| `CandidateSelectionSignal`                               | `select-candidate` AI session inside implement's best-of-N opt-in rung (`settings.harness.bestOfNCandidates`) — pairwise-compares two candidates' structured summaries and picks a `winner` (`0` declares a tie; the judge runs twice with the order swapped)                                                                                                                                                                                                 |
+| `ReproductionSignal`                                     | `reproduce` leaf (once per `bugfix`-classified task, before the generator's first turn) — harness re-runs `runCommand` and only accepts `testPath`/`observedFailure` when the re-run fails on its own — a pass, or a run killed on timeout or the output cap, proves nothing (`reproduced: false` + `reason` is the bounded "could not reproduce" exit — nothing to re-run); `relevantTests` and the artifact feed both generator and evaluator prompts       |
+| `CandidateSelectionSignal`                               | `select-candidate` AI session inside implement's best-of-N rung (`settings.harness.bestOfNCandidates`) — pairwise-compares two candidates' structured summaries and picks a `winner` (`0` declares a tie; the judge runs twice with the order swapped)                                                                                                                                                                                                        |
 
 EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
 `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,
@@ -823,9 +823,9 @@ contract) and are not restated here:
   type. Edits save immediately.
 - **Doctor view** — calls the shared `useSystemStatus` provider's `refreshDoctor()`
   (`runtime/system-status-context.tsx`) on mount and on refresh; renders per-check rows + an aggregate card.
-- **Execute view is responsive** — flow-steps rail / tasks-stream / context columns collapse from three to one as
-  the terminal narrows. Every width decision goes through the named breakpoints and `resolveRailWidth` in
-  `theme/tokens.ts` — no hardcoded column literals. The step tree renders `Element.label` when present,
+- **Execute view is responsive** — sidebar + tasks collapse to a single column as
+  the terminal narrows. Every width decision goes through the named breakpoints in
+  `theme/tokens.ts` and `resolveResponsiveLayout` — no hardcoded column literals. The step tree renders `Element.label` when present,
   truncated to its column budget.
 - **Overlays snapshot on open** — `ProgressOverlay` reads `progress.md` and `EvaluationOverlay` reads
   `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>` from disk when opened; there is no live tail or

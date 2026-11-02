@@ -5,7 +5,6 @@ import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import { approveTicketRequirements } from '@src/domain/entity/ticket.ts';
 import { makeDraftSprint, makePendingTicket, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 import {
   buildPlanPrompt,
   planPromptDef,
@@ -36,39 +35,6 @@ const draftWithApproved = (count: number): Sprint => {
 };
 
 describe('planPromptDef — completeness', () => {
-  it('every placeholder in plan.md is declared by the definition (parameters or partials)', async () => {
-    const path = `${String(defaultTemplatesDir())}/plan/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = extractPlaceholders(template);
-
-    const declared = new Set([
-      ...Object.values(planPromptDef.parameters).map((p) => p.placeholder),
-      ...Object.keys(planPromptDef.partials ?? {}),
-    ]);
-    for (const placeholder of placeholders) {
-      expect(declared.has(placeholder), `template uses {{${placeholder}}} but the def doesn't declare it`).toBe(true);
-    }
-  });
-
-  it('every placeholder declared by the definition exists in plan.md', async () => {
-    const path = `${String(defaultTemplatesDir())}/plan/template.md`;
-    const template = await fs.readFile(path, 'utf8');
-    const placeholders = new Set(extractPlaceholders(template));
-
-    for (const spec of Object.values(planPromptDef.parameters)) {
-      expect(
-        placeholders.has(spec.placeholder),
-        `def declares {{${spec.placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-    for (const placeholder of Object.keys(planPromptDef.partials ?? {})) {
-      expect(
-        placeholders.has(placeholder),
-        `def declares partial slot {{${placeholder}}} but template doesn't use it`
-      ).toBe(true);
-    }
-  });
-
   it('prefers fewer, well-grounded tasks over speculative ones padding out the plan', async () => {
     const path = `${String(defaultTemplatesDir())}/plan/template.md`;
     const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');

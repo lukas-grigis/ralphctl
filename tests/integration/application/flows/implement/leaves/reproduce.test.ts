@@ -92,9 +92,11 @@ const fakeShellRunner = (
 });
 
 /**
- * Git fake for the reproduce leaf's one git read — `stash list --format=%s`, answered in real git's
- * `On <branch>: <message>` subject shape. Matched on the first two args only, so a flag change
- * elsewhere in the argv never silently turns a scripted answer into an unscripted one.
+ * Git fake for the reproduce leaf's reads — `stash list --format=%s`, answered in real git's
+ * `On <branch>: <message>` subject shape, and the path probe before setting a discarded test aside,
+ * answered clean (`reproduce-discard-realgit.test.ts` covers the stash itself). Matched on the first
+ * two args only, so a flag change elsewhere in the argv never silently turns a scripted answer into
+ * an unscripted one.
  */
 const fakeStashGit = (
   opts: { readonly subjects?: readonly string[]; readonly listFails?: boolean } = {}
@@ -108,6 +110,7 @@ const fakeStashGit = (
         if (opts.listFails === true) return Result.error(new StorageError({ subCode: 'io', message: 'git broke' }));
         return Result.ok({ stdout: (opts.subjects ?? []).join('\n'), stderr: '', exitCode: 0 });
       }
+      if (args[0] === 'status' && args[1] === '--porcelain') return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
       throw new Error(`unscripted git args: ${args.join(' ')}`);
     },
   };
@@ -294,6 +297,44 @@ describe('reproduceLeaf — guarded reproduction-first leaf', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+  });
+
+  it('degrade: harness re-run killed on timeout / output cap → discarded, no artifact (a hang is not a reproduction)', async () => {
+    const task = makeTodoTask({ name: 'fix the null pointer' });
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () =>
+      Result.ok({
+        passed: false,
+        exitCode: null,
+        output: '[timeout exceeded after 300000ms]',
+        durationMs: 0,
+        timedOut: true,
+      })
+    );
+    const leaf = reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id);
+
+    const result = await leaf.execute(buildCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact).toBeUndefined();
+    const loaded = await loadReproductionArtifact(artifactFile());
+    expect(loaded.ok && loaded.value).toBeUndefined();
+  });
+
+  it('ok: a signal-killed re-run that the runner did not kill is still accepted', async () => {
+    const task = makeTodoTask({ name: 'fix the crash' });
+    await writeTestFile('tests/unit/foo.test.ts', 'x');
+    const provider = fakeProvider({ kind: 'signals', signals: [reproductionSignal()] });
+    const shellScriptRunner = fakeShellRunner(async () =>
+      Result.ok({ passed: false, exitCode: null, output: 'Segmentation fault', durationMs: 0 })
+    );
+    const leaf = reproduceLeaf(buildDeps(provider, shellScriptRunner), buildOpts(), task.id);
+
+    const result = await leaf.execute(buildCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.reproductionArtifact?.observedFailure).toBe('Segmentation fault');
   });
 
   it('not reproduced: reproduced false → no artifact, no harness re-run, no error', async () => {
@@ -663,6 +704,12 @@ describe('isDefectShapedTask — guard predicate', () => {
 
   it('false for a feature-shaped task name', () => {
     const task = makeTodoTask({ name: 'add a new widget' });
+    const ctx = { tasks: [task] } as unknown as ImplementCtx;
+    expect(isDefectShapedTask(ctx, task.id)).toBe(false);
+  });
+
+  it('false for a feature-shaped name whose description only mentions a fix in passing', () => {
+    const task = { ...makeTodoTask({ name: 'add a new widget' }), description: 'and fix any lint errors it trips' };
     const ctx = { tasks: [task] } as unknown as ImplementCtx;
     expect(isDefectShapedTask(ctx, task.id)).toBe(false);
   });

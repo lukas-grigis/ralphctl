@@ -25,7 +25,7 @@ import { messageOf } from '@src/domain/value/error/error-message.ts';
  * review-transition guard so it sees the reconciled set too.
  *
  * Never fails the epilogue — this read is a best-effort reconciliation, not a precondition, and the
- * epilogue's whole point (THE B4 durability gate) is to persist whatever the run produced even on
+ * epilogue's whole point (the durability gate) is to persist whatever the run produced even on
  * an abort / fatal path:
  *  - `ctx.tasks` undefined (e.g. the prologue failed before `load-tasks` ran) → no-op, no read.
  *  - the read `Result.error`s (a `StorageError`) → warn and keep `ctx.tasks` unchanged.

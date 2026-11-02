@@ -1,16 +1,15 @@
 /**
- * Shared NDJSON plumbing for the five stdout stream parsers: the capped `feed`/`flush`
- * line-splitting loop ({@link createCappedLineFeed}) plus the JSON-object line parser the
- * codex / grok / opencode emitters share ({@link parseJsonObjectLine}, {@link emitJsonObjectLine}).
+ * Shared NDJSON plumbing for the five stdout stream parsers: the capped `feed`/`flush` line
+ * splitter plus the JSON-object line parser.
  */
 
-import { createCappedAppend } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+/**
+ * Ceiling on the in-flight (unterminated) line. One record embedding a large file-read or bash
+ * result can otherwise grow the buffer to tens of MB before its newline arrives.
+ */
+export const STDOUT_LINE_PARSE_CAP = 524_288;
 
-// Normalise the line ending. We split on `\n` only, so a CRLF stream (a Windows-hosted CLI, or a
-// PTY that translates `\n` → `\r\n`) leaves a trailing `\r` on every line. That one byte used to
-// defeat the JSON guards in the claude / copilot emitters — every record fell through to the
-// plain-text branch and session-id, body and usage were all silently lost. Stripping here keeps
-// both the parse path and the `line.raw` debug fan-out looking at the same normalised string.
+// We split on `\n` only, so a CRLF stream leaves a trailing `\r` that would defeat the JSON guards.
 const stripCr = (line: string): string => (line.endsWith('\r') ? line.slice(0, -1) : line);
 
 /**
@@ -25,30 +24,34 @@ export const createCappedLineFeed = <L>(
   flush(onLine: (line: L) => void): void;
 } => {
   let buffer = '';
-  // Cap the in-flight line accumulator. A single NDJSON record embedding a large file-read /
-  // bash tool result can grow `buffer` to tens of MB before its newline clears it — an OOM-class
-  // accumulation. `feed` is the SOLE append site, so capping here keeps the invariant for `flush`
-  // too (it only drains an already-bounded buffer). Shared impl — see `createCappedAppend`
-  // (drop-oldest, one-shot warn).
-  const appendCapped = createCappedAppend(streamLabel);
+  let overflowWarned = false;
+  // Keep the TAIL on overflow so the record's terminating newline still lands in the window; warn once.
+  const appendCapped = (chunk: string): void => {
+    buffer += chunk;
+    if (buffer.length <= STDOUT_LINE_PARSE_CAP) return;
+    if (!overflowWarned) {
+      overflowWarned = true;
+      console.warn(
+        `[${streamLabel}] in-flight NDJSON line exceeded ${String(STDOUT_LINE_PARSE_CAP)} bytes — ` +
+          'truncating the parse buffer to its tail and continuing. A single record is streaming an ' +
+          'oversized tool result; the affected line will be emitted as a raw (unparsed) text line.'
+      );
+    }
+    buffer = buffer.slice(-STDOUT_LINE_PARSE_CAP);
+  };
 
   return {
     feed(chunk, onLine) {
-      buffer = appendCapped(buffer, chunk);
-      let nl = buffer.indexOf('\n');
-      while (nl !== -1) {
-        const line = stripCr(buffer.slice(0, nl));
-        buffer = buffer.slice(nl + 1);
-        emitLine(line, onLine);
-        nl = buffer.indexOf('\n');
-      }
+      appendCapped(chunk);
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) emitLine(stripCr(line), onLine);
     },
     flush(onLine) {
-      if (buffer.length > 0) {
-        const line = stripCr(buffer);
-        buffer = '';
-        emitLine(line, onLine);
-      }
+      if (buffer.length === 0) return;
+      const line = stripCr(buffer);
+      buffer = '';
+      emitLine(line, onLine);
     },
   };
 };
@@ -56,12 +59,13 @@ export const createCappedLineFeed = <L>(
 /**
  * Trim + JSON.parse one stdout line. `undefined` for blank, non-object-looking, and unparseable
  * lines — CLIs print banner text alongside JSON records, so a parse failure is expected noise.
+ * The `{` check is only a cheap pre-filter; deliberately no closing-`}` check, since one stray
+ * trailing byte would then drop every well-formed record.
  */
 export const parseJsonObjectLine = (line: string): Record<string, unknown> | undefined => {
   const trimmed = line.trim();
-  if (trimmed.length === 0 || !trimmed.startsWith('{')) return undefined;
+  if (!trimmed.startsWith('{')) return undefined;
   try {
-    // Callers narrow every field they read through `json-field.ts` helpers; unknown shapes are skipped.
     return JSON.parse(trimmed) as Record<string, unknown>;
   } catch {
     return undefined;
