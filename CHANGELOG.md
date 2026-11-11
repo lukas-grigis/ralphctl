@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-11
+
+### Added
+
+- **Guide for plugging in your own skills.** [`docs/custom-skills.md`](./docs/custom-skills.md) covers where a
+  skill can live (committed in the repo, per flow or per provider under `~/.ralphctl/skills/`), what a `SKILL.md`
+  needs for ralphctl to load it, and how to switch skills on and off. It then wires in OpenSpec end to end.
+
 ### Fixed
 
 - **Codex sessions can reach the network.** Codex blocks network access from shell commands by default, so a
