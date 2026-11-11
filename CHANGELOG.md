@@ -11,9 +11,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Guide for plugging in your own skills.** [`docs/custom-skills.md`](./docs/custom-skills.md) covers where a
-  skill can live (committed in the repo, per flow or per provider under `~/.ralphctl/skills/`), what a `SKILL.md`
-  needs for ralphctl to load it, and how to switch skills on and off. It then wires in OpenSpec end to end.
+- **Guide for plugging in your own skills.** [`docs/custom-skills.md`](./docs/custom-skills.md) is a two-minute
+  read: where a skill can live, what its `SKILL.md` needs, the gotchas, and how to switch it off.
 
 ### Fixed
 
