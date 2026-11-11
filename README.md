@@ -545,15 +545,16 @@ Run `ralphctl <command> --help` for flag-level detail.
 
 ## Documentation
 
-| Resource                                         | Description                                              |
-| ------------------------------------------------ | -------------------------------------------------------- |
-| [Architecture](./ARCHITECTURE.md)                | Data models, harness loop, file storage, error reference |
-| [Providers](./docs/providers.md)                 | Per-backend setup, permission mapping, model ids, limits |
-| [Adding a provider](./docs/adding-a-provider.md) | Extension guide: wire a new AI CLI into the harness      |
-| [Requirements](./.claude/docs/REQUIREMENTS.md)   | Acceptance criteria and feature checklist                |
-| [Contributing](./CONTRIBUTING.md)                | Dev setup, code style, PR process                        |
-| [Migration](./MIGRATION.md)                      | Per-version upgrade context for big version jumps        |
-| [Changelog](./CHANGELOG.md)                      | Version history                                          |
+| Resource                                         | Description                                                  |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| [Architecture](./ARCHITECTURE.md)                | Data models, harness loop, file storage, error reference     |
+| [Providers](./docs/providers.md)                 | Per-backend setup, permission mapping, model ids, limits     |
+| [Adding a provider](./docs/adding-a-provider.md) | Extension guide: wire a new AI CLI into the harness          |
+| [Custom skills](./docs/custom-skills.md)         | Plug in your own skills, with OpenSpec as the worked example |
+| [Requirements](./.claude/docs/REQUIREMENTS.md)   | Acceptance criteria and feature checklist                    |
+| [Contributing](./CONTRIBUTING.md)                | Dev setup, code style, PR process                            |
+| [Migration](./MIGRATION.md)                      | Per-version upgrade context for big version jumps            |
+| [Changelog](./CHANGELOG.md)                      | Version history                                              |
 
 **From the author** ([Lukas Grigis](https://lukasgrigis.dev/)):
 [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (backstory)
