@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-11
+
+### Added
+
+- **Guide for plugging in your own skills.** [`docs/custom-skills.md`](./docs/custom-skills.md) is a two-minute
+  read: where a skill can live, what its `SKILL.md` needs, the gotchas, and how to switch it off.
+
 ### Fixed
 
 - **Codex sessions can reach the network.** Codex blocks network access from shell commands by default, so a
