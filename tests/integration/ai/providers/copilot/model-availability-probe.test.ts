@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createCopilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
 import type { ModelProbeDegradation } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 
-const CATALOG = ['claude-sonnet-5.5', 'claude-opus-4.8', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-5.6-luna'] as const;
+const CATALOG = ['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-5.6-luna'] as const;
 
 // A stand-in `copilot --headless --stdio`: answers `connect` then `models.list` with
 // Content-Length-framed JSON-RPC, the same transport the real CLI speaks.
@@ -26,7 +26,7 @@ process.stdin.on('data', (d) => {
     if (req.method === 'models.list') send({ jsonrpc: '2.0', id: req.id, result: { models: [
       { id: 'auto' },
       { id: 'claude-sonnet-5.5', policy: { state: 'enabled' } },
-      { id: 'claude-opus-4.8', policy: { state: 'enabled' } },
+      { id: 'claude-opus-5.5', policy: { state: 'enabled' } },
       { id: 'gpt-6.1-sol', policy: { state: 'disabled' } },
       { id: 'gpt-5.6-luna' },
       { id: 'some-future-model', policy: { state: 'enabled' } },
@@ -56,7 +56,7 @@ describe('createCopilotModelAvailabilityProbe', () => {
       const probe = createCopilotModelAvailabilityProbe({ command: fakeCli });
       // gpt-6-luna is absent from the answer and gpt-6.1-sol is disabled; models outside the
       // catalog (`auto`, `some-future-model`) never leak into the picker.
-      expect(await probe.availableModels(CATALOG)).toEqual(['claude-sonnet-5.5', 'claude-opus-4.8', 'gpt-5.6-luna']);
+      expect(await probe.availableModels(CATALOG)).toEqual(['claude-sonnet-5.5', 'claude-opus-5.5', 'gpt-5.6-luna']);
     }
   );
 
@@ -73,7 +73,7 @@ describe('createCopilotModelAvailabilityProbe', () => {
   it('fails open with empty-answer when nothing intersects the catalog', async () => {
     const seen: ModelProbeDegradation[] = [];
     const probe = createCopilotModelAvailabilityProbe({
-      listModels: () => Promise.resolve([{ id: 'auto' }, { id: 'claude-opus-4.8', policyState: 'disabled' }]),
+      listModels: () => Promise.resolve([{ id: 'auto' }, { id: 'claude-opus-5.5', policyState: 'disabled' }]),
       onDegraded: (d) => seen.push(d),
     });
     expect(await probe.availableModels(CATALOG)).toBe(CATALOG);

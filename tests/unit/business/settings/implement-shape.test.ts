@@ -34,7 +34,7 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
     });
     expect(DEFAULT_SETTINGS.ai.implement.evaluator).toEqual({
       provider: 'openai-codex',
-      model: 'gpt-6.1-sol',
+      model: 'gpt-6.2-sol',
     });
   });
 
@@ -212,20 +212,20 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
   // 2026-09-01 and 2026-10-02 deprecations. Older entries are chain-collapsed onto the live successor, so every
   // persisted row loads on a catalog model in one hop.
   it.each([
-    ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
+    ['gemini-3.1-pro-preview', 'gemini-4-hydrogen'],
     ['raptor-mini-preview', 'mai-code-1.1-flash'],
-    ['gemini-2.5-pro', 'gemini-3.8-flash'],
-    ['gemini-3-flash', 'gemini-3.8-flash'],
-    ['gemini-3.5-flash', 'gemini-3.8-flash'],
-    ['gemini-3.6-flash', 'gemini-3.8-flash'],
+    ['gemini-2.5-pro', 'gemini-4-hydrogen'],
+    ['gemini-3-flash', 'gemini-4-hydrogen'],
+    ['gemini-3.5-flash', 'gemini-4-hydrogen'],
+    ['gemini-3.6-flash', 'gemini-4-hydrogen'],
     ['kimi-k2.7-code', 'kimi-k3'],
-    // Opus 4.8 itself retires 2026-11-16, so older Opus ids land on GitHub's named successor.
+    // Older Opus ids land on GitHub's named successor.
     ['claude-opus-4.7', 'claude-opus-5.5'],
     ['claude-opus-4.5', 'claude-opus-5.5'],
     ['claude-opus-4.6', 'claude-opus-5.5'],
     ['claude-sonnet-4.5', 'claude-sonnet-5'],
     ['claude-sonnet-4.6', 'claude-sonnet-5'],
-    ['gemini-3.1-pro', 'gemini-3.8-flash'],
+    ['gemini-3.1-pro', 'gemini-4-hydrogen'],
     ['raptor-mini', 'mai-code-1.1-flash'],
     ['mai-code-1-flash', 'mai-code-1.1-flash'],
     // 2026-10-19 deprecation — GitHub's named successors.
@@ -233,8 +233,12 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     ['gpt-5.4', 'gpt-5.6-sol'],
     ['gpt-5.4-mini', 'gpt-5.6-luna'],
     ['gpt-5-mini', 'gpt-5.6-luna'],
-    ['gemini-3.7-flash', 'gemini-3.8-flash'],
-    ['grok-4.5', 'grok-4.6'],
+    ['gemini-3.7-flash', 'gemini-4-hydrogen'],
+    ['grok-4.5', 'grok-4.7'],
+    // 2026-11-16 deprecation — GitHub's named successors.
+    ['claude-opus-4.8', 'claude-opus-5.5'],
+    ['claude-opus-5', 'claude-opus-5.5'],
+    ['gpt-5.6-terra', 'gpt-6.1-terra'],
   ])('rewrites a copilot flat row pinned to the retired %s to %s', (retired, successor) => {
     const stale = {
       ...baseRecord,
@@ -265,8 +269,8 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.implement.generator.model).toBe('gemini-3.8-flash');
-    expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-3.8-flash');
+    expect(parsed.data.ai.implement.generator.model).toBe('gemini-4-hydrogen');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-4-hydrogen');
   });
 
   it('leaves a non-copilot row pinned to gemini-2.5-pro untouched — the remap is provider-guarded', () => {
@@ -285,9 +289,8 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.data.ai.plan).toEqual({ provider: 'opencode', model: 'gemini-2.5-pro' });
   });
 
-  // Chain-collapsed: these used to land on `gpt-5.5`, which itself retired from Codex on 2026-10-14.
   it.each(['gpt-5.3-codex', 'gpt-5.2', 'gpt-5.3-codex-spark', 'gpt-5.5'])(
-    'rewrites a codex flat row pinned to the removed %s to gpt-5.6-sol',
+    'rewrites a codex flat row pinned to the removed %s to gpt-6.1-sol',
     (removedModel) => {
       const stale = {
         ...baseRecord,
@@ -300,7 +303,7 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
       const parsed = SettingsSchema.safeParse(stale);
       expect(parsed.success).toBe(true);
       if (!parsed.success) return;
-      expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-5.6-sol' });
+      expect(parsed.data.ai.refine).toEqual({ provider: 'openai-codex', model: 'gpt-6.1-sol' });
     }
   );
 
@@ -355,10 +358,9 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
   });
 
   it.each([
-    ['opencode/deepseek-v4-flash-free', 'opencode/nemotron-3.5-lightning-free'],
-    ['opencode/ling-3.0-tiny-free', 'opencode/ling-3.0-flash-fin-free'],
+    ['opencode/deepseek-v4-flash-free', 'opencode/deepseek-v4.1-flash-free'],
+    ['opencode/longcat-2.5-preview-free', 'opencode/longcat-2.5-free'],
     ['opencode/mimo-v2.5-free', 'opencode/mimo-v2.6-flash-free'],
-    ['opencode/muse-spark-1.2-contributor-free', 'opencode/muse-spark-1.3-contributor-free'],
   ])('rewrites an opencode row pinned to the dropped free-tier %s to %s', (retired, successor) => {
     const stale = {
       ...baseRecord,
@@ -405,8 +407,8 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     const parsed = SettingsSchema.safeParse(stale);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.ai.implement.generator.model).toBe('gpt-5.6-sol');
-    expect(parsed.data.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+    expect(parsed.data.ai.implement.generator.model).toBe('gpt-6.1-sol');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('gpt-6.1-sol');
   });
 });
 

@@ -435,9 +435,9 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(args).toContain('--model=claude-fable-5');
   });
 
-  it('still builds args for a non-suspended copilot model (claude-opus-4.8)', () => {
-    const args = unwrapArgs(session({ model: 'claude-opus-4.8' }));
-    expect(args).toContain('--model=claude-opus-4.8');
+  it('still builds args for a non-suspended copilot model (claude-opus-4.8-fast)', () => {
+    const args = unwrapArgs(session({ model: 'claude-opus-4.8-fast' }));
+    expect(args).toContain('--model=claude-opus-4.8-fast');
   });
 
   it('always emits --output-format=json --autopilot --silent --no-ask-user', () => {

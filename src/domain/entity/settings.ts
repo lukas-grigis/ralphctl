@@ -117,13 +117,15 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
   return { ...aiObj, createPr: { ...(refine as Record<string, unknown>) } };
 };
 
-const COPILOT_GEMINI_SUCCESSOR = 'gemini-3.8-flash';
-// GitHub's named successor for Opus 4.8 / 5, which retire on Copilot 2026-11-16.
+const COPILOT_GEMINI_SUCCESSOR = 'gemini-4-hydrogen';
+// GitHub's named successor for the Opus ids retired from Copilot.
 const COPILOT_OPUS_SUCCESSOR = 'claude-opus-5.5';
 const COPILOT_SMALL_CODE_SUCCESSOR = 'mai-code-1.1-flash';
-// GitHub's named successors for the 2026-10-19 GPT deprecations; also Codex's `gpt-5.5` successor.
+// GitHub's named successors for the 2026-10-19 GPT deprecations.
 const GPT_5_6_SOL = 'gpt-5.6-sol';
 const GPT_5_6_LUNA = 'gpt-5.6-luna';
+// OpenAI's named replacement for gpt-5.5 on Codex; the older retired ids collapse onto it.
+const CODEX_SOL_SUCCESSOR = 'gpt-6.1-sol';
 
 /**
  * Retired model slugs and their catalog successors, per provider — rewritten at parse time.
@@ -159,21 +161,19 @@ export const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5.4-mini', to: GPT_5_6_LUNA },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5-mini', to: GPT_5_6_LUNA },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.7-flash', to: COPILOT_GEMINI_SUCCESSOR },
-  { provider: PROVIDER_GITHUB_COPILOT, from: 'grok-4.5', to: 'grok-4.6' },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.5', to: GPT_5_6_SOL },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'grok-4.5', to: 'grok-4.7' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.8', to: COPILOT_OPUS_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-5', to: COPILOT_OPUS_SUCCESSOR },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gpt-5.6-terra', to: 'gpt-6.1-terra' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.5', to: CODEX_SOL_SUCCESSOR },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4', to: 'gpt-6-sol' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.4-mini', to: 'gpt-6-luna' },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: GPT_5_6_SOL },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: GPT_5_6_SOL },
-  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: GPT_5_6_SOL },
-  { provider: PROVIDER_OPENCODE, from: 'opencode/deepseek-v4-flash-free', to: 'opencode/nemotron-3.5-lightning-free' },
-  { provider: PROVIDER_OPENCODE, from: 'opencode/ling-3.0-tiny-free', to: 'opencode/ling-3.0-flash-fin-free' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: CODEX_SOL_SUCCESSOR },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: CODEX_SOL_SUCCESSOR },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: CODEX_SOL_SUCCESSOR },
+  { provider: PROVIDER_OPENCODE, from: 'opencode/deepseek-v4-flash-free', to: 'opencode/deepseek-v4.1-flash-free' },
+  { provider: PROVIDER_OPENCODE, from: 'opencode/longcat-2.5-preview-free', to: 'opencode/longcat-2.5-free' },
   { provider: PROVIDER_OPENCODE, from: 'opencode/mimo-v2.5-free', to: 'opencode/mimo-v2.6-flash-free' },
-  {
-    provider: PROVIDER_OPENCODE,
-    from: 'opencode/muse-spark-1.2-contributor-free',
-    to: 'opencode/muse-spark-1.3-contributor-free',
-  },
 ];
 
 /**

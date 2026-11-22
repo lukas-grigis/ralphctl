@@ -383,8 +383,8 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     expect(evt.outputTokens).toBe(567);
     expect(evt.cacheReadTokens).toBe(89);
     expect(evt.cacheCreationTokens).toBe(12);
-    // claude-opus-4-8 is in the static context-window table at 200k.
-    expect(evt.contextWindow).toBe(200_000);
+    // claude-opus-4-8 is in the static context-window table at 1M.
+    expect(evt.contextWindow).toBe(1_000_000);
 
     // The same figures also ride BACK to the caller as data — the event is ephemeral, this is what
     // the chain folds onto the attempt.

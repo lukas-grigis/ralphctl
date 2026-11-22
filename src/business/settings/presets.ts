@@ -55,19 +55,20 @@ import { OPENCODE_ONLY } from '@src/business/settings/opencode-preset-matrices.t
  *   standard      — `mixed` routes each flow to the best provider for that flow's purpose;
  *                   `<provider>-only` routes every flow to that one provider.
  *   economic      — mirror the standard routings but start `implement` one tier below the
- *                   flagship to save tokens, leaning on the escalation ladder to climb only when
+ *                   flagship (Grok: at lower effort) to save tokens, leaning on the escalation ladder to climb only when
  *                   a task plateaus. Also pins `harness.bestOfNCandidates` to `0`.
- *   strong-gate   — cheap implement generator paired with a permanently-strong evaluator — the
- *                   family that splits generator and evaluator by TIER on one provider
- *                   (`mixed`, `mixed-economic` and `mixed-frontier` split by provider instead).
+ *   strong-gate   — cheap implement generator paired with a permanently-strong evaluator, split
+ *                   by tier (Grok: by effort) on one provider (`mixed`, `mixed-economic` and
+ *                   `mixed-frontier` split by provider instead).
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality
  *                   (Claude: Haiku 5.5 on the light flows, Sonnet 5.5 on the code flows);
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
- *   frontier      — no cost ceiling: the vendor's top model at `max` on the deep flows (Fable 5.1
- *                   on Claude, `gpt-6-astra` on Codex, Opus 5.5 on Copilot, `grok-4.7` on
- *                   Grok — at `xhigh`, its ceiling). Fable needs a non-zero-data-retention
+ *   frontier      — no cost ceiling: the vendor's top model on the deep flows (Fable 5.2 at
+ *                   `high` on Claude, `gpt-6.2-astra` at `max` on Codex, Opus 5.5 at `xhigh` on
+ *                   Copilot, `grok-4.7` at `xhigh` on Grok). Fable needs a non-zero-data-retention
  *                   org. Neither Fable nor astra is a default-ladder rung, so a frontier
- *                   generator never escalates; `grok-4.7-build-fast` stays opt-in.
+ *                   generator never climbs a model rung (a Fable generator still climbs the
+ *                   effort rung high→xhigh→max); `grok-4.7-build-fast` stays opt-in.
  *
  * Applying a preset stamps the AI section AND `harness.escalateOnPlateau` — plus, for the economic
  * family only, `harness.bestOfNCandidates: 0` (its explicit cost opt-out). Preset identity is

@@ -3,17 +3,16 @@ import { COPILOT, COPILOT_LUNA, COPILOT_OPUS, COPILOT_SONNET } from '@src/busine
 
 /*
  * Copilot tiers: `gpt-6-luna` (light flows), `claude-sonnet-5.5`, and `claude-opus-5.5` on top.
- * GitHub gates Opus 4.8, 5 and 5.5 identically (Pro+ and up, none on Pro), so the newest and
- * cheapest Opus is the pick; on a Pro account the Opus rows fall back to Sonnet 5.5 via
+ * GitHub gates Opus 5.5 to Pro+ and up (none on Pro); on a Pro account the Opus rows fall back to Sonnet 5.5 via
  * `adapt-to-available-models.ts`. Every row pins an explicit effort.
  */
 
 export const COPILOT_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: COPILOT, model: COPILOT_SONNET, effort: 'medium' },
-  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
   implement: {
-    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
+    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
     evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
   readiness: { provider: COPILOT, model: COPILOT_LUNA, effort: 'medium' },
@@ -39,7 +38,7 @@ export const COPILOT_ECONOMIC: AiSettings = {
 export const COPILOT_STRONG_GATE: AiSettings = {
   effort: 'high',
   refine: { provider: COPILOT, model: COPILOT_SONNET, effort: 'medium' },
-  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
   implement: {
     generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
     evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
@@ -63,14 +62,14 @@ export const COPILOT_FAST: AiSettings = {
   createPr: { provider: COPILOT, model: COPILOT_LUNA, effort: 'low' },
 };
 
-/** Opus 5.5 everywhere, `max` on the deep flows. */
+/** Opus 5.5 everywhere, `xhigh` on plan and generator — one notch above `copilot-only`, whose evaluator is already `xhigh`. */
 export const COPILOT_FRONTIER: AiSettings = {
-  effort: 'max',
+  effort: 'xhigh',
   refine: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
-  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   implement: {
-    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
-    evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
+    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
+    evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
   readiness: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
   ideate: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },

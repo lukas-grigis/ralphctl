@@ -6,9 +6,9 @@ import {
   COPILOT_LUNA,
   COPILOT_SONNET,
   FABLE,
-  GPT_6_ASTRA,
+  GPT_6_2_ASTRA,
   GPT_6_LUNA,
-  GPT_6_1_SOL,
+  GPT_6_2_SOL,
   OPUS,
   SONNET,
 } from '@src/business/settings/preset-model-ids.ts';
@@ -27,10 +27,10 @@ import {
 export const MIXED: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_6_LUNA, effort: 'high' },
-  plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'high' },
   implement: {
-    generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
-    evaluator: { provider: CODEX, model: GPT_6_1_SOL, effort: 'xhigh' },
+    generator: { provider: CLAUDE, model: OPUS, effort: 'high' },
+    evaluator: { provider: CODEX, model: GPT_6_2_SOL, effort: 'xhigh' },
   },
   readiness: { provider: COPILOT, model: COPILOT_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: OPUS, effort: 'high' },
@@ -58,8 +58,8 @@ export const MIXED_ECONOMIC: AiSettings = {
 
 export const MIXED_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_6_LUNA, effort: 'medium' },
-  plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
+  refine: { provider: CODEX, model: GPT_6_LUNA, effort: 'high' },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'high' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
     evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
@@ -83,19 +83,19 @@ export const MIXED_FAST: AiSettings = {
 };
 
 /**
- * Same cross-provider gate as {@link MIXED}, at the frontier tier: a Fable 5.1 author graded by
- * a `gpt-6-astra` critic. Both are their vendor's premium tier and opt-in only elsewhere; see
+ * Same cross-provider gate as {@link MIXED}, at the frontier tier: a Fable 5.2 author graded by
+ * a `gpt-6.2-astra` critic. Both are their vendor's premium tier and opt-in only elsewhere; see
  * `CLAUDE_FRONTIER` / `CODEX_FRONTIER` for the cost and data-retention caveats.
  */
 export const MIXED_FRONTIER: AiSettings = {
-  effort: 'max',
-  refine: { provider: CODEX, model: GPT_6_1_SOL, effort: 'high' },
-  plan: { provider: CLAUDE, model: FABLE, effort: 'max' },
+  effort: 'high',
+  refine: { provider: CODEX, model: GPT_6_2_SOL, effort: 'high' },
+  plan: { provider: CLAUDE, model: FABLE, effort: 'high' },
   implement: {
-    generator: { provider: CLAUDE, model: FABLE, effort: 'max' },
-    evaluator: { provider: CODEX, model: GPT_6_ASTRA, effort: 'max' },
+    generator: { provider: CLAUDE, model: FABLE, effort: 'high' },
+    evaluator: { provider: CODEX, model: GPT_6_2_ASTRA, effort: 'max' },
   },
   readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
   ideate: { provider: CLAUDE, model: FABLE, effort: 'high' },
-  createPr: { provider: CODEX, model: GPT_6_1_SOL, effort: 'medium' },
+  createPr: { provider: CODEX, model: GPT_6_2_SOL, effort: 'medium' },
 };

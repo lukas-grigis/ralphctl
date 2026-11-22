@@ -13,11 +13,10 @@ import { modelEffortLevels } from '@src/domain/value/settings-models/effort.ts';
 /**
  * Built-in ladders, cheapest first, one rung per escalation; legacy tiers converge on each top:
  *
- *  - claude-code — Haiku → Sonnet 5.5 → Opus 5.5. Fable is never a default rung (2.5x Opus 5.5,
- *    needs a non-ZDR org); opt in via `escalationMap`.
- *  - github-copilot — Haiku → Sonnet 5.5 → Opus 5.5 (Opus 4.8 / 5 / 5.5 are plan-gated alike, 5.5 is
- *    cheapest); GPT luna → sol within 5.6, skipping the retiring terra. GPT-6 ids are Pro+ only, so no rungs.
- *  - openai-codex — up to `gpt-6.1-sol`; the premium `gpt-6-astra` is never a default rung.
+ *  - claude-code — Haiku → Sonnet 5.5 → Opus 5.5. Fable is never a default rung; opt in via
+ *    `escalationMap`.
+ *  - github-copilot — Haiku → Sonnet 5.5 → Opus 5.5; GPT luna → sol within 5.6. No GPT-6 rungs.
+ *  - openai-codex — up to `gpt-6.2-sol`; the premium astra is never a default rung.
  *  - xai-grok — one generation per escalation up to `grok-4.7`; `-build-fast` is the same model at 2x.
  *  - opencode — none: an aggregator has no vendor ladder.
  *
@@ -28,6 +27,7 @@ const CLAUDE_OPUS_5_5 = 'claude-opus-5-5';
 const CLAUDE_SONNET_5_5 = 'claude-sonnet-5-5';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
 const GPT_6_1_SOL = 'gpt-6.1-sol';
+const GPT_6_2_SOL = 'gpt-6.2-sol';
 const GPT_5_6_LUNA = 'gpt-5.6-luna';
 const COPILOT_SONNET_5_5 = 'claude-sonnet-5.5';
 const COPILOT_OPUS_5_5 = 'claude-opus-5.5';
@@ -47,17 +47,15 @@ export const DEFAULT_ESCALATION_LADDERS: Readonly<Record<AiProvider, Readonly<Re
     'claude-haiku-4.5': COPILOT_SONNET_5_5,
     [COPILOT_SONNET_5_5]: COPILOT_OPUS_5_5,
     'claude-sonnet-5': COPILOT_OPUS_5_5,
-    'claude-opus-4.8': COPILOT_OPUS_5_5,
-    'claude-opus-5': COPILOT_OPUS_5_5,
     [GPT_5_6_LUNA]: GPT_5_6_SOL,
-    'gpt-5.6-terra': GPT_5_6_SOL,
   },
   'openai-codex': {
-    'gpt-6-luna': GPT_6_1_SOL,
-    'gpt-6-sol': GPT_6_1_SOL,
+    'gpt-6-luna': GPT_6_2_SOL,
+    'gpt-6-sol': GPT_6_2_SOL,
+    [GPT_6_1_SOL]: GPT_6_2_SOL,
     [GPT_5_6_LUNA]: 'gpt-5.6-terra',
     'gpt-5.6-terra': GPT_5_6_SOL,
-    [GPT_5_6_SOL]: GPT_6_1_SOL,
+    [GPT_5_6_SOL]: GPT_6_2_SOL,
   },
   'xai-grok': {
     'grok-4.5': 'grok-4.6',
@@ -141,8 +139,8 @@ type ClaudeEffort = (typeof CLAUDE_EFFORT_LADDER)[number];
  * `high` for Sonnet 5.5, but the rung must track what the spawned CLI runs. Re-check on a model bump.
  */
 const CLAUDE_CLI_DEFAULT_EFFORT: Readonly<Record<string, ClaudeEffort>> = {
+  'claude-fable-5-2': 'medium',
   'claude-opus-5-5': 'medium',
-  'claude-opus-5.5': 'medium',
   [CLAUDE_SONNET_5_5]: 'medium',
   'claude-haiku-5-5': 'medium',
 };

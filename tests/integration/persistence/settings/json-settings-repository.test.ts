@@ -349,10 +349,10 @@ describe('JsonSettingsRepository', () => {
   // file pinned to any of them predates the change, so `load()` must silently land the user on the
   // live successor rather than on a slug the adapter rejects at spawn.
   it.each([
-    ['gemini-3.1-pro-preview', 'gemini-3.8-flash'],
+    ['gemini-3.1-pro-preview', 'gemini-4-hydrogen'],
     ['raptor-mini-preview', 'mai-code-1.1-flash'],
-    ['gemini-2.5-pro', 'gemini-3.8-flash'],
-    ['gemini-3-flash', 'gemini-3.8-flash'],
+    ['gemini-2.5-pro', 'gemini-4-hydrogen'],
+    ['gemini-3-flash', 'gemini-4-hydrogen'],
     ['claude-opus-4.7', 'claude-opus-5.5'],
     ['claude-sonnet-4.6', 'claude-sonnet-5'],
     ['claude-opus-4.6', 'claude-opus-5.5'],
@@ -404,11 +404,11 @@ describe('JsonSettingsRepository', () => {
     if (!loaded.ok) return;
     expect(loaded.value.ai.refine).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-luna', effort: 'low' });
     expect(loaded.value.ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.6-sol', effort: 'xhigh' });
-    expect(loaded.value.ai.readiness).toEqual({ provider: 'github-copilot', model: 'gemini-3.8-flash' });
-    expect(loaded.value.ai.ideate).toEqual({ provider: 'github-copilot', model: 'grok-4.6' });
+    expect(loaded.value.ai.readiness).toEqual({ provider: 'github-copilot', model: 'gemini-4-hydrogen' });
+    expect(loaded.value.ai.ideate).toEqual({ provider: 'github-copilot', model: 'grok-4.7' });
     expect(loaded.value.ai.implement.generator).toEqual({
       provider: 'openai-codex',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6.1-sol',
       effort: 'xhigh',
     });
     expect(loaded.value.ai.implement.evaluator).toEqual({

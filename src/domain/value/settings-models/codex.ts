@@ -1,24 +1,24 @@
-// Verified against the live CLI model cache (codex CLI v0.160.0, `~/.codex/models_cache.json`,
-// 2026-10-03); `gpt-5.5` dropped on its 2026-10-14 retirement. Docs: https://github.com/openai/codex#model-selection — facts cross-checked
+// Verified against the live `codex debug models` (codex CLI 0.171.0, 2026-11-21); the 6.2 ids
+// need CLI >= 0.166.0. Docs: https://github.com/openai/codex#model-selection — facts cross-checked
 // against https://developers.openai.com/codex/models
 
 /**
  * Models supported by the OpenAI Codex CLI adapter.
  *
- * `gpt-6.1-sol` is the flagship — the cache's "latest workhorse model" and top of the Codex
- * escalation ladder, at the `gpt-6-sol` token price ($2/$10 per MTok); `gpt-6-sol` is now "previous
- * generation" and stays for pinned configs. `gpt-6-luna` is the cheap tier ($0.10/$0.50);
- * `gpt-6-astra` is the premium tier ($10/$50) — never a provider default or a built-in ladder rung,
- * only the frontier presets pick it. Efforts: all accept `low..max`; `ultra` exists on 6.1-sol,
- * astra and sol but NOT luna (see {@link CODEX_MODEL_EFFORT_LEVELS}).
+ * `gpt-6.2-sol` is the flagship — the CLI's default "fast, go-to model" and top of the Codex
+ * escalation ladder; `gpt-6.1-sol`, `gpt-6-sol` and `gpt-6-astra` are older generations kept for
+ * pinned configs. `gpt-6-luna` is the cheap tier ($0.10/$0.50); `gpt-6.2-astra` is the premium
+ * tier — never a provider default or a built-in ladder rung, only the frontier presets pick it.
+ * `gpt-6.1-terra` is catalog-only (OpenAI positions it for vision and computer use). Efforts: all
+ * accept `low..max`; `ultra` exists on every model except the two lunas and `codex-auto-review`
+ * (see {@link CODEX_MODEL_EFFORT_LEVELS}).
  *
- * `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` stay for pinned configs (the codex cache lists
- * 5.6-sol/terra → gpt-6-sol and 5.6-luna → gpt-6-luna as their upgrades, and the default ladder
- * climbs them there).
+ * `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` are legacy and stay for pinned configs (the
+ * default ladder climbs them to the top).
  *
- * Removed ids: `gpt-5.5` (retired from Codex 2026-10-14; remapped to `gpt-5.6-sol`), `gpt-5.4` and
+ * Removed ids: `gpt-5.5` (retired from Codex 2026-10-14; remapped to `gpt-6.1-sol`), `gpt-5.4` and
  * `gpt-5.4-mini` (retired 2026-08-31; remapped to `gpt-6-sol` / `gpt-6-luna`), and earlier
- * `gpt-5.2` / `gpt-5.3-codex` / `gpt-5.3-codex-spark` (chain-collapsed onto `gpt-5.6-sol`). All
+ * `gpt-5.2` / `gpt-5.3-codex` / `gpt-5.3-codex-spark` (remapped to `gpt-6.1-sol`). All
  * remaps live in `RETIRED_MODEL_REMAPS` (`domain/entity/settings.ts`).
  * Bare `gpt-5.6` is an API-only alias rejected under ChatGPT auth — deliberately NOT listed.
  *
@@ -26,11 +26,14 @@
  * this list was captured require a one-line update here. Domain-owned: persisted Settings
  * reference these identifiers; adapters consume them when invoking the CLI subprocess. The
  * adapter validates `AiSession.model` against this set and surfaces `InvalidStateError` for
- * unknowns. `codex-auto-review` is the synthetic model id the CLI uses for its review
- * subcommand and is kept here so review chains can name it.
+ * unknowns. `codex-auto-review` is the CLI's automatic approval review model, kept here so
+ * rows can name it.
  */
 export const CODEX_MODELS = [
+  'gpt-6.2-sol',
+  'gpt-6.2-astra',
   'gpt-6.1-sol',
+  'gpt-6.1-terra',
   'gpt-6-astra',
   'gpt-6-sol',
   'gpt-6-luna',
@@ -49,10 +52,12 @@ export const isCodexModel = (s: string): s is CodexModel => (CODEX_MODELS as rea
  * level is a 400 from the API (`Unsupported value: 'max' is not supported with the '<model>'
  * model`), so resolution clamps to this list. Models absent here pass through to the CLI.
  *
- * Source: `supported_reasoning_levels` in `~/.codex/models_cache.json` (codex CLI 0.160.0,
- * fetched 2026-10-03).
+ * Source: `codex debug models` (codex CLI 0.171.0, 2026-11-21).
  */
 export const CODEX_MODEL_EFFORT_LEVELS: Readonly<Partial<Record<CodexModel, readonly string[]>>> = {
+  'gpt-6.2-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6.2-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
