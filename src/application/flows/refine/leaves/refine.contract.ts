@@ -130,7 +130,7 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 const refineExampleSignals: readonly RefineSignal[] = [
   {
     type: 'refined-ticket',
-    body: '# Export to CSV\n\n## Problem\n\nUsers cannot move their data out of the app.\n\n## Acceptance criteria\n\n### AC1 — CSV export\n\n- **Given** a logged-in user, **When** they click Export, **Then** a CSV download starts.',
+    body: "# Export to CSV\n\n## Problem\n\nUsers cannot move their data out of the app.\n\n## Outcome\n\nUsers who leave take their data with them instead of asking support for a copy.\n\n**Signal:** copy requests sent to support\n\n## Assumptions\n\n- Users ask support because the app has no self-service export — **Check:** read last month's copy requests with the support lead\n\n## Scope\n\n**In scope:**\n\n- CSV export of the current view\n\n**Out of scope:**\n\n- XLSX export\n\n## Acceptance criteria\n\n### AC1 — CSV export\n\n- **Given** a logged-in user, **When** they click Export, **Then** a CSV download starts.",
     timestamp: EXAMPLE_TS,
   },
   {

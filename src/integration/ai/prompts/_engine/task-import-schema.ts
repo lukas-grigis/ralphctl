@@ -21,7 +21,7 @@ import { z } from 'zod';
  *  - `assertion` is the human-readable check.
  *  - `check === 'auto'` REQUIRES `command` — the evaluator runs it and records the verbatim
  *    output as `executionEvidence` on the matching dimension.
- *  - `check === 'manual'` MUST omit `command` — the evaluator cites a code location instead.
+ *  - `check === 'manual'` MUST omit `command` — the evaluator runs the changed behaviour when it can, otherwise cites a code location.
  *
  * Bare strings are no longer accepted from the AI; legacy on-disk shapes are normalised at
  * read time by the persistence-layer schema (`task.schema.ts`), not here.

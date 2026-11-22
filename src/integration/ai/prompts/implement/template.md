@@ -48,8 +48,9 @@ only after every declared step is done and every verification command passes.
 
 Read the per-task contract at `{{CONTRACT_PATH}}` before implementing. It is the authoritative
 definition of done. Each criterion is tagged `auto` (the evaluator runs the listed command) or
-`manual` (the evaluator inspects the code) — your implementation must make every criterion pass
-under its declared check type.
+`manual` (no fixed command: the evaluator checks it itself, running the changed behaviour when it can
+and otherwise citing the code location; no person is involved) — your implementation must make every
+criterion pass under its declared check type.
 
 {{TASK_DESCRIPTION_SECTION}}
 
