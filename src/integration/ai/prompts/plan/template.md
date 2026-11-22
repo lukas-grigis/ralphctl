@@ -100,6 +100,9 @@ If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to rep
   Prefer fewer, well-grounded tasks over a complete-looking plan padded with speculative ones —
   drop any step that isn't grounded in the ticket or the code you explored; a wrong plan step
   costs more than an absent one.
+- **Outcome and assumptions are context** — an `## Outcome` or `## Assumptions` section in the
+  requirements explains why the ticket exists and is checked in the world by people; don't turn it into
+  tasks or verification criteria, because the evaluator cannot observe it.
 - **Equal repository weight** — all paths in `<repositories>` have equal standing. Don't
   favour the first repository when assigning tasks; distribute by where the work actually
   belongs.
@@ -206,7 +209,8 @@ Good criteria (structured, verifiable; values illustrative):
 
 Scope test commands to the tests the task adds or changes (file path, test-name filter, or tag),
 and keep or drop a project-wide regression criterion by the verify-gate rules in the task fields.
-Use `manual` for behavioural assertions the evaluator must inspect in code.
+Use `manual` for behavioural assertions with no fixed command — the evaluator checks them itself, running
+the changed behaviour when it can and otherwise citing the code location; no person is involved.
 
 Bad criteria (vague, not independently verifiable):
 

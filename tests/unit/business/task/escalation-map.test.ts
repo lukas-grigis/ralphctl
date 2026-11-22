@@ -79,40 +79,46 @@ describe('DEFAULT_ESCALATION_LADDERS', () => {
     expect(COPILOT_LADDER['claude-sonnet-5']).toBe('claude-opus-5.5');
   });
 
-  it('tops the Copilot Claude ladder at Opus 5.5 — GitHub gates Opus 4.8 / 5 / 5.5 identically', () => {
+  it('tops the Copilot Claude ladder at Opus 5.5', () => {
     expect(COPILOT_LADDER['claude-haiku-4.5']).toBe('claude-sonnet-5.5');
     expect(COPILOT_LADDER['claude-sonnet-5.5']).toBe('claude-opus-5.5');
-    // Pinned older Opus rows converge on the cheaper, newer 5.5.
-    expect(COPILOT_LADDER['claude-opus-4.8']).toBe('claude-opus-5.5');
-    expect(COPILOT_LADDER['claude-opus-5']).toBe('claude-opus-5.5');
     expect(COPILOT_LADDER['claude-opus-5.5']).toBeUndefined();
     expect(COPILOT_LADDER['claude-haiku-5.5']).toBe('claude-sonnet-5.5');
   });
 
-  it('climbs Copilot GPT-5.6 luna straight to sol — terra retires 2026-11-16; the 2026-10-19 ids are no longer rungs', () => {
+  it('climbs Copilot GPT-5.6 luna straight to sol — retired ids are no longer rungs', () => {
     // Retired rows are remapped at parse time (`RETIRED_MODEL_REMAPS`), so their keys are dead.
-    for (const retired of ['gpt-5-mini', 'gpt-5.4-mini', 'gpt-5.4', 'gpt-5.5', 'grok-4.5']) {
+    for (const retired of [
+      'gpt-5-mini',
+      'gpt-5.4-mini',
+      'gpt-5.4',
+      'gpt-5.5',
+      'grok-4.5',
+      'claude-opus-4.8',
+      'claude-opus-5',
+      'gpt-5.6-terra',
+    ]) {
       expect(COPILOT_LADDER[retired], retired).toBeUndefined();
     }
     expect(COPILOT_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-sol');
-    // Rows still pinned to terra keep a rung until it leaves the catalog.
-    expect(COPILOT_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
     expect(COPILOT_LADDER['gpt-5.6-sol']).toBeUndefined();
   });
 
-  it('tops the Codex ladder at gpt-6.1-sol — astra stays opt-in', () => {
-    expect(CODEX_LADDER['gpt-6-luna']).toBe('gpt-6.1-sol');
-    expect(CODEX_LADDER['gpt-6.1-sol']).toBeUndefined();
+  it('tops the Codex ladder at gpt-6.2-sol — astra stays opt-in', () => {
+    expect(CODEX_LADDER['gpt-6-luna']).toBe('gpt-6.2-sol');
+    expect(CODEX_LADDER['gpt-6.1-sol']).toBe('gpt-6.2-sol');
+    expect(CODEX_LADDER['gpt-6.2-sol']).toBeUndefined();
+    expect(Object.values(CODEX_LADDER)).not.toContain('gpt-6.2-astra');
     expect(Object.values(CODEX_LADDER)).not.toContain('gpt-6-astra');
   });
 
-  it('converges pinned older Codex tiers on gpt-6.1-sol', () => {
-    expect(CODEX_LADDER['gpt-6-sol']).toBe('gpt-6.1-sol');
-    // `gpt-5.5` retired from Codex on 2026-10-14 — remapped to `gpt-5.6-sol` at parse time.
+  it('converges pinned older Codex tiers on gpt-6.2-sol', () => {
+    expect(CODEX_LADDER['gpt-6-sol']).toBe('gpt-6.2-sol');
+    // `gpt-5.5` retired from Codex on 2026-10-14 — remapped to `gpt-6.1-sol` at parse time.
     expect(CODEX_LADDER['gpt-5.5']).toBeUndefined();
     expect(CODEX_LADDER['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(CODEX_LADDER['gpt-5.6-terra']).toBe('gpt-5.6-sol');
-    expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6.1-sol');
+    expect(CODEX_LADDER['gpt-5.6-sol']).toBe('gpt-6.2-sol');
   });
 
   it('climbs grok one generation at a time up to the grok-4.7 flagship', () => {
@@ -254,8 +260,8 @@ describe('escalationMap retired targets', () => {
   };
 
   it('rewrites an unambiguously retired target at parse time and then warns about nothing', () => {
-    const map = parseWithMap({ 'claude-haiku-4.5': 'claude-sonnet-4.5', 'claude-sonnet-5': 'claude-opus-4.8' });
-    expect(map).toEqual({ 'claude-haiku-4.5': 'claude-sonnet-5', 'claude-sonnet-5': 'claude-opus-4.8' });
+    const map = parseWithMap({ 'claude-haiku-4.5': 'claude-sonnet-4.5', 'claude-sonnet-5': 'claude-opus-5.5' });
+    expect(map).toEqual({ 'claude-haiku-4.5': 'claude-sonnet-5', 'claude-sonnet-5': 'claude-opus-5.5' });
     const { logger, warn } = fakeLogger();
     warnEscalationMapRetiredValues(map, logger);
     expect(warn).not.toHaveBeenCalled();
@@ -272,12 +278,15 @@ describe('escalationMap retired targets', () => {
     expect(message).toContain("github-copilot (successor 'gpt-5.6-sol')");
   });
 
-  it('rewrites a target retired on several providers onto the same successor (gpt-5.5 → gpt-5.6-sol)', () => {
+  it('leaves gpt-5.5 in place and warns — Codex and Copilot name different successors', () => {
     const map = parseWithMap({ 'gpt-5.6-luna': 'gpt-5.5' });
-    expect(map).toEqual({ 'gpt-5.6-luna': 'gpt-5.6-sol' });
+    expect(map).toEqual({ 'gpt-5.6-luna': 'gpt-5.5' });
     const { logger, warn } = fakeLogger();
     warnEscalationMapRetiredValues(map, logger);
-    expect(warn).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("openai-codex (successor 'gpt-6.1-sol')");
+    expect(message).toContain("github-copilot (successor 'gpt-5.6-sol')");
   });
 
   it('leaves a target retired on Copilot but live on xai-grok (grok-4.5) in place and warns', () => {
@@ -286,7 +295,7 @@ describe('escalationMap retired targets', () => {
     const { logger, warn } = fakeLogger();
     warnEscalationMapRetiredValues(map, logger);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("github-copilot (successor 'grok-4.6')");
+    expect(String(warn.mock.calls[0]?.[0])).toContain("github-copilot (successor 'grok-4.7')");
   });
 });
 
@@ -327,16 +336,16 @@ describe('DEFAULT_ESCALATION_LADDERS — catalog lockstep (mechanizes the sectio
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('1c0ed938d5b989e2');
-    expect(fingerprint(CODEX_MODELS)).toBe('b70fff53d4d3ab28');
-    expect(fingerprint(COPILOT_MODELS)).toBe('36c19d7e3760ca25');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('fb7e59c8a8ba6dc0');
+    expect(fingerprint(CODEX_MODELS)).toBe('9e0e2a0689340b28');
+    expect(fingerprint(COPILOT_MODELS)).toBe('d7cb2cf56e1a4afa');
     expect(fingerprint(GROK_MODELS)).toBe('2c56e449169a2ec3');
   });
 });
 
 describe('nextEffortRung', () => {
   // ── Claude is model-aware: the rung climbs one tier above the effective effort — the explicit
-  //    level, or the model's CLI default (`medium` on Opus / Sonnet 5.5, `high` elsewhere) — so it never
+  //    level, or the model's CLI default (`medium` on Fable 5.2 / Opus / Sonnet / Haiku 5.5, `high` elsewhere) — so it never
   //    re-stamps the implicit default. ──
 
   const OPUS55 = 'claude-opus-5-5'; // CLI default `medium`
@@ -390,6 +399,11 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'low')).toBe('medium');
     expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'high')).toBe('xhigh');
     expect(nextEffortRung('claude-code', 'claude-haiku-5-5', 'max')).toBeUndefined();
+  });
+
+  it('claude Fable 5.2 has a CLI default of `medium` (unset → high)', () => {
+    expect(nextEffortRung('claude-code', 'claude-fable-5-2', undefined)).toBe('high');
+    expect(nextEffortRung('claude-code', 'claude-fable-5-2', 'high')).toBe('xhigh');
   });
 
   // ── Copilot keeps the fixed-`high` target; the model only matters when its effort list lacks it. ──

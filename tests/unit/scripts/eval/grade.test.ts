@@ -5,9 +5,11 @@ import {
   gradeDetectScripts,
   gradeEvaluation,
   gradeImplement,
+  gradeRefine,
   gradeSelectCandidate,
   isProtectedPath,
   pickedCandidate,
+  type RefineGradeFixture,
 } from '../../../../scripts/eval/grade.ts';
 import type { EvaluateExpect } from '../../../../scripts/eval/fixture-schema.ts';
 
@@ -271,5 +273,129 @@ describe('select-candidate', () => {
       structurallyValid: false,
       picked: 'none',
     });
+  });
+});
+
+describe('refine', () => {
+  const unknown: RefineGradeFixture = {
+    ticket: { title: 'Export the reports table as CSV' },
+    operatorReply: 'I do not know the outcome.',
+    expect: { outcome: 'open-question' },
+  };
+  const stated: RefineGradeFixture = {
+    ticket: { title: 'Export the reports table as CSV', description: 'Outcome: account managers self-serve.' },
+    operatorReply: 'Take the first option.',
+    expect: { outcome: 'stated', tokens: ['account managers'] },
+  };
+  const body = (outcome: string, opts: { assumptions?: string; order?: readonly string[] } = {}): string => {
+    const sections: Record<string, string> = {
+      Problem: 'People cannot take the table out of the app.',
+      Outcome: outcome,
+      Assumptions:
+        opts.assumptions ?? '- The table is the one on screen. **Check:** Open question: hidden columns? — ask.',
+      Scope: '- A CSV download.',
+    };
+    const order = opts.order ?? ['Problem', 'Outcome', 'Assumptions', 'Scope'];
+    return ['# Export', ...order.map((h) => `## ${h}\n\n${sections[h] ?? ''}`), '## Acceptance criteria\n\n- x'].join(
+      '\n\n'
+    );
+  };
+  const OPEN = '- Open question: what should change for users — ask the product owner.';
+
+  it('passes an unknown outcome kept as an open question', () => {
+    expect(gradeRefine(unknown, { valid: true, body: body(OPEN) })).toMatchObject({
+      correct: true,
+      structurallyValid: true,
+      headingsInOrder: true,
+      outcomeOk: true,
+      inventedChars: [],
+      assumptionChecked: true,
+    });
+  });
+
+  it('fails an invented number in the outcome, even beside an open question', () => {
+    const grade = gradeRefine(unknown, { valid: true, body: body(`${OPEN}\n- Support requests drop by 40%.`) });
+    expect(grade).toMatchObject({ correct: false, outcomeOk: false, inventedChars: ['4', '0', '%'] });
+  });
+
+  it('allows a digit the ticket or the operator reply supplied', () => {
+    const fixture = { ...unknown, operatorReply: 'I do not know the outcome; we have 4 regions.' };
+    expect(gradeRefine(fixture, { valid: true, body: body(`${OPEN}\n- Covers all 4 regions.`) }).correct).toBe(true);
+  });
+
+  it('fails an unknown outcome written as a confident claim without an open question', () => {
+    expect(gradeRefine(unknown, { valid: true, body: body('- Users export reports themselves.') }).outcomeOk).toBe(
+      false
+    );
+  });
+
+  it('passes a stated outcome carried through, case-insensitively, and fails it reopened or replaced', () => {
+    expect(gradeRefine(stated, { valid: true, body: body('- Account managers self-serve.') }).correct).toBe(true);
+    expect(gradeRefine(stated, { valid: true, body: body(`- Account managers self-serve.\n${OPEN}`) }).correct).toBe(
+      false
+    );
+    expect(gradeRefine(stated, { valid: true, body: body('- Users are happier.') }).correct).toBe(false);
+  });
+
+  it('reads only the Outcome section: an open question elsewhere does not count', () => {
+    const grade = gradeRefine(unknown, {
+      valid: true,
+      body: body('- Users export reports themselves.', { assumptions: `- x **Check:** y\n\n${OPEN}` }),
+    });
+    expect(grade.outcomeOk).toBe(false);
+  });
+
+  it('requires the four headings in contract order', () => {
+    const swapped = body(OPEN, { order: ['Problem', 'Assumptions', 'Outcome', 'Scope'] });
+    expect(gradeRefine(unknown, { valid: true, body: swapped })).toMatchObject({
+      correct: false,
+      headingsInOrder: false,
+    });
+    const missing = body(OPEN, { order: ['Problem', 'Outcome', 'Assumptions'] });
+    expect(gradeRefine(unknown, { valid: true, body: missing }).headingsInOrder).toBe(false);
+  });
+
+  it('requires an assumption bullet carrying **Check:**, a continuation line included', () => {
+    expect(
+      gradeRefine(unknown, { valid: true, body: body(OPEN, { assumptions: '- The table is on screen.' }) })
+    ).toMatchObject({ correct: false, assumptionChecked: false });
+    expect(
+      gradeRefine(unknown, { valid: true, body: body(OPEN, { assumptions: '**Check:** preamble only\n\n- x' }) })
+        .assumptionChecked
+    ).toBe(false);
+    expect(
+      gradeRefine(unknown, { valid: true, body: body(OPEN, { assumptions: '1. x\n   **Check:** ask the operator' }) })
+        .assumptionChecked
+    ).toBe(true);
+  });
+
+  it('accepts an Open question: bullet as the assumption for either outcome kind and any bullet marker', () => {
+    for (const assumptions of [
+      '- Open question: who asks for the export — the support lead.',
+      '1. Open question: who asks for the export — the support lead.',
+      '- **Open question:** who asks for the export — the support lead.',
+    ]) {
+      expect(gradeRefine(unknown, { valid: true, body: body(OPEN, { assumptions }) }).assumptionChecked).toBe(true);
+      expect(
+        gradeRefine(stated, { valid: true, body: body('- Account managers self-serve.', { assumptions }) })
+          .assumptionChecked
+      ).toBe(true);
+    }
+  });
+
+  it('an invalid or missing body is incorrect and structurally invalid', () => {
+    expect(gradeRefine(unknown, { valid: false, body: body(OPEN) })).toMatchObject({
+      correct: false,
+      structurallyValid: false,
+    });
+    expect(gradeRefine(unknown, { valid: true, body: undefined }).correct).toBe(false);
+  });
+
+  it('keeps the first-turn keyword proxy out of correct', () => {
+    const asked = gradeRefine(unknown, { valid: true, body: body(OPEN), firstTurn: 'What outcome should this reach?' });
+    const silent = gradeRefine(unknown, { valid: true, body: body(OPEN), firstTurn: 'Which button label?' });
+    expect([asked.askedOutcomeFirstTurn, asked.correct]).toEqual([true, true]);
+    expect([silent.askedOutcomeFirstTurn, silent.correct]).toEqual([false, true]);
+    expect(gradeRefine(unknown, { valid: true, body: body(OPEN) }).askedOutcomeFirstTurn).toBeNull();
   });
 });

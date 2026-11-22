@@ -9,6 +9,7 @@ import {
   renderIssueContextSection,
   renderTicket,
 } from '@src/integration/ai/prompts/refine/definition.ts';
+import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
@@ -148,5 +149,69 @@ describe('refine/template.md — structure', () => {
     expect(template).not.toContain('harness automatically appends');
     expect(template).not.toMatch(/12 characters or fewer/);
     expect(template).not.toContain('requires additional library');
+  });
+});
+
+describe('refine/template.md — outcome and assumptions', () => {
+  const readTemplate = (): Promise<string> =>
+    fs.readFile(`${String(defaultTemplatesDir())}/refine/template.md`, 'utf8');
+
+  const expectHeadingsInOrder = (text: string, headings: readonly string[]): void => {
+    const at = headings.map((h) => text.indexOf(`${h}\n`));
+    expect(at).not.toContain(-1);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+  };
+
+  it('starts the interview with the outcome dimension, ahead of the behaviour dimensions', async () => {
+    const template = await readTemplate();
+    const outcome = template.indexOf('**Dimension A — Outcome and assumptions.**');
+    expect(outcome).toBeGreaterThan(-1);
+    expect(outcome).toBeLessThan(template.indexOf('Problem and scope.**'));
+    expect(outcome).toBeLessThan(template.indexOf('Functional behaviour.**'));
+  });
+
+  it('writes Outcome then Assumptions between Problem and Scope, in the template and the contract example', async () => {
+    const template = await readTemplate();
+    const start = template.indexOf('## Output format');
+    const format = template.slice(start, template.indexOf('<output_contract>', start));
+    expectHeadingsInOrder(format, ['## Problem', '## Outcome', '## Assumptions', '## Scope']);
+    for (const literal of ['**Signal:**', '**Check:**', 'Open question:']) expect(format).toContain(literal);
+
+    const example = refineOutputContract.exampleSignals.find((s) => s.type === 'refined-ticket');
+    const body = example?.type === 'refined-ticket' ? example.body : '';
+    expectHeadingsInOrder(body, ['## Problem', '## Outcome', '## Assumptions', '## Acceptance criteria']);
+  });
+
+  it('asks the outcome questions with no recommended option and always offers "Not known yet"', async () => {
+    const template = await readTemplate();
+    const exception = template.slice(
+      template.indexOf('{{QUESTION_FORMAT}}'),
+      template.indexOf('#### Example interactions')
+    );
+    expect(exception.replace(/\s+/g, ' ')).toContain('no option is marked recommended');
+    expect(exception).toContain('"Not known yet"');
+
+    const outcomeExample = template.split('```').find((block) => block.includes('Header: "Outcome"'));
+    expect(outcomeExample).toBeDefined();
+    expect(outcomeExample).toContain('"Not known yet"');
+    expect(outcomeExample).not.toContain('(Recommended)');
+  });
+
+  it('accepts an open question as a finished outcome, outside the Unresolved failure path', async () => {
+    const template = (await readTemplate()).replace(/\s+/g, ' ');
+    const checklist = template.slice(
+      template.indexOf('### Step 3 — Check before presenting'),
+      template.indexOf('### Step 4 — Present requirements for approval')
+    );
+    expect(checklist).toMatch(/outcome[^[]*open question/i);
+    expect(checklist).toMatch(/assumption[^[]*open question/i);
+
+    const failureMode = template.slice(
+      template.indexOf('**Failure mode.**'),
+      template.indexOf('{{OUTPUT_CONTRACT_SECTION}}')
+    );
+    expect(failureMode).toContain('`## Unresolved`');
+    expect(failureMode).toMatch(/unknown outcome[^.]*`## Outcome`/i);
+    expect(failureMode).toMatch(/assumption[^.]*`## Assumptions`/i);
   });
 });

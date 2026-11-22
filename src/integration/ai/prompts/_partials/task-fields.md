@@ -16,8 +16,9 @@ Each task entry uses these fields:
 - **`verificationCriteria`** — array of structured criteria the evaluator grades PASS / FAIL:
   - `id` — stable within the task (e.g. `"C1"`); the evaluator cites it verbatim.
   - `assertion` — human-readable check.
-  - `check` — `"auto"` (evaluator runs `command`) or `"manual"` (evaluator inspects code or
-    behaviour and cites a specific location).
+  - `check` — `"auto"` (evaluator runs `command`) or `"manual"` (no fixed command: the evaluator
+    checks it itself, running the changed behaviour when it can and otherwise citing the code
+    location; no person is involved).
   - `command` — required when `check === "auto"`; omit it when `check === "manual"`. Use
     the project's own commands — never hardcode a package-manager binary; read the project's
     manifest or context file for the actual command.

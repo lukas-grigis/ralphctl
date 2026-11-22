@@ -10,10 +10,8 @@ import {
   COPILOT_OPUS,
   COPILOT_SONNET,
   GPT_6_LUNA,
-  GPT_6_1_SOL,
-  GROK_CHEAP,
+  GPT_6_2_SOL,
   GROK_FLAGSHIP,
-  GROK_MID,
   OPENCODE_BIG,
   OPENCODE_MINI,
   OPUS,
@@ -39,9 +37,8 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
     createPr: SONNET,
   },
-  // Same tiers as `copilot-only`. Opus 5.5 (GitHub gates Opus 4.8 / 5 / 5.5 identically, and 5.5 is
-  // the cheapest) tops the Copilot escalation ladder, so the reset-to-copilot implement default and the
-  // ladder top stay aligned.
+  // Same tiers as `copilot-only`. Opus 5.5 tops the Copilot escalation ladder, so the reset-to-copilot
+  // implement default and the ladder top stay aligned.
   'github-copilot': {
     refine: COPILOT_SONNET,
     plan: COPILOT_OPUS,
@@ -52,12 +49,12 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
   },
   'openai-codex': {
     refine: GPT_6_LUNA,
-    plan: GPT_6_1_SOL,
-    // `gpt-6.1-sol` is the codex flagship; it tops the Codex escalation ladder, so the
+    plan: GPT_6_2_SOL,
+    // `gpt-6.2-sol` is the codex flagship; it tops the Codex escalation ladder, so the
     // reset-to-codex implement default and the ladder top stay aligned.
-    implement: GPT_6_1_SOL,
+    implement: GPT_6_2_SOL,
     readiness: GPT_6_LUNA,
-    ideate: GPT_6_1_SOL,
+    ideate: GPT_6_2_SOL,
     createPr: GPT_6_LUNA,
   },
   // OpenCode aggregates upstream providers, so there is no vendor flagship to default to. These
@@ -73,14 +70,14 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     ideate: OPENCODE_BIG,
     createPr: OPENCODE_MINI,
   },
-  // Same split as `grok-only`.
+  // One model: `grok-4.7` is priced like 4.5 / 4.6 and is xAI's pick for code.
   'xai-grok': {
-    refine: GROK_MID,
+    refine: GROK_FLAGSHIP,
     plan: GROK_FLAGSHIP,
     implement: GROK_FLAGSHIP,
-    readiness: GROK_CHEAP,
+    readiness: GROK_FLAGSHIP,
     ideate: GROK_FLAGSHIP,
-    createPr: GROK_CHEAP,
+    createPr: GROK_FLAGSHIP,
   },
 };
 
@@ -117,7 +114,7 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  * settings via the TUI settings panel or `ralphctl settings set <key> <value>`.
  *
  * The implement row deliberately splits roles across providers: Claude Opus drives the
- * generator (deep coder reasoning) while Codex GPT-6.1 Sol drives the evaluator (independent
+ * generator (deep coder reasoning) while Codex GPT-6.2 Sol drives the evaluator (independent
  * second opinion). Effort is left unset on both roles per the fresh-default policy above — the
  * implement flow default applies to each; raise `ai.effort` or the row's effort to deepen the gate.
  * Single-provider users override via a preset.
@@ -128,7 +125,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
       generator: { provider: 'claude-code', model: OPUS },
-      evaluator: { provider: 'openai-codex', model: GPT_6_1_SOL },
+      evaluator: { provider: 'openai-codex', model: GPT_6_2_SOL },
     },
   },
   harness: {

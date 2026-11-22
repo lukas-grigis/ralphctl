@@ -14,7 +14,7 @@ export interface ResolvedRow {
 
 /**
  * One experiment arm. Rows differ per flow (evaluate uses `implement.evaluator`, detect-scripts
- * `readiness`, …) so the arm carries all four; `templatesDir` swaps the prompt text at the
+ * `readiness`, …) so the arm carries one per flow; `templatesDir` swaps the prompt text at the
  * `TemplateLoader` port and is absent for the checked-out prompts.
  */
 export interface ArmConfig {
@@ -67,7 +67,23 @@ export interface SelectCandidateGrade {
   readonly picked: 'a' | 'b' | 'tie' | 'none';
 }
 
-export type Grade = EvaluateGrade | ImplementGrade | DetectScriptsGrade | SelectCandidateGrade;
+export interface RefineGrade {
+  readonly flow: 'refine';
+  readonly correct: boolean;
+  readonly structurallyValid: boolean;
+  /** `## Problem`, `## Outcome`, `## Assumptions`, `## Scope`, each once, in that order. */
+  readonly headingsInOrder: boolean;
+  /** Unknown outcome: an `Open question:` and no invented digit or `%`. Stated: every expected token, no `Open question:`. */
+  readonly outcomeOk: boolean;
+  /** Digits and `%` in `## Outcome` that neither the ticket nor the operator reply contains. */
+  readonly inventedChars: readonly string[];
+  /** At least one `## Assumptions` bullet carries `**Check:**` or is an `Open question:` bullet. */
+  readonly assumptionChecked: boolean;
+  /** Weak keyword proxy on the first turn's text, never part of `correct`; `null` = no first-turn text. */
+  readonly askedOutcomeFirstTurn: boolean | null;
+}
+
+export type Grade = EvaluateGrade | ImplementGrade | DetectScriptsGrade | SelectCandidateGrade | RefineGrade;
 
 export interface TrialUsage {
   readonly inputTokens: number | null;

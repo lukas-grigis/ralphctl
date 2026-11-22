@@ -204,4 +204,15 @@ describe('renderOutcomeStats', () => {
     expect(report).toMatch(/^ {2}time-travelled +1$/m);
     expect(report).toMatch(/^ {2}meteor-strike +1$/m);
   });
+
+  it('explains "unknown" criteria only when some exist', () => {
+    const base = foldOutcomeStats([{ sprint: makeDraftSprint({ name: 'a sprint' }), tasks: [] }]);
+    const withCriteria = (unknown: number): OutcomeStats => ({
+      ...base,
+      totals: { ...base.totals, criteria: { ...base.totals.criteria, declared: unknown, unknown } },
+    });
+
+    expect(renderOutcomeStats(withCriteria(2))).toContain('unknown = no verdict recorded');
+    expect(renderOutcomeStats(withCriteria(0))).not.toContain('unknown = no verdict recorded');
+  });
 });

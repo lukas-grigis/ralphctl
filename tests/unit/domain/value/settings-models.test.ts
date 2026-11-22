@@ -18,7 +18,13 @@ describe('settings-models / claude catalog', () => {
     }
   });
 
-  it('does not catalog a [1m] variant for the natively-1M Opus 5.5 / Fable 5.1 / Sonnet 5.5', () => {
+  it('adds Fable 5.2 without dropping Fable 5.1', () => {
+    expect(isClaudeModel('claude-fable-5-2')).toBe(true);
+    expect(isClaudeModel('claude-fable-5-1')).toBe(true);
+  });
+
+  it('does not catalog a [1m] variant for the natively-1M Opus 5.5 / Fable 5.1 / Fable 5.2 / Sonnet 5.5', () => {
+    expect(CLAUDE_MODELS).not.toContain('claude-fable-5-2[1m]');
     expect(CLAUDE_MODELS).not.toContain('claude-opus-5-5[1m]');
     expect(CLAUDE_MODELS).not.toContain('claude-fable-5-1[1m]');
     expect(CLAUDE_MODELS).not.toContain('claude-sonnet-5-5[1m]');
@@ -76,33 +82,38 @@ describe('settings-models / codex catalog', () => {
 });
 
 describe('settings-models / copilot catalog', () => {
-  // Reconciled to GitHub's supported-models doc + changelog (as of 2026-10-03).
+  // Reconciled to GitHub's supported-models doc + changelog (as of 2026-11-21).
   const official = [
     // OpenAI
     'gpt-5.3-codex',
     'gpt-5.4-nano',
     'gpt-5.6-sol',
-    'gpt-5.6-terra',
     'gpt-5.6-luna',
     'gpt-6-astra',
     'gpt-6-sol',
     'gpt-6.1-sol',
+    'gpt-6.1-terra',
+    'gpt-6.2-sol',
+    'gpt-6.2-astra',
     'gpt-6-luna',
     // Anthropic
     'claude-haiku-4.5',
     'claude-haiku-5.5',
-    'claude-opus-4.8',
     'claude-opus-4.8-fast',
-    'claude-opus-5',
     'claude-opus-5.5',
     'claude-fable-5',
     'claude-fable-5.1',
+    'claude-fable-5.2',
     'claude-sonnet-5',
     'claude-sonnet-5.5',
     // Google
     'gemini-3.8-flash',
+    'gemini-4-hydrogen',
+    'gemini-4-carbon',
     // Microsoft
     'mai-code-1.1-flash',
+    'mai-code-2',
+    'mai-code-2-flash',
     // Moonshot
     'kimi-k3',
     // xAI
@@ -161,6 +172,10 @@ describe('settings-models / copilot catalog', () => {
     'gpt-5-mini',
     'gemini-3.7-flash',
     'grok-4.5',
+    // 2026-11-16 deprecation.
+    'claude-opus-4.8',
+    'claude-opus-5',
+    'gpt-5.6-terra',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {
@@ -193,20 +208,20 @@ describe('settings-models / copilot catalog', () => {
 });
 
 describe('settings-models / opencode catalog', () => {
-  // Verified against `opencode models opencode` on opencode-ai v1.18.35 (2026-10-17).
+  // Verified against `opencode models opencode` on opencode-ai v1.18.35 (2026-11-21).
   it('matches the live free-tier listing exactly', () => {
     expect([...OPENCODE_MODELS].sort()).toEqual([
+      'opencode/beam-free',
       'opencode/big-pickle',
-      'opencode/exo-free',
-      'opencode/ling-3.0-flash-fin-free',
-      'opencode/ling-3.1-flash-free',
-      'opencode/longcat-2.5-preview-free',
+      'opencode/deepseek-v4.1-flash-free',
+      'opencode/flint-40b-free',
+      'opencode/hy4-flash-free',
+      'opencode/iceman-free',
+      'opencode/longcat-2.5-free',
       'opencode/mimo-v2.6-flash-free',
-      'opencode/muse-spark-1.3-contributor-free',
-      'opencode/nemotron-3-ultra-free',
       'opencode/nemotron-3.5-lightning-free',
-      'opencode/space-bunny-free',
-      'opencode/step-5-preview-free',
+      'opencode/nemotron-3.5-super-vl-free',
+      'opencode/tidepool-alpha-free',
     ]);
   });
 
@@ -220,6 +235,14 @@ describe('settings-models / opencode catalog', () => {
       'opencode/hy3-free',
       'opencode/mimo-v2.5-free',
       'opencode/muse-spark-1.2-contributor-free',
+      'opencode/exo-free',
+      'opencode/ling-3.0-flash-fin-free',
+      'opencode/ling-3.1-flash-free',
+      'opencode/longcat-2.5-preview-free',
+      'opencode/muse-spark-1.3-contributor-free',
+      'opencode/nemotron-3-ultra-free',
+      'opencode/space-bunny-free',
+      'opencode/step-5-preview-free',
     ]) {
       expect(isOpencodeModel(gone), gone).toBe(false);
     }
@@ -270,9 +293,14 @@ describe('remapRetiredModel — provider-guarded one-hop remap', () => {
 
   it('leaves the slug alone on a provider that still serves it, and for live or unknown ids', () => {
     // `grok-4.5` left Copilot on 2026-10-19 but stays on the xai-grok backend.
-    expect(remapRetiredModel('github-copilot', 'grok-4.5')).toBe('grok-4.6');
+    expect(remapRetiredModel('github-copilot', 'grok-4.5')).toBe('grok-4.7');
     expect(remapRetiredModel('xai-grok', 'grok-4.5')).toBe('grok-4.5');
     expect(remapRetiredModel('claude-code', 'claude-opus-5-5')).toBe('claude-opus-5-5');
+    // `claude-opus-5` / `gpt-5.6-terra` left Copilot but stay on claude-code / openai-codex.
+    expect(remapRetiredModel('github-copilot', 'claude-opus-5')).toBe('claude-opus-5.5');
+    expect(remapRetiredModel('claude-code', 'claude-opus-5')).toBe('claude-opus-5');
+    expect(remapRetiredModel('github-copilot', 'gpt-5.6-terra')).toBe('gpt-6.1-terra');
+    expect(remapRetiredModel('openai-codex', 'gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(remapRetiredModel('not-a-provider', 'gpt-5.4')).toBe('gpt-5.4');
   });
 });
@@ -283,18 +311,14 @@ describe('unambiguousRetiredSuccessor — provider-less remap', () => {
     expect(unambiguousRetiredSuccessor('claude-opus-4-7')).toBe('claude-opus-4-8');
   });
 
-  it('returns the shared successor when several providers retired the slug onto the same model', () => {
-    // `gpt-5.5` left Codex (2026-10-14) and Copilot (2026-10-19); both name `gpt-5.6-sol`.
-    expect(unambiguousRetiredSuccessor('gpt-5.5')).toBe('gpt-5.6-sol');
-  });
-
   it('returns undefined for a slug retired on one provider but live on another', () => {
     // `grok-4.5` left Copilot but is still an xai-grok id.
     expect(unambiguousRetiredSuccessor('grok-4.5')).toBeUndefined();
   });
 
   it('returns undefined when the providers that retired a slug name different successors', () => {
-    // `gpt-5.4`: codex → `gpt-6-sol`, Copilot → `gpt-5.6-sol`.
+    // `gpt-5.4`: codex → `gpt-6-sol`, Copilot → `gpt-5.6-sol`; `gpt-5.5`: codex → `gpt-6.1-sol`, Copilot → `gpt-5.6-sol`.
+    expect(unambiguousRetiredSuccessor('gpt-5.5')).toBeUndefined();
     expect(unambiguousRetiredSuccessor('gpt-5.4')).toBeUndefined();
     expect(unambiguousRetiredSuccessor('gpt-5.4-mini')).toBeUndefined();
   });

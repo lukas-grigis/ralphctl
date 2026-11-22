@@ -7,7 +7,7 @@ Only its own hermetic unit and integration tests (a scripted fake provider, no A
 
 ## What it measures
 
-Four headless flows, each through the **shipped** prompt builders, output contracts and session profiles, so a
+Five flows, each through the **shipped** prompt builders, output contracts and session profiles, so a
 trial measures what production sends:
 
 | Flow               | One trial is                                              | Graded by (code only)                                                                   |
@@ -16,12 +16,13 @@ trial measures what production sends:
 | `implement`        | one cold generator turn on a buggy repo                   | hidden oracle exits 0 **and** no protected file changed                                 |
 | `detect-scripts`   | one read-only repo inventory                              | the proposed `verify-script` exits 0 on a clean copy and non-zero on a broken copy      |
 | `select-candidate` | the pairwise judge over two candidate summaries           | picked candidate equals the known winner — every item runs in **both** orders           |
+| `refine`           | one requirements interview against a scripted operator    | contract headings in order, outcome as expected, an assumption with a check — see below |
 
-Not covered: `plan`, `ideate`, `refine` (no headless path ships for them — they run through
-`InteractiveAiProvider`), `check-plan` (deterministic, no model call, already unit-tested), and
+Not covered: `plan` and `ideate` (they run through `InteractiveAiProvider` and have no scripted operator
+yet), `check-plan` (deterministic, no model call, already unit-tested), and
 `reproduce`, `review`, `readiness`, `detect-skills`, `create-pr` (next candidates; `reproduce` first, because
 the harness already re-runs its claim), and `apply-feedback`, `distill-learnings`, `implement-crash-resume`. One trial is one cold turn per
-role; the multi-turn gen-eval loop and
+role (refine: one interview of resumed turns); the multi-turn gen-eval loop and
 the `*-continuation` prompts are not measured. There are no model graders and no dollar cost; cache tokens are counted, not priced.
 
 ## Commands
@@ -62,7 +63,7 @@ every row of the candidate arm.
 **Default arm.** `applyPreset('claude-economic', DEFAULT_SETTINGS)`, effort resolved per role through
 `resolveEffortForRow`. That preset runs Sonnet 5.5 (`claude-sonnet-5-5`) on implement: evaluate and
 select-candidate use the evaluator row (`high`), implement the generator row (`high`); detect-scripts uses the
-readiness row, which runs Haiku 5.5 (`claude-haiku-5-5`) at `low`. Any preset name is accepted via `--preset`. `--provider/--model/--effort` replace their
+readiness row and refine the refine row, both Haiku 5.5 (`claude-haiku-5-5`) at `medium`. Any preset name is accepted via `--preset`. `--provider/--model/--effort` replace their
 field on every row — `--candidate-model claude-sonnet-5` compares against the previous Sonnet. Model ids are
 validated by the provider adapter when it spawns, not up front — an id the catalog does not know (a typo, or
 a dotted Copilot-style `claude-sonnet-5.5` on the claude-code provider) fails every trial, and three ungraded
@@ -78,9 +79,10 @@ fails closed. Usage arrives only after a spawn finishes, so the budget cannot st
 enforced by **admission**: a trial starts only if `spent + reserve <= N`, where the reserve is the largest
 token total seen so far for that flow (`--reserve-tokens` before the first observation, default 0). Trials run
 serially. Corrective nudges (resumed respawns after an invalid `signals.json`) count against the budget.
-Nudges apply only where production nudges: `evaluate` and `implement`. `detect-scripts` and `select-candidate`
-validate once — production falls back or errors on an invalid file there — so an invalid file is a failed
-trial with `nudgeCount` 0 and no respawn.
+Nudges apply only where production nudges: `evaluate` and `implement`. `detect-scripts`, `select-candidate`
+and `refine` validate once — production falls back or errors on an invalid file there — so an invalid file is
+a failed trial with `nudgeCount` 0 and no respawn. refine's operator turns are resumed respawns too and count
+against the budget the same way.
 
 - A trial whose provider reports no token counts stops the run (`unmetered`) unless `--allow-unmetered` is set.
   Missing counts are never imputed; they print as `n/a`.
@@ -108,10 +110,11 @@ bannered so its numbers are never read as a measurement.
 ```
 evals/fixtures/<flow>/<id>/
   fixture.json          validated by scripts/eval/fixture-schema.ts
-  repo/                 base tree, committed as HEAD in each trial workspace
+  repo/                 base tree, committed as HEAD in each trial workspace (none for refine)
   variants/*.patch      evaluate: clean.patch (reference) + defect.patch; implement: reference.patch;
                         detect-scripts: broken.patch — applied UNCOMMITTED
   candidates/           select-candidate: a|b.json (composeCandidateSummary input) + a|b.patch
+  bodies/               refine: reference.md + invented-outcome.md — label proof only, never shown to a model
   oracle/               hidden checks — never copied into a workspace before grading
 ```
 
@@ -126,7 +129,8 @@ and knip. `evals/results/` is gitignored.
 - **The label is proven, not asserted.** `pnpm eval check` copies `oracle/` into a materialized variant and runs
   `oracle.command`: a clean / winning / reference variant must exit 0, a defect / losing / unmodified one must
   exit non-zero, else the fixture is rejected (a defect no hidden check can observe may be an equivalent mutant).
-  `run` and `compare` call `check` first as a preflight.
+  refine has no oracle command: `check` runs the grader on the committed `referenceBody` (must pass) and
+  `defectBody` (must fail). `run` and `compare` call `check` first as a preflight.
 - **Tamper-proofing.** `oracle.protectedPaths` are restored from the pristine `repo/` before the oracle runs, so
   a weakened visible test still fails; `implement` also counts any change to a protected path as a bypass. List
   specific existing test files, not a whole `test/` directory — a model adding a new test is not tampering.
@@ -139,7 +143,8 @@ and knip. `evals/results/` is gitignored.
   standard error. `origin: real` items (a reconstructed past failure, made generic) are reported separately.
 - The `task` is validated with the planner's own `TaskImportSpecSchema` (minus `projectPath`).
 
-Shipped: 18 evaluate fixtures (each a clean/defect pair), 5 implement, 2 detect-scripts, 2 select-candidate.
+Shipped: 18 evaluate fixtures (each a clean/defect pair), 5 implement, 2 detect-scripts, 2 select-candidate,
+2 refine.
 `ev-01`..`ev-07` are the first, easy set; `ev-08`..`ev-18` and `im-03`..`im-05` are `tier: capability`, added
 because the first real baseline put evaluate catch rate at 100% on 7 items — and "An eval at 100% tracks
 regressions but provides no signal for improvement" (Anthropic, _Demystifying evals for AI agents_). Not yet
@@ -147,6 +152,45 @@ shipped: reviewer-labelled evaluate fixtures (`UNVERIFIED`, `[spec-ambiguity]`) 
 failure — they need named human reviewers and a real past failure to reconstruct. The schema and graders
 already support both. Anthropic's guidance is that "20-50 simple tasks drawn from real failures is a great
 start"; this set is smaller and synthetic, so treat early intervals as very wide.
+
+### The refine flow
+
+Production refine is interactive. The harness runs it headless on what production uses: `buildRefinePrompt`
+with the refine contract section, a session whose cwd is the output directory, no source tree
+mounted. Three differences: the prompt is piped instead of pointed at, one sentence after the shipped
+question format says the session has no structured question tool, so the model takes that format's own
+plain-text branch and ends its turn, and the session is READ_ONLY (no edit or shell tools) while production's interactive session runs with the CLI's own interactive permissions (Claude: `acceptEdits`, shell approvable by the operator). `claude -p` still lists such a tool, and nobody can answer it headless.
+
+The operator is one standing `operatorReply` per fixture. Each turn that ends without `signals.json` gets it on
+the resumed session (the corrective-nudge resume path in `run-trial.ts`), at most 8 times (engineering
+judgment). Question order and count are the model's, so the reply never answers a specific question. A turn
+that writes an invalid file gets no reply, because production validates refine once.
+
+The grader reads only the `refined-ticket` body. `correct` needs all of:
+
+- `## Problem`, `## Outcome`, `## Assumptions`, `## Scope`, each once, in that order;
+- `expect.outcome: "open-question"`: `## Outcome` contains `Open question:` and no digit or `%` that neither the
+  ticket nor the operator reply contains (the code proxy for "invents nothing"). `"stated"`: `## Outcome`
+  contains every `expect.tokens` entry (case-insensitive) and no `Open question:`;
+- a top-level `## Assumptions` bullet containing `**Check:**` or `Open question:`.
+
+The proxy has a blind spot: one `Open question:` anywhere in `## Outcome` satisfies it, so a number-free invented outcome, signal or both passes.
+
+`asked-outcome-turn-1 (weak)` is a keyword match (`outcome`, `success`, `measur…`, `metric`) on the first turn's
+`body.txt`. It is reported, never part of `correct`, and absent when the provider writes no body file.
+
+`rf-01-outcome-unknown` (`capability`) is a one-sentence ticket with no outcome; its operator knows neither the
+outcome, the signal nor whether any assumption holds, takes the first option on every behaviour question and
+approves. `rf-02-outcome-stated` (`regression`) is the same ticket with outcome and signal stated; its operator
+takes the first option and approves. No model has run on them yet. A first read:
+
+```bash
+pnpm eval check --flow refine
+pnpm eval run --flow refine --max-tokens 2000000
+```
+
+The budget is a guess, not a measurement: every resumed turn re-reads the cached context, and cache tokens
+count toward `--max-tokens`.
 
 ### Harder fixtures: failure mode to fixture
 
@@ -211,7 +255,8 @@ comparable and reproducible.
   `pass@k` (share of items with at least one correct trial), `pass^k` (share with all correct), flip rate (share
   whose trials disagree), tokens and wall time. evaluate adds catch rate (defect items), false-PASS and
   false-FAIL rate, dimension hit and `UNVERIFIED:` compliance; catch rate is also split by `origin`. implement
-  adds false completion (claimed done, oracle failed). select-candidate adds order agreement.
+  adds false completion (claimed done, oracle failed). select-candidate adds order agreement. refine adds the
+  weak `asked-outcome-turn-1` keyword proxy.
 - **Confidence intervals.** `mean ± 1.96 × SE`, with the SE clustered by `cluster`. `(approx)` marks fewer than
   30 items or a mean of exactly 0 or 1. At 0 or 100% the SE is 0, so the summary prints "all n at 100% — CLT CI
   degenerate" instead of a zero-width interval. Read a degenerate line as "no signal at this n", not "certain".

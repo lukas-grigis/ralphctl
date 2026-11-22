@@ -97,7 +97,7 @@ const X = 'openai-codex';
 const G = 'xai-grok';
 const S = 'claude-sonnet-5-5';
 const O = 'claude-opus-5-5';
-const F = 'claude-fable-5-1';
+const F = 'claude-fable-5-2';
 const H = 'claude-haiku-5-5';
 // Copilot spells Sonnet 5.5 with a dot (Pro and up since the 2026-09-28 changelog).
 const CS = 'claude-sonnet-5.5';
@@ -106,8 +106,8 @@ const CO = 'claude-opus-5.5';
 // Copilot's light tier — the same `gpt-6-luna` id Codex uses, on the Copilot provider.
 const L = 'gpt-6-luna';
 const LUNA = 'gpt-6-luna';
-const SOL = 'gpt-6.1-sol';
-const ASTRA = 'gpt-6-astra';
+const SOL = 'gpt-6.2-sol';
+const ASTRA = 'gpt-6.2-astra';
 
 /**
  * The full shipped matrix of every preset except `opencode-only` (which carries no effort): the
@@ -118,8 +118,8 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   'claude-only': {
     effort: 'high',
     refine: [C, S, 'medium'],
-    plan: [C, O, 'xhigh'],
-    generator: [C, O, 'xhigh'],
+    plan: [C, O, 'high'],
+    generator: [C, O, 'high'],
     evaluator: [C, O, 'xhigh'],
     readiness: [C, S, 'medium'],
     ideate: [C, O, 'high'],
@@ -127,21 +127,21 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   },
   'claude-economic': {
     effort: 'high',
-    refine: [C, H, 'low'],
+    refine: [C, H, 'medium'],
     plan: [C, S, 'high'],
     generator: [C, S, 'high'],
     evaluator: [C, S, 'high'],
-    readiness: [C, H, 'low'],
+    readiness: [C, H, 'medium'],
     ideate: [C, S, 'medium'],
     createPr: [C, H, 'low'],
   },
   'claude-strong-gate': {
     effort: 'high',
     refine: [C, S, 'medium'],
-    plan: [C, O, 'xhigh'],
+    plan: [C, O, 'high'],
     generator: [C, S, 'high'],
     evaluator: [C, O, 'xhigh'],
-    readiness: [C, S, 'low'],
+    readiness: [C, S, 'medium'],
     ideate: [C, S, 'high'],
     createPr: [C, S, 'low'],
   },
@@ -156,11 +156,11 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     createPr: [C, H, 'low'],
   },
   'claude-frontier': {
-    effort: 'max',
+    effort: 'high',
     refine: [C, O, 'high'],
-    plan: [C, F, 'max'],
-    generator: [C, F, 'max'],
-    evaluator: [C, F, 'max'],
+    plan: [C, F, 'high'],
+    generator: [C, F, 'high'],
+    evaluator: [C, F, 'high'],
     readiness: [C, O, 'high'],
     ideate: [C, F, 'high'],
     createPr: [C, O, 'medium'],
@@ -171,7 +171,7 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     plan: [X, SOL, 'xhigh'],
     generator: [X, SOL, 'xhigh'],
     evaluator: [X, SOL, 'xhigh'],
-    readiness: [X, LUNA, 'medium'],
+    readiness: [X, LUNA, 'high'],
     ideate: [X, SOL, 'high'],
     createPr: [X, LUNA, 'low'],
   },
@@ -187,11 +187,11 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   },
   'codex-strong-gate': {
     effort: 'high',
-    refine: [X, LUNA, 'medium'],
+    refine: [X, LUNA, 'high'],
     plan: [X, SOL, 'xhigh'],
     generator: [X, LUNA, 'xhigh'],
     evaluator: [X, SOL, 'xhigh'],
-    readiness: [X, LUNA, 'medium'],
+    readiness: [X, LUNA, 'high'],
     ideate: [X, SOL, 'high'],
     createPr: [X, LUNA, 'low'],
   },
@@ -218,8 +218,8 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   'copilot-only': {
     effort: 'high',
     refine: [P, CS, 'medium'],
-    plan: [P, CO, 'xhigh'],
-    generator: [P, CO, 'xhigh'],
+    plan: [P, CO, 'high'],
+    generator: [P, CO, 'high'],
     evaluator: [P, CO, 'xhigh'],
     readiness: [P, L, 'medium'],
     ideate: [P, CO, 'high'],
@@ -238,7 +238,7 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   'copilot-strong-gate': {
     effort: 'high',
     refine: [P, CS, 'medium'],
-    plan: [P, CO, 'xhigh'],
+    plan: [P, CO, 'high'],
     generator: [P, CS, 'high'],
     evaluator: [P, CO, 'xhigh'],
     readiness: [P, L, 'medium'],
@@ -256,54 +256,54 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     createPr: [P, L, 'low'],
   },
   'copilot-frontier': {
-    effort: 'max',
+    effort: 'xhigh',
     refine: [P, CO, 'high'],
-    plan: [P, CO, 'max'],
-    generator: [P, CO, 'max'],
-    evaluator: [P, CO, 'max'],
+    plan: [P, CO, 'xhigh'],
+    generator: [P, CO, 'xhigh'],
+    evaluator: [P, CO, 'xhigh'],
     readiness: [P, CO, 'high'],
     ideate: [P, CO, 'high'],
     createPr: [P, CO, 'medium'],
   },
   'grok-only': {
     effort: 'high',
-    refine: [G, 'grok-4.6', 'medium'],
+    refine: [G, 'grok-4.7', 'medium'],
     plan: [G, 'grok-4.7', 'xhigh'],
     generator: [G, 'grok-4.7', 'xhigh'],
     evaluator: [G, 'grok-4.7', 'xhigh'],
-    readiness: [G, 'grok-4.5', 'medium'],
+    readiness: [G, 'grok-4.7', 'medium'],
     ideate: [G, 'grok-4.7', 'high'],
-    createPr: [G, 'grok-4.5', 'low'],
+    createPr: [G, 'grok-4.7', 'low'],
   },
   'grok-economic': {
     effort: 'high',
-    refine: [G, 'grok-4.5', 'medium'],
-    plan: [G, 'grok-4.6', 'high'],
-    generator: [G, 'grok-4.6', 'high'],
-    evaluator: [G, 'grok-4.6', 'high'],
-    readiness: [G, 'grok-4.5', 'medium'],
-    ideate: [G, 'grok-4.6', 'medium'],
-    createPr: [G, 'grok-4.5', 'low'],
+    refine: [G, 'grok-4.7', 'medium'],
+    plan: [G, 'grok-4.7', 'high'],
+    generator: [G, 'grok-4.7', 'high'],
+    evaluator: [G, 'grok-4.7', 'high'],
+    readiness: [G, 'grok-4.7', 'medium'],
+    ideate: [G, 'grok-4.7', 'medium'],
+    createPr: [G, 'grok-4.7', 'low'],
   },
   'grok-strong-gate': {
     effort: 'high',
-    refine: [G, 'grok-4.5', 'medium'],
+    refine: [G, 'grok-4.7', 'medium'],
     plan: [G, 'grok-4.7', 'xhigh'],
-    generator: [G, 'grok-4.6', 'high'],
+    generator: [G, 'grok-4.7', 'high'],
     evaluator: [G, 'grok-4.7', 'xhigh'],
-    readiness: [G, 'grok-4.5', 'medium'],
+    readiness: [G, 'grok-4.7', 'medium'],
     ideate: [G, 'grok-4.7', 'high'],
-    createPr: [G, 'grok-4.5', 'low'],
+    createPr: [G, 'grok-4.7', 'low'],
   },
   'grok-fast': {
     effort: 'low',
-    refine: [G, 'grok-4.5', 'low'],
-    plan: [G, 'grok-4.5', 'low'],
-    generator: [G, 'grok-4.5', 'low'],
-    evaluator: [G, 'grok-4.5', 'low'],
-    readiness: [G, 'grok-4.5', 'low'],
-    ideate: [G, 'grok-4.5', 'low'],
-    createPr: [G, 'grok-4.5', 'low'],
+    refine: [G, 'grok-4.7', 'low'],
+    plan: [G, 'grok-4.7', 'low'],
+    generator: [G, 'grok-4.7', 'low'],
+    evaluator: [G, 'grok-4.7', 'low'],
+    readiness: [G, 'grok-4.7', 'low'],
+    ideate: [G, 'grok-4.7', 'low'],
+    createPr: [G, 'grok-4.7', 'low'],
   },
   'grok-frontier': {
     effort: 'xhigh',
@@ -318,8 +318,8 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   mixed: {
     effort: 'high',
     refine: [X, LUNA, 'high'],
-    plan: [C, O, 'xhigh'],
-    generator: [C, O, 'xhigh'],
+    plan: [C, O, 'high'],
+    generator: [C, O, 'high'],
     evaluator: [X, SOL, 'xhigh'],
     readiness: [P, L, 'medium'],
     ideate: [C, O, 'high'],
@@ -337,8 +337,8 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
   },
   'mixed-strong-gate': {
     effort: 'high',
-    refine: [X, LUNA, 'medium'],
-    plan: [C, O, 'xhigh'],
+    refine: [X, LUNA, 'high'],
+    plan: [C, O, 'high'],
     generator: [C, S, 'high'],
     evaluator: [C, O, 'xhigh'],
     readiness: [P, L, 'medium'],
@@ -356,10 +356,10 @@ const EXPECTED_MATRICES: Readonly<Record<Exclude<PresetName, 'opencode-only'>, M
     createPr: [X, LUNA, 'low'],
   },
   'mixed-frontier': {
-    effort: 'max',
+    effort: 'high',
     refine: [X, SOL, 'high'],
-    plan: [C, F, 'max'],
-    generator: [C, F, 'max'],
+    plan: [C, F, 'high'],
+    generator: [C, F, 'high'],
     evaluator: [X, ASTRA, 'max'],
     readiness: [C, O, 'high'],
     ideate: [C, F, 'high'],
@@ -539,12 +539,12 @@ describe('presets', () => {
     }
   });
 
-  it('premium tiers (Fable 5.1, gpt-6-astra) appear only in the frontier family and are never a default-ladder rung', () => {
-    // Fable 5.1 is Anthropic's flagship above Opus and astra is Codex's premium tier (2.5x Opus 5.5
-    // and 5x gpt-6.1-sol respectively). The frontier family is the "no cost ceiling" preset, so it
+  it('premium tiers (Fable, astra) appear only in the frontier family and are never a default-ladder rung', () => {
+    // Fable 5.2 is Anthropic's flagship above Opus and astra is Codex's premium tier above
+    // gpt-6.2-sol. The frontier family is the "no cost ceiling" preset, so it
     // runs them on its deep flows; every other family, the provider defaults, and the built-in
     // escalation ladders stay off them — an operator reaches them only by a deliberate pick.
-    const premium = (model: string): boolean => model.startsWith('claude-fable') || model === ASTRA;
+    const premium = (model: string): boolean => model.startsWith('claude-fable') || model.endsWith('-astra');
     for (const preset of PRESET_NAMES) {
       for (const [flow, row] of rowsOf(applyPreset(preset, DEFAULT_SETTINGS))) {
         if (!FRONTIER_PRESETS.includes(preset)) {
@@ -594,7 +594,7 @@ describe('presets', () => {
 
   it('routes claude readiness by family — Haiku 5.5 on the fast / economic families, Sonnet 5.5 elsewhere', () => {
     // The fast and economic families run their light flows on Haiku 5.5; standard and strong-gate
-    // keep Sonnet 5.5 and separate by EFFORT (`medium` vs `low`). `low` is pinned EXPLICITLY on the
+    // keep Sonnet 5.5 at `medium`. `low` is pinned EXPLICITLY on the
     // cheap rows — leaving effort unset would inherit the global (`high` for economic /
     // strong-gate) and silently raise the bill.
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5-5');
@@ -603,32 +603,36 @@ describe('presets', () => {
     for (const preset of ['claude-economic', 'claude-fast'] as const) {
       expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.model, preset).toBe('claude-haiku-5-5');
     }
-    for (const preset of ['claude-economic', 'claude-strong-gate', 'claude-fast'] as const) {
-      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.effort, preset).toBe('low');
+    for (const preset of ['claude-economic', 'claude-strong-gate'] as const) {
+      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.effort, preset).toBe('medium');
     }
+    expect(applyPreset('claude-fast', DEFAULT_SETTINGS).ai.readiness.effort).toBe('low');
   });
 
   it('every migrated cheap-flow row pins effort explicitly so it cannot inherit a pricier global', () => {
     // The cheap claude light-flow rows: refine / readiness / createPr on claude-economic and
     // claude-fast run Haiku 5.5; readiness / createPr on claude-strong-gate and ideate on
-    // mixed-fast + claude-fast stay on Sonnet 5.5. All pin `low`.
-    const cheapClaudeRows: ReadonlyArray<[PresetName, 'refine' | 'readiness' | 'ideate' | 'createPr', string]> = [
-      ['claude-economic', 'refine', 'claude-haiku-5-5'],
-      ['claude-economic', 'readiness', 'claude-haiku-5-5'],
-      ['claude-economic', 'createPr', 'claude-haiku-5-5'],
-      ['claude-strong-gate', 'readiness', 'claude-sonnet-5-5'],
-      ['claude-strong-gate', 'createPr', 'claude-sonnet-5-5'],
-      ['mixed-fast', 'ideate', 'claude-sonnet-5-5'],
-      ['claude-fast', 'refine', 'claude-haiku-5-5'],
-      ['claude-fast', 'readiness', 'claude-haiku-5-5'],
-      ['claude-fast', 'ideate', 'claude-sonnet-5-5'],
-      ['claude-fast', 'createPr', 'claude-haiku-5-5'],
+    // mixed-fast + claude-fast stay on Sonnet 5.5. Haiku 5.5 and Sonnet 5.5 readiness start at
+    // `medium` outside the fast family; everything else cheap pins `low`.
+    const cheapClaudeRows: ReadonlyArray<
+      [PresetName, 'refine' | 'readiness' | 'ideate' | 'createPr', string, 'low' | 'medium']
+    > = [
+      ['claude-economic', 'refine', 'claude-haiku-5-5', 'medium'],
+      ['claude-economic', 'readiness', 'claude-haiku-5-5', 'medium'],
+      ['claude-economic', 'createPr', 'claude-haiku-5-5', 'low'],
+      ['claude-strong-gate', 'readiness', 'claude-sonnet-5-5', 'medium'],
+      ['claude-strong-gate', 'createPr', 'claude-sonnet-5-5', 'low'],
+      ['mixed-fast', 'ideate', 'claude-sonnet-5-5', 'low'],
+      ['claude-fast', 'refine', 'claude-haiku-5-5', 'low'],
+      ['claude-fast', 'readiness', 'claude-haiku-5-5', 'low'],
+      ['claude-fast', 'ideate', 'claude-sonnet-5-5', 'low'],
+      ['claude-fast', 'createPr', 'claude-haiku-5-5', 'low'],
     ];
-    for (const [preset, flow, model] of cheapClaudeRows) {
+    for (const [preset, flow, model, effort] of cheapClaudeRows) {
       const row = applyPreset(preset, DEFAULT_SETTINGS).ai[flow];
       expect(row.provider, `${preset}/${flow}`).toBe('claude-code');
       expect(row.model, `${preset}/${flow}`).toBe(model);
-      expect(row.effort, `${preset}/${flow}`).toBe('low');
+      expect(row.effort, `${preset}/${flow}`).toBe(effort);
     }
   });
 

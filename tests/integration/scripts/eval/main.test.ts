@@ -69,13 +69,14 @@ describe('pnpm eval run --dry-run', E2E, () => {
     const { dir, results } = await lastRun();
     expect(results.dryRun).toBe(true);
     expect(results.k).toBe(1);
-    // evaluate 2 items + implement 1 + detect 1 + select 1 (two orders) → k=1 trial each
-    expect(results.trials).toHaveLength(2 + 1 + 1 + 2);
+    // evaluate 2 items + implement 1 + detect 1 + select 1 (two orders) + refine 1 → k=1 trial each
+    expect(results.trials).toHaveLength(2 + 1 + 1 + 2 + 1);
     expect(results.trials.every((t) => t.graded && t.correct)).toBe(true);
     expect(Object.keys(results.metrics).sort()).toEqual([
       'detect-scripts',
       'evaluate',
       'implement',
+      'refine',
       'select-candidate',
     ]);
     expect(results.arms[0]).toMatchObject({ name: 'baseline', label: 'claude-economic' });

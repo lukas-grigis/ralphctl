@@ -68,15 +68,36 @@ const put = async (root: string, files: Readonly<Record<string, string>>): Promi
 
 const BASE_REPO = { 'package.json': '{ "type": "module", "scripts": { "test": "node --test test/*.test.mjs" } }\n' };
 
-export type MiniFlow = 'evaluate' | 'implement' | 'detect-scripts' | 'select-candidate';
+export type MiniFlow = 'evaluate' | 'implement' | 'detect-scripts' | 'select-candidate' | 'refine';
+
+const refineBody = (outcome: string): string =>
+  [
+    '# Export the reports table as CSV',
+    '## Problem\n\nPeople cannot take the reports table out of the app.',
+    `## Outcome\n\n${outcome}`,
+    '## Assumptions\n\n- The export is the table as shown. **Check:** Open question: are hidden columns included? — ask.',
+    '## Scope\n\n- A CSV download of the reports table.',
+  ].join('\n\n');
+
+/** A schema-valid refine spec: the ticket states no outcome and the operator does not know it. */
+export const refineSpec = (): Record<string, unknown> => ({
+  ...COMMON,
+  id: 'mini-rf',
+  flow: 'refine',
+  ticket: { title: 'Export the reports table as CSV' },
+  operatorReply: 'I do not know the outcome or the signal. Take the first option. I approve the requirements.',
+  expect: { outcome: 'open-question' },
+  referenceBody: 'bodies/reference.md',
+  defectBody: 'bodies/invented-outcome.md',
+});
 
 /**
  * Write one mini fixture per requested flow under `<root>/<flow>/mini-<xx>/`. Returns the fixtures
- * root. Ids: `mini-ev`, `mini-im`, `mini-ds`, `mini-sc`.
+ * root. Ids: `mini-ev`, `mini-im`, `mini-ds`, `mini-sc`, `mini-rf`.
  */
 export const writeMiniFixtures = async (
   root: string,
-  flows: readonly MiniFlow[] = ['evaluate', 'implement', 'detect-scripts', 'select-candidate']
+  flows: readonly MiniFlow[] = ['evaluate', 'implement', 'detect-scripts', 'select-candidate', 'refine']
 ): Promise<string> => {
   if (flows.includes('evaluate')) {
     const dir = join(root, 'evaluate', 'mini-ev');
@@ -167,6 +188,13 @@ export const writeMiniFixtures = async (
         winner: 'a',
         oracle: { command: 'node --test oracle/*.test.mjs', protectedPaths: [] },
       }),
+    });
+  }
+  if (flows.includes('refine')) {
+    await put(join(root, 'refine', 'mini-rf'), {
+      'bodies/reference.md': refineBody('- Open question: what should change for users? — ask the product owner.'),
+      'bodies/invented-outcome.md': refineBody('- Support requests about exports drop by 40%.'),
+      'fixture.json': JSON.stringify(refineSpec()),
     });
   }
   return root;

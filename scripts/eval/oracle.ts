@@ -7,6 +7,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { CommandOracle } from './fixture-schema.ts';
+import { gradeRefine } from './grade.ts';
 import { materialize, type Workspace, type WorkspaceDeps } from './workspace.ts';
 import type { Fixture } from './types.ts';
 
@@ -127,8 +128,34 @@ const expectationsOf = (fixture: Fixture): readonly Expectation[] => {
       ];
     }
     case 'detect-scripts':
+    case 'refine':
       return [];
   }
+};
+
+/** Refine labels: the committed reference body must pass the grader and the defect body must fail it. */
+const checkRefine = async (fixture: Fixture & { flow: 'refine' }): Promise<Result<CheckOutcome, StorageError>> => {
+  const lines: string[] = [];
+  let ok = true;
+  for (const label of [
+    { name: 'reference body', rel: fixture.referenceBody, shouldPass: true },
+    { name: 'defect body', rel: fixture.defectBody, shouldPass: false },
+  ]) {
+    const path = join(fixture.dir, label.rel);
+    let body: string;
+    try {
+      body = await fs.readFile(path, 'utf8');
+    } catch (cause) {
+      return Result.error(new StorageError({ subCode: 'io', message: `${path}: ${messageOf(cause)}`, path, cause }));
+    }
+    const passed = gradeRefine(fixture, { valid: true, body }).correct;
+    const good = passed === label.shouldPass;
+    ok &&= good;
+    lines.push(
+      `${good ? 'ok  ' : 'FAIL'} ${label.name}: grader ${passed ? 'passed' : 'failed'}, expected ${label.shouldPass ? 'pass' : 'fail'}`
+    );
+  }
+  return Result.ok({ fixtureId: fixture.id, flow: fixture.flow, ok, lines });
 };
 
 /**
@@ -187,6 +214,7 @@ export const checkFixture = async (
   signal?: AbortSignal
 ): Promise<Result<CheckOutcome, StorageError | AbortError>> => {
   if (fixture.flow === 'detect-scripts') return checkDetectScripts(deps, fixture, signal);
+  if (fixture.flow === 'refine') return checkRefine(fixture);
   if (fixture.flow === 'evaluate' && !('command' in fixture.oracle)) {
     return Result.ok({
       fixtureId: fixture.id,

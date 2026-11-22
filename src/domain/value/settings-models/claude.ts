@@ -1,5 +1,5 @@
 // Verified against `claude --help` / `claude config get` (Claude Code v2.x); Opus 5.5 / Fable 5.1
-// live-probed on Claude Code 2.1.280 (2026-09-22); Sonnet 5.5 on Claude Code 2.1.285 (2026-09-30);
+// live-probed on Claude Code 2.1.280 (2026-09-22); Fable 5.2 from model-config + the 2.1.330 binary (2026-11-21); Sonnet 5.5 on Claude Code 2.1.285 (2026-09-30);
 // Haiku 5.5 from the Claude Code CHANGELOG (>= 2.1.293) + platform model overview (2026-10-11).
 // Docs: https://docs.claude.com/en/docs/claude-code/cli-reference
 
@@ -13,22 +13,22 @@
  * `claude-opus-5-5` (Claude Code >= 2.1.280, 2026-09-22) is the current Opus: cheaper than Opus 5
  * ($4/$20 vs $5/$25 per MTok), natively 1M in Claude Code (default AND max, so NO `[1m]`
  * variant), 128K output, and the top of the built-in Claude-Code escalation ladder. Its CLI
- * default effort is `medium` (every other effort-capable Claude model defaults to `high`), which
- * is why ralphctl never relies on the implicit default — see `escalation-map.ts`.
+ * default effort is `medium`, not `high`, which is why ralphctl never relies on the implicit
+ * default — see `escalation-map.ts`.
  * `claude-opus-5` and `claude-opus-4-8` are kept so pinned configs keep working; both carry a
  * ladder rung to Opus 5.5.
  *
- * `claude-fable-5-1` is the frontier tier above Opus (successor to `claude-fable-5`, same
- * $10/$50 price — 2.5x Opus 5.5), natively 1M default AND max, so it has no `[1m]` variant. It
- * requires 30-day data retention: zero-data-retention orgs get a 400. `claude-fable-5` stays for
- * pinned configs. Fable is never a provider default or a built-in escalation rung; only the
- * frontier presets pick it (on their deep flows). Elsewhere opt in per row, or via
- * `settings.harness.escalationMap` (e.g. `'claude-opus-5-5': 'claude-fable-5-1'`).
+ * `claude-fable-5-2` (Claude Code >= 2.1.321) is the frontier tier above Opus, natively 1M so it has
+ * no `[1m]` variant, CLI default effort `medium`. `claude-fable-5-1` and
+ * `claude-fable-5` stay for pinned configs. Every Fable requires 30-day data retention
+ * (zero-data-retention orgs get a 400). Fable is never a provider default or a built-in escalation
+ * rung; only the frontier presets pick it (on their deep flows). Elsewhere opt in per row, or via
+ * `settings.harness.escalationMap` (e.g. `'claude-opus-5-5': 'claude-fable-5-2'`).
  *
- * The `[1m]` suffix is Claude Code's long-context (1M-token) variant syntax for models whose
- * Claude-Code default window is 200K — a literal part of the `--model` value, passed through
- * verbatim (argv array, never a shell — the brackets cannot glob). Only `claude-opus-4-8[1m]` and
- * `claude-fable-5[1m]` carry it; both are opt-in only (no preset, default, or ladder rung).
+ * The `[1m]` suffix is Claude Code's long-context (1M-token) variant syntax — a literal part of the
+ * `--model` value, passed through verbatim (argv array, never a shell — the brackets cannot glob).
+ * Only `claude-opus-4-8[1m]` and `claude-fable-5[1m]` are cataloged with it, kept so pinned
+ * configs keep working; both are opt-in only (no preset, default, or ladder rung).
  *
  * `claude-sonnet-5-5` (Claude Code >= 2.1.284) is the default Sonnet and the preset pick: $2/$10
  * per MTok, natively 1M with no `[1m]` variant, all five effort levels, and — like Opus 5.5 — a
@@ -55,6 +55,7 @@ export const CLAUDE_MODELS = [
   'claude-fable-5',
   'claude-fable-5[1m]',
   'claude-fable-5-1',
+  'claude-fable-5-2',
 ] as const;
 
 export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
@@ -81,4 +82,5 @@ export const CLAUDE_MODEL_EFFORT_LEVELS: Readonly<Record<ClaudeModel, readonly s
   'claude-fable-5': ALL_CLAUDE_EFFORTS,
   'claude-fable-5[1m]': ALL_CLAUDE_EFFORTS,
   'claude-fable-5-1': ALL_CLAUDE_EFFORTS,
+  'claude-fable-5-2': ALL_CLAUDE_EFFORTS,
 };

@@ -21,7 +21,8 @@ const PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'open
  * Which settings row each eval flow runs on — matching production so a trial uses the row the real
  * flow would: the evaluator row for both the evaluate turn and the best-of-N judge
  * (`best-of-n-judge.ts` reads `opts.evaluator`), the generator row for implement, and the
- * `readiness` row for detect-scripts (`detect-scripts` is a launch-time readiness-family flow).
+ * `readiness` row for detect-scripts (`detect-scripts` is a launch-time readiness-family flow), and
+ * the refine row for refine.
  */
 const ROW_OF: Readonly<
   Record<EvalFlow, { readonly flow: FlowId; readonly pick: (ai: Settings['ai']) => AiFlowSettings }>
@@ -30,6 +31,7 @@ const ROW_OF: Readonly<
   implement: { flow: 'implement', pick: (ai) => ai.implement.generator },
   'detect-scripts': { flow: 'readiness', pick: (ai) => ai.readiness },
   'select-candidate': { flow: 'implement', pick: (ai) => ai.implement.evaluator },
+  refine: { flow: 'refine', pick: (ai) => ai.refine },
 };
 
 export interface ArmOptions {

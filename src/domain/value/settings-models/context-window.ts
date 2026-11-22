@@ -4,8 +4,9 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   // Claude (claude-code adapter — Anthropic direct)
   'claude-haiku-4-5': 200_000,
   'claude-sonnet-4-6': 200_000,
-  // 1M on Opus 4.8 is plan-dependent in Claude Code; the `[1m]` id below carries it.
-  'claude-opus-4-8': 200_000,
+  // Opus 4.7+ and every Fable run 1M by default in Claude Code; only the 4.6 models need `[1m]`.
+  'claude-opus-4-8': 1_000_000,
+  'claude-fable-5': 1_000_000,
   // Haiku 5.5 — natively 1M in Claude Code, no `[1m]` selector.
   'claude-haiku-5-5': 1_000_000,
   // Sonnet 5.5 and Sonnet 5 always run at their native 1M window on the Anthropic API — no `[1m]`
@@ -14,10 +15,11 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   'claude-sonnet-5-5': 1_000_000,
   // Opus 5 — natively 1M in Claude Code — no `[1m]` selector; the bare id carries the figure.
   'claude-opus-5': 1_000_000,
-  // Opus 5.5 and Fable 5.1 — natively 1M (default AND max) in Claude Code, no `[1m]` selector.
+  // Opus 5.5 and Fable 5.1 / 5.2 — natively 1M in Claude Code, no `[1m]` selector.
   'claude-opus-5-5': 1_000_000,
   'claude-fable-5-1': 1_000_000,
-  // `[1m]` is Claude Code's 1M-token long-context selector — the window IS the id suffix.
+  'claude-fable-5-2': 1_000_000,
+  // Cataloged `[1m]` ids are still accepted by the CLI; the window equals the bare id's.
   'claude-opus-4-8[1m]': 1_000_000,
   'claude-fable-5[1m]': 1_000_000,
   // Grok (xai-grok adapter — docs.x.ai published window; build-fast is the same model)

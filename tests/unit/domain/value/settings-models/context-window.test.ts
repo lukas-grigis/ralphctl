@@ -11,7 +11,12 @@ describe('contextWindowFor', () => {
   it('returns 200_000 for the standard 200K Claude models', () => {
     expect(contextWindowFor('claude-haiku-4-5')).toBe(200_000);
     expect(contextWindowFor('claude-sonnet-4-6')).toBe(200_000);
-    expect(contextWindowFor('claude-opus-4-8')).toBe(200_000);
+  });
+
+  it('returns 1_000_000 for the bare Opus 4.8 and Fable ids (native 1M in Claude Code)', () => {
+    for (const m of ['claude-opus-4-8', 'claude-fable-5', 'claude-fable-5-1', 'claude-fable-5-2']) {
+      expect(contextWindowFor(m), m).toBe(1_000_000);
+    }
   });
 
   it('returns 1_000_000 for the bare Haiku 5.5 id (native 1M, no [1m] selector)', () => {
@@ -61,7 +66,6 @@ describe('contextWindowLabel', () => {
   it('formats 200K models as "200K"', () => {
     expect(contextWindowLabel('claude-sonnet-4-6')).toBe('200K');
     expect(contextWindowLabel('claude-haiku-4-5')).toBe('200K');
-    expect(contextWindowLabel('claude-opus-4-8')).toBe('200K');
   });
 
   it('formats 1M models as "1M" (not "1000k")', () => {

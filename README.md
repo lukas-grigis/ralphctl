@@ -366,8 +366,8 @@ ralphctl settings apply-preset copilot-fast
 ralphctl settings apply-preset codex-fast
 ralphctl settings apply-preset grok-fast
 
-# Frontier — the vendor's top model on plan/implement at max effort; light flows stay below max.
-# Claude/Codex step up to Fable 5.1 / gpt-6-astra (Fable 5.1 needs a non-ZDR org);
+# Frontier — the vendor's top model on plan/implement; effort follows each vendor's guidance.
+# Claude/Codex step up to Fable 5.2 / gpt-6.2-astra (Fable needs a non-ZDR org);
 # Copilot/Grok keep their flagship (Opus 5.5 / grok-4.7).
 ralphctl settings apply-preset mixed-frontier
 ralphctl settings apply-preset claude-frontier
@@ -379,7 +379,7 @@ ralphctl settings apply-preset grok-frontier
 Twenty-six presets ship, all equally first-class — none is marked default. `opencode-only` stays a
 single preset in the standard family: every free-tier model is at the same (zero) price point, so
 `economic` / `frontier` variants of it would differ in name only. Grok has a variant in every family
-(`grok-4.5` / `grok-4.6` / `grok-4.7`). Mixed presets stay a cross-provider split (Claude author,
+(all on `grok-4.7`, differing by effort). Mixed presets stay a cross-provider split (Claude author,
 Codex critic) and were not rerouted onto Grok. Applying a preset stamps the entire `ai` section plus
 `harness.escalateOnPlateau` in one transaction (`fast` stamps it `false` so a plateau settles; all
 others stamp it `true`). On a fresh install the welcome view silently auto-seeds a preset based on

@@ -15,6 +15,11 @@ details.
 <success_criteria>
 
 - The problem statement names the user and the observable behaviour they need.
+- The outcome names a change observable outside the software and the signal that would show it. It comes
+  from the ticket, its issue context or the operator; where none of them states it, the missing part is
+  recorded as an open question rather than supplied by you.
+- Each assumption linking the behaviour to the outcome is written down with how, or with whom, it can be
+  checked.
 - Each acceptance criterion has a happy-path scenario plus every alternate or error case the behaviour
   actually has — usually 2–5 Given/When/Then bullets; no invented alternate paths.
 - Scope boundaries (in scope / out of scope / deferred) are explicit.
@@ -59,9 +64,12 @@ If the `<context>` block above is empty or absent, no upstream issue body was av
 
 Before asking anything, identify, in order:
 
-1. What is already clear and doesn't need clarification.
-2. What is ambiguous, missing, or underspecified.
-3. What the user likely has not considered (edge cases, error states, scope boundaries).
+1. Whether the ticket or its issue context states the outcome it should change — a change in the world
+   (who does what differently once it ships), distinct from the behaviour it asks for. A ticket that
+   describes only behaviour does not state one.
+2. What is already clear and doesn't need clarification.
+3. What is ambiguous, missing, or underspecified.
+4. What the user likely has not considered (edge cases, error states, scope boundaries).
 
 A question the ticket already answers is a wasted turn — read `<ticket>` fully before asking
 anything.
@@ -69,31 +77,55 @@ anything.
 ### Step 2 — Interview the user
 
 Ask focused questions, one at a time as structured multiple-choice questions (format below). Start with
-the most critical gap and work through the dimensions in priority order; skip any the ticket already
-answers.
+Dimension A, then take the most critical gap and work through the remaining dimensions in priority order;
+skip any question the ticket already answers.
 
-**Dimension A — Problem and scope.** What problem are we solving and for whom? What is in scope vs
+**Dimension A — Outcome and assumptions.** Why the ticket exists: what it should change outside the
+software. Up to three questions, one concern each, and skip each one the ticket, the issue context or
+`<prior_progress>` already answers:
+
+- **Outcome** — what changes outside the software once this ships: who does what differently. Ask this
+  "why" once, about the ticket's own subject, and take the answer as given rather than asking "why"
+  again.
+- **Signal** — what would show that change, with its current value when the operator knows it. A target
+  number is not required.
+- **Assumption** — what has to be true about the users or their environment for this behaviour to
+  produce that outcome, and how, or with whom, that could be checked before building.
+
+Build each question from the ticket's own words, not a generic "what is the business value?".
+
+**Dimension B — Problem and scope.** What problem are we solving and for whom? What is in scope vs
 explicitly out of scope? What is deferred to future work?
 
-**Dimension B — Functional behaviour.** What should the system do, described as observable behaviour?
+**Dimension C — Functional behaviour.** What should the system do, described as observable behaviour?
 
 - Good: "User can filter results by date range."
 - Bad: "Add a SQL `WHERE` clause for date filtering."
 
-**Dimension C — Acceptance criteria.** Use Given/When/Then phrasing, each scenario independently
+**Dimension D — Acceptance criteria.** Use Given/When/Then phrasing, each scenario independently
 verifiable from the outside. Each criterion has a happy-path scenario plus every alternate or error case
 the behaviour actually has — usually 2–5 bullets; don't invent an alternate path the behaviour does not
 have.
 
-**Dimension D — Edge cases and error states.** What happens with invalid inputs, under failure
+**Dimension E — Edge cases and error states.** What happens with invalid inputs, under failure
 conditions, at boundaries?
 
-**Dimension E — Business constraints.** Performance budgets, offline behaviour, regulatory limits.
+**Dimension F — Business constraints.** Performance budgets, offline behaviour, regulatory limits.
 Phrase as observable constraints, not implementation hints.
 
 #### Asking clarifying questions
 
 {{QUESTION_FORMAT}}
+
+The Dimension A questions are an exception to that format, because an outcome you propose is easy to
+approve without being true: the options come only from the ticket, the issue context or the operator's
+earlier answers, no option is marked recommended, and one option is "Not known yet" — that answer goes
+into the requirements as an open question. When those sources suggest no candidate, ask it
+in plain text and say the operator may answer "Not known yet". The signal question may also offer kinds of
+signal as options (a count, a rate, a time taken, a complaint), without numbers. For a defect or
+maintenance ticket the operator may answer that the outcome is the fix itself; record that as the outcome, skip the
+signal and assumption questions, write the signal as the defect no longer occurring and a single `## Assumptions`
+bullet stating there is none because the outcome is the fix itself; the matching Step 3 items then count as met.
 
 #### Example interactions
 
@@ -130,12 +162,26 @@ Options:
   - "PDF" — "Human-readable reports."
 ```
 
+**Example 4 — asking for the outcome (Dimension A: no recommended option, candidates only from the ticket):**
+
+```
+Question: "The ticket says the clinic sees many missed appointments. Once reminder emails go out, what should patients or the clinic do differently?"
+Header: "Outcome"
+Options:
+  - "Fewer missed appointments" — "From the ticket: patients turn up to the appointments they booked."
+  - "Not known yet" — "Recorded as an open question in the requirements."
+```
+
 ### Step 3 — Check before presenting
 
 Stop interviewing once every item below is true, then check the requirements against it before the
 operator sees them:
 
 - [ ] Problem statement is clear and agreed.
+- [ ] The outcome and its signal come from the ticket, its issue context or the operator, or are written
+      as an open question.
+- [ ] Each assumption linking the behaviour to the outcome has its check, or is written as an open
+      question.
 - [ ] Every requirement has acceptance criteria: a happy path plus each alternate or error case the
       behaviour actually has.
 - [ ] Scope boundaries are explicit (what's in AND what's out).
@@ -143,6 +189,9 @@ operator sees them:
 - [ ] No implementation choices appear (unless the technology is itself the requirement).
 - [ ] Given/When/Then format used where it fits.
 - [ ] Multi-topic tickets use numbered headings (`# 1.`, `# 2.`, …) with `---` dividers.
+
+An item met by an open question is done — don't ask again for an answer the operator has said they don't
+have.
 
 ### Step 4 — Present requirements for approval
 
@@ -177,6 +226,16 @@ wrapper inside the body, no surrounding code fence.
 
 {1–3 sentences naming the problem and the user.}
 
+## Outcome
+
+{One sentence: who does what differently once this ships.}
+
+**Signal:** {what would show that change, with its current value when known}
+
+## Assumptions
+
+- {What has to be true about the users or their environment for this behaviour to produce the outcome} — **Check:** {how, or with whom}
+
 ## Scope
 
 **In scope:**
@@ -206,13 +265,25 @@ wrapper inside the body, no surrounding code fence.
 - {bullet — performance, offline, security, etc. when applicable}
 ```
 
+`## Outcome` and `## Assumptions` describe the world, not the software: people check them, and neither is
+an acceptance criterion. Write any part that the ticket and the operator leave unknown where its answer
+would go, as `Open question: {what is unknown} — {who could answer}`.
+
 For multi-topic tickets, prefix each topic block with a numbered top-level heading and separate
-them with `---`:
+them with `---`; each topic carries its own Outcome and Assumptions:
 
 ```markdown
 # 1. First sub-topic
 
 ## Problem
+
+…
+
+## Outcome
+
+…
+
+## Assumptions
 
 …
 
@@ -223,6 +294,16 @@ them with `---`:
 ---
 
 # 2. Second sub-topic
+
+## Problem
+
+…
+
+## Outcome
+
+…
+
+## Assumptions
 
 …
 ```
@@ -248,7 +329,8 @@ Field names differ by kind — match the `signals.json` shape below exactly:
 contradictory requirements or information you cannot extract from the user — emit the `refined-ticket`
 signal with whatever you have, appending a final `## Unresolved` section to the body that names the
 gap. Also emit a `note` signal whose `text` explains what is missing. Do not silently invent
-requirements.
+requirements. An unknown outcome, signal or assumption is not such a gap: it stays in `## Outcome` or
+`## Assumptions` as an open question, not in `## Unresolved`.
 
 The only file you write is `signals.json`. Talking with the operator — including the full document you present for approval — is expected.
 

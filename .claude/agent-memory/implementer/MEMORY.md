@@ -24,7 +24,7 @@
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit-time reap bounds 'close', skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_migration_backup_and_dry_run.md](seams_migration_backup_and_dry_run.md) — Backup never dereferences + skips worktrees; the dry-run loop-skip depends on it; fs.cp root/verbatim traps
 - [seams_sprint_write_locks.md](seams_sprint_write_locks.md) — Sprint-dir lock vs update lock don't exclude; long-held flows end in update(); plan/ideate commit predicate; withUpdate stub trap
-- [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity
+- [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity, refine operator turns vs nudges, no-tool question sentence, grader literals
 
 ## Standalone
 
@@ -36,5 +36,5 @@
 - [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — Skill selection → `createResolvedSkillSource` resolution path
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — Flows-view repo selection and its soft default
 - [project_doctor_probes_and_escape_keys.md](project_doctor_probes_and_escape_keys.md) — Doctor probes return unknown not fail, useViewKeys can't match Escape, demo seeder marker rule
-- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; worktree Bash guard false positive
+- [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — Parallel-agent collisions; zsh no-word-split trap; no `timeout` binary; worktree Bash guard false positive
 - [feedback_worktree_isolation_command_filter.md](feedback_worktree_isolation_command_filter.md) — Isolated runs refuse every heredoc and git-mentioning chains; use Edit + single commands

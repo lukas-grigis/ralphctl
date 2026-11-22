@@ -124,12 +124,16 @@ const regressionLine = (attribution: AttributionStats): string => {
 const renderSummary = (rollup: OutcomeRollup): readonly string[] => {
   const { doneOnFirstAttempt, doneTotal, rate } = rollup.firstPass;
   const criteria = rollup.criteria;
-  return [
+  const lines = [
     'Summary',
     `${key('first pass')}${String(doneOnFirstAttempt)}/${String(doneTotal)} done on attempt 1 (${pct(rate)}) — of ${plural(doneTotal, 'done task')}`,
     regressionLine(rollup.attribution),
     `${key('criteria')}${String(criteria.passed)}/${String(criteria.declared)} passed (${pct(criteria.passRate)}) · ${String(criteria.failed)} failed · ${String(criteria.unknown)} unknown · ${plural(criteria.tasksWithVerdicts, 'task')} graded`,
   ];
+  // Static on purpose: tasks carry no version stamp, so pre-0.14.0 cannot be told from never-graded.
+  if (criteria.unknown > 0)
+    lines.push('  unknown = no verdict recorded (never graded; always the case before v0.14.0)');
+  return lines;
 };
 
 const renderAttempts = (rollup: OutcomeRollup): readonly string[] => {

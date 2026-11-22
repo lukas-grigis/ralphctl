@@ -32,7 +32,7 @@ describe('loadFixtures', () => {
   it('loads every flow, sorted by flow then id, with the fixture directory attached', async () => {
     await writeMiniFixtures(root);
     const { fixtures } = await load();
-    expect(fixtures.map((f) => f.id)).toEqual(['mini-ev', 'mini-im', 'mini-ds', 'mini-sc']);
+    expect(fixtures.map((f) => f.id)).toEqual(['mini-ev', 'mini-im', 'mini-ds', 'mini-sc', 'mini-rf']);
     expect(fixtures[0]?.dir).toBe(join(root, 'evaluate', 'mini-ev'));
   });
 

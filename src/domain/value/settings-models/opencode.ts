@@ -1,5 +1,5 @@
-// Verified against the live CLI (`opencode models opencode`, opencode-ai v1.18.35, 2026-10-17).
-// Docs: https://opencode.ai/docs/cli/
+// Verified against the live CLI (`opencode models opencode`, opencode-ai v1.18.35, 2026-11-21).
+// Docs: https://opencode.ai/v1/docs/cli/
 
 /**
  * Models supported by the OpenCode adapter.
@@ -31,28 +31,22 @@
  * listing such ids, so enumeration is not a liveness check — health-probe before promoting an
  * id to a shipped default.
  *
- * The 2026-09-22 refresh (opencode-ai v1.18.32) dropped five ids that left the free tier —
- * `deepseek-v4-flash-free`, `laguna-s-2.1-free`, `ling-3.0-tiny-free`, `longcat-2.0-free`, and
- * `north-mini-code-free` — and added four. The two with a clear successor are remapped at parse
- * time (`RETIRED_MODEL_REMAPS` in `domain/entity/settings.ts`); the rest are left for the CLI to
- * reject, since the adapter forwards OpenCode ids verbatim.
- *
- * The 2026-10-17 refresh (opencode-ai v1.18.35) dropped `hy3-free`, `mimo-v2.5-free` and
- * `muse-spark-1.2-contributor-free` and added seven; the two with a same-family successor are
- * remapped. The new ids are listed, not health-probed.
+ * A dropped id is remapped (`RETIRED_MODEL_REMAPS` in `domain/entity/settings.ts`) only when a
+ * same-family successor is live; any other dropped id is left for the CLI to reject, since the
+ * adapter forwards OpenCode ids verbatim.
  */
 export const OPENCODE_MODELS = [
+  'opencode/beam-free',
   'opencode/big-pickle',
-  'opencode/exo-free',
-  'opencode/ling-3.0-flash-fin-free',
-  'opencode/ling-3.1-flash-free',
-  'opencode/longcat-2.5-preview-free',
+  'opencode/deepseek-v4.1-flash-free',
+  'opencode/flint-40b-free',
+  'opencode/hy4-flash-free',
+  'opencode/iceman-free',
+  'opencode/longcat-2.5-free',
   'opencode/mimo-v2.6-flash-free',
-  'opencode/muse-spark-1.3-contributor-free',
-  'opencode/nemotron-3-ultra-free',
   'opencode/nemotron-3.5-lightning-free',
-  'opencode/space-bunny-free',
-  'opencode/step-5-preview-free',
+  'opencode/nemotron-3.5-super-vl-free',
+  'opencode/tidepool-alpha-free',
 ] as const;
 
 export type OpencodeModel = (typeof OPENCODE_MODELS)[number];

@@ -178,3 +178,57 @@ describe('select-candidate flow', () => {
     ).toBe(true);
   });
 });
+
+describe('refine flow', () => {
+  const bodyOf = (name: string): Promise<string> =>
+    fs.readFile(join(fixturesRoot, 'refine', 'mini-rf', 'bodies', name), 'utf8');
+  const refined = async (name: string) => [[{ type: 'refined-ticket', body: await bodyOf(name) }]] as const;
+
+  it('answers each turn that ends without signals.json with the standing reply on the resumed session', async () => {
+    const provider = createFakeProvider({
+      responses: ['missing', 'missing', ...(await refined('reference.md'))],
+      beforeWrite: async (session, call) => {
+        if (call === 0 && session.bodyFile !== undefined) {
+          await fs.writeFile(String(session.bodyFile), 'What outcome should this reach?');
+        }
+      },
+    });
+    const { results } = await run('mini-rf', provider);
+    const t = only(results);
+    expect(t).toMatchObject({ graded: true, correct: true, structurallyValid: true, nudgeCount: 0 });
+    expect(t.grade).toMatchObject({ flow: 'refine', inventedChars: [], askedOutcomeFirstTurn: true });
+    expect(t.usage.inputTokens).toBe(3000); // every operator turn counts against the budget
+
+    const [first, ...replies] = provider.sessions as [AiSession, ...AiSession[]];
+    expect(first.permissions).toBe(READ_ONLY);
+    expect(String(first.cwd)).toBe(String(first.outputDir));
+    expect(first.prompt).toContain('Export the reports table as CSV');
+    expect(first.prompt).toContain(String(first.signalsFile));
+    expect(first.prompt).toMatch(/<\/question_format>\s+This session has no structured question tool/);
+    expect(first.model).toBe('claude-haiku-5-5');
+    expect(replies.map((s) => [s.prompt, s.resume])).toEqual([
+      ['I do not know the outcome or the signal. Take the first option. I approve the requirements.', 'fake-session'],
+      ['I do not know the outcome or the signal. Take the first option. I approve the requirements.', 'fake-session'],
+    ]);
+  });
+
+  it('stops replying at the turn cap: a model that never writes the file is graded invalid', async () => {
+    const provider = createFakeProvider({ responses: ['missing'] });
+    const { results } = await run('mini-rf', provider);
+    expect(provider.sessions).toHaveLength(1 + 8);
+    expect(only(results)).toMatchObject({ graded: true, correct: false, structurallyValid: false });
+  });
+
+  it('does not reply to an invalid file: production validates refine once', async () => {
+    const provider = createFakeProvider({ responses: ['garbage', ...(await refined('reference.md'))] });
+    const { results } = await run('mini-rf', provider);
+    expect(provider.sessions).toHaveLength(1);
+    expect(only(results)).toMatchObject({ correct: false, structurallyValid: false });
+  });
+
+  it('grades an invented outcome as incorrect', async () => {
+    const { results } = await run('mini-rf', createFakeProvider({ responses: await refined('invented-outcome.md') }));
+    expect(only(results)).toMatchObject({ correct: false, structurallyValid: true });
+    expect(only(results).grade).toMatchObject({ outcomeOk: false, inventedChars: ['4', '0', '%'] });
+  });
+});

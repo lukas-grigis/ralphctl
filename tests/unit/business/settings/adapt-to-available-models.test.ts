@@ -77,11 +77,17 @@ describe('adaptAiToAvailableModels', () => {
     expect(out.substitutions.map(aiRowKey)).toContain('ai.implement.generator');
   });
 
-  it('steps a Copilot Opus 5.5 row straight to Sonnet 5.5 — Opus 4.8 retires 2026-11-16', () => {
+  it('steps a Copilot Opus 5.5 row straight to Sonnet 5.5 — Opus 4.8 is retired', () => {
     expect(copilotOnly.implement.generator.model).toBe('claude-opus-5.5');
     const no55 = adaptAiToAvailableModels(copilotOnly, without('github-copilot', 'claude-opus-5.5'));
     expect(no55.ai.implement.generator.model).toBe('claude-sonnet-5.5');
-    expect(PRESET_MODEL_FALLBACKS['github-copilot']['claude-opus-5.5']).not.toContain('claude-opus-4.8');
+  });
+
+  it('falls Fable 5.2 back to Fable 5.1 before any Opus', () => {
+    expect(PRESET_MODEL_FALLBACKS['claude-code']['claude-fable-5-2']?.slice(0, 2)).toEqual([
+      'claude-fable-5-1',
+      'claude-opus-5-5',
+    ]);
   });
 
   it('falls a claude-fast Haiku 5.5 row back to Sonnet 5.5, then Haiku 4.5', () => {
