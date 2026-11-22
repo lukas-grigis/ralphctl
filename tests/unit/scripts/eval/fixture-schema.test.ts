@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FixtureSchema } from '../../../../scripts/eval/fixture-schema.ts';
-import { evaluateSpec } from '../../../fixtures/eval-harness.ts';
+import { evaluateSpec, refineSpec } from '../../../fixtures/eval-harness.ts';
 
 const messages = (spec: unknown): string =>
   FixtureSchema.safeParse(spec)
@@ -116,5 +116,27 @@ describe('FixtureSchema', () => {
 
   it('rejects a non-kebab id', () => {
     expect(FixtureSchema.safeParse({ ...evaluateSpec(), id: 'Bad_Id' }).success).toBe(false);
+  });
+
+  describe('refine', () => {
+    it('accepts an unknown-outcome fixture and a stated-outcome fixture with tokens', () => {
+      expect(FixtureSchema.safeParse(refineSpec()).success).toBe(true);
+      const stated = { ...refineSpec(), expect: { outcome: 'stated', tokens: ['account managers'] } };
+      expect(FixtureSchema.safeParse(stated).success).toBe(true);
+    });
+
+    it('requires a stated outcome to name its tokens, and an open question to name none', () => {
+      expect(messages({ ...refineSpec(), expect: { outcome: 'stated', tokens: [] } })).toContain('expect.tokens');
+      expect(FixtureSchema.safeParse({ ...refineSpec(), expect: { outcome: 'stated' } }).success).toBe(false);
+      const openWithTokens = { ...refineSpec(), expect: { outcome: 'open-question', tokens: ['x'] } };
+      expect(FixtureSchema.safeParse(openWithTokens).success).toBe(false);
+    });
+
+    it('requires the operator reply and both label bodies', () => {
+      for (const field of ['operatorReply', 'referenceBody', 'defectBody']) {
+        expect(messages({ ...refineSpec(), [field]: undefined }), field).toContain(field);
+      }
+      expect(messages({ ...refineSpec(), operatorReply: '' })).toContain('operatorReply');
+    });
   });
 });

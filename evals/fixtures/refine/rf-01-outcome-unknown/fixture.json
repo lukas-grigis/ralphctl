@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "tier": "capability",
+  "cluster": "ticket-reports-export",
+  "origin": "synthetic",
+  "provenance": "Synthetic: a one-sentence ticket that states no outcome or signal, and an operator who cannot supply either. Authored for this harness.",
+  "id": "rf-01-outcome-unknown",
+  "flow": "refine",
+  "ticket": {
+    "title": "Export the reports table as CSV",
+    "description": "Add a button to the reports page that downloads the current table as a CSV file."
+  },
+  "operatorReply": "I don't know what outcome this should achieve, I don't know which signal would show that it worked, and I can't confirm whether any of your assumptions hold. On every question about behaviour, take the first option. When you show me the requirements, I approve them.",
+  "expect": {
+    "outcome": "open-question"
+  },
+  "referenceBody": "bodies/reference.md",
+  "defectBody": "bodies/invented-outcome.md"
+}

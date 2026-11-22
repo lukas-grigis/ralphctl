@@ -135,11 +135,19 @@ const orderAgreement = (item: Item): number | undefined => {
 
 const SELECT: readonly MetricDef[] = [{ name: 'order-agreement', itemValue: orderAgreement }];
 
+const REFINE: readonly MetricDef[] = [
+  {
+    name: 'asked-outcome-turn-1 (weak)',
+    trialValue: gradeBool((g) => (g.flow === 'refine' ? g.askedOutcomeFirstTurn : undefined)),
+  },
+];
+
 const FLOW_METRICS: Readonly<Record<EvalFlow, readonly MetricDef[]>> = {
   evaluate: EVALUATE,
   implement: IMPLEMENT,
   'detect-scripts': DETECT,
   'select-candidate': SELECT,
+  refine: REFINE,
 };
 
 const metricsFor = (flow: EvalFlow): readonly MetricDef[] => [...COMMON, ...FLOW_METRICS[flow]];

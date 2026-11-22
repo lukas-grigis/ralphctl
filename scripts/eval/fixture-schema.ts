@@ -10,7 +10,7 @@ import { TaskImportSpecSchema } from '@src/integration/ai/prompts/_engine/task-i
  * Paths inside a fixture are relative to the fixture directory; the loader checks they exist.
  */
 
-export const EVAL_FLOWS = ['evaluate', 'implement', 'detect-scripts', 'select-candidate'] as const;
+export const EVAL_FLOWS = ['evaluate', 'implement', 'detect-scripts', 'select-candidate', 'refine'] as const;
 export type EvalFlow = (typeof EVAL_FLOWS)[number];
 
 /** The five floor dimensions the evaluator always grades (`floor-dimensions.ts`). */
@@ -189,11 +189,32 @@ const SelectCandidateFixtureSchema = z
   })
   .strict();
 
+/** `open-question`: the ticket and the operator leave the outcome unknown; `stated`: the ticket states it. */
+const RefineExpectSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('open-question') }).strict(),
+  z.object({ outcome: z.literal('stated'), tokens: z.array(NonEmpty).min(1) }).strict(),
+]);
+
+const RefineFixtureSchema = z
+  .object({
+    ...CommonShape,
+    flow: z.literal('refine'),
+    ticket: z.object({ title: NonEmpty, description: NonEmpty.optional() }).strict(),
+    /** The scripted operator's one standing reply, sent each time a turn ends without `signals.json`. */
+    operatorReply: NonEmpty,
+    expect: RefineExpectSchema,
+    /** Label proof: `check` grades these bodies — the reference must pass, the defect must fail. */
+    referenceBody: NonEmpty,
+    defectBody: NonEmpty,
+  })
+  .strict();
+
 export const FixtureSchema = z.discriminatedUnion('flow', [
   EvaluateFixtureSchema,
   ImplementFixtureSchema,
   DetectScriptsFixtureSchema,
   SelectCandidateFixtureSchema,
+  RefineFixtureSchema,
 ]);
 
 export type FixtureSpec = z.infer<typeof FixtureSchema>;
@@ -201,6 +222,7 @@ export type EvaluateFixtureSpec = Extract<FixtureSpec, { flow: 'evaluate' }>;
 export type ImplementFixtureSpec = Extract<FixtureSpec, { flow: 'implement' }>;
 export type DetectScriptsFixtureSpec = Extract<FixtureSpec, { flow: 'detect-scripts' }>;
 export type SelectCandidateFixtureSpec = Extract<FixtureSpec, { flow: 'select-candidate' }>;
+export type RefineFixtureSpec = Extract<FixtureSpec, { flow: 'refine' }>;
 export type EvaluateExpect = z.infer<typeof ExpectSchema>;
 export type EvaluateVariantSpec = z.infer<typeof VariantSchema>;
 export type CommandOracle = z.infer<typeof CommandOracleSchema>;

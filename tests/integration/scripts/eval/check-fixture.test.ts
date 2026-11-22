@@ -43,7 +43,7 @@ const check = async (fixture: Fixture) => {
 };
 
 describe('checkFixture — label proof', () => {
-  it.each(['mini-ev', 'mini-im', 'mini-ds', 'mini-sc'])('proves the labels of %s', async (id) => {
+  it.each(['mini-ev', 'mini-im', 'mini-ds', 'mini-sc', 'mini-rf'])('proves the labels of %s', async (id) => {
     const outcome = await check(await fixtureOf(id));
     expect(outcome.ok).toBe(true);
     expect(outcome.lines.length).toBeGreaterThan(0);
@@ -87,6 +87,20 @@ describe('checkFixture — label proof', () => {
     const outcome = await check(await fixtureOf('mini-ds'));
     expect(outcome.ok).toBe(false);
     expect(outcome.lines.join('\n')).toContain('broken copy');
+  });
+
+  it('rejects a refine fixture whose defect body the grader passes, or whose reference body it fails', async () => {
+    const dir = join(root, 'refine', 'mini-rf', 'bodies');
+    const reference = await fs.readFile(join(dir, 'reference.md'), 'utf8');
+    const defect = await fs.readFile(join(dir, 'invented-outcome.md'), 'utf8');
+    await fs.writeFile(join(dir, 'invented-outcome.md'), reference);
+    expect((await check(await fixtureOf('mini-rf'))).lines.join('\n')).toContain(
+      'FAIL defect body: grader passed, expected fail'
+    );
+    await fs.writeFile(join(dir, 'reference.md'), defect);
+    const outcome = await check(await fixtureOf('mini-rf'));
+    expect(outcome.ok).toBe(false);
+    expect(outcome.lines.join('\n')).toContain('FAIL reference body: grader failed, expected pass');
   });
 
   it('accepts a reviewer-labelled evaluate fixture without running anything', async () => {
@@ -179,6 +193,16 @@ describe('materialize', () => {
     try {
       const status = await git.run(ws.value.repo, ['status', '--porcelain']);
       expect(status.ok && status.value.stdout.trim()).toBe('');
+    } finally {
+      await ws.value.cleanup();
+    }
+  });
+
+  it('gives a fixture without repo/ (refine) an empty committed repo', async () => {
+    const ws = await materialize(deps.workspace, (await fixtureOf('mini-rf')).dir);
+    if (!ws.ok) throw ws.error;
+    try {
+      expect(await fs.readdir(String(ws.value.repo))).toEqual(['.git']);
     } finally {
       await ws.value.cleanup();
     }

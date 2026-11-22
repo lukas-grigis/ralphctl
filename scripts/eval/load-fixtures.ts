@@ -69,6 +69,9 @@ const referencedPaths = (spec: Fixture): readonly string[] => {
         spec.candidates.b.patch,
         'oracle',
       ];
+    case 'refine':
+      // No repo/: production mounts no source tree for a refine session.
+      return [spec.referenceBody, spec.defectBody];
   }
 };
 

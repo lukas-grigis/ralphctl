@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "tier": "regression",
+  "cluster": "ticket-reports-export",
+  "origin": "synthetic",
+  "provenance": "Synthetic: the rf-01 ticket with its outcome and signal stated, so the requirements must carry them rather than reopen them. Authored for this harness.",
+  "id": "rf-02-outcome-stated",
+  "flow": "refine",
+  "ticket": {
+    "title": "Export the reports table as CSV",
+    "description": "Add a button to the reports page that downloads the current table as a CSV file. Outcome: account managers pull report data themselves instead of asking support for it. Signal: support requests tagged report-export, about a dozen a week today, drop to zero."
+  },
+  "operatorReply": "On every question, take the first option. When you show me the requirements, I approve them.",
+  "expect": {
+    "outcome": "stated",
+    "tokens": ["account managers", "report-export"]
+  },
+  "referenceBody": "bodies/reference.md",
+  "defectBody": "bodies/invented-outcome.md"
+}

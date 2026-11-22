@@ -1,12 +1,13 @@
 import type { EvaluationSignal } from '@src/domain/signal.ts';
-import type { EvaluateExpect } from './fixture-schema.ts';
-import type { DetectScriptsGrade, EvaluateGrade, ImplementGrade, SelectCandidateGrade } from './types.ts';
+import type { EvaluateExpect, RefineFixtureSpec } from './fixture-schema.ts';
+import type { DetectScriptsGrade, EvaluateGrade, ImplementGrade, RefineGrade, SelectCandidateGrade } from './types.ts';
 
 /**
  * Pure code graders, one per flow. No model grader in v1: code graders are "Fast, Cheap, Objective,
  * Reproducible" (Anthropic, Demystifying evals) and the repo already rejected multi-judge ensembles
  * (`RESEARCH-REFERENCES.md`, "Evaluated and NOT adopted"). The graders never see a model's prose
- * beyond the two `evidence` / `critique` string checks the fixture explicitly asks for.
+ * beyond the two `evidence` / `critique` string checks the fixture explicitly asks for and the
+ * refine body's contract sections.
  */
 
 export interface EvaluationOutcome {
@@ -158,5 +159,84 @@ export const gradeSelectCandidate = (outcome: SelectCandidateOutcome): SelectCan
     correct: picked === outcome.winner,
     structurallyValid: outcome.valid,
     picked,
+  };
+};
+
+export type RefineGradeFixture = Pick<RefineFixtureSpec, 'ticket' | 'operatorReply' | 'expect'>;
+
+export interface RefineOutcome {
+  readonly valid: boolean;
+  /** The `refined-ticket` body. */
+  readonly body: string | undefined;
+  /** Text of the session's first turn; absent when the provider wrote no body file. */
+  readonly firstTurn?: string | undefined;
+}
+
+const REFINE_HEADINGS = ['Problem', 'Outcome', 'Assumptions', 'Scope'] as const;
+const OPEN_QUESTION = 'Open question:';
+const H2 = /^## +(.+?)[ \t]*$/;
+const BULLET = /^(?:[-*+]|\d+[.)]) /;
+
+/** The lines under `## <name>`, up to the next level-1 or level-2 heading; `''` when absent. */
+const sectionOf = (lines: readonly string[], name: string): string => {
+  const start = lines.findIndex((line) => H2.exec(line)?.[1] === name);
+  if (start < 0) return '';
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,2} /.test(line));
+  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
+};
+
+/** Top-level bullets, each with its continuation lines; text before the first bullet is dropped. */
+const bulletsOf = (section: string): readonly string[] =>
+  section.split(/^(?=(?:[-*+]|\d+[.)]) )/m).filter((chunk) => BULLET.test(chunk));
+
+/**
+ * Grade one refine trial against the requirements contract. "Invents nothing" is a code proxy only:
+ * an unknown outcome stays an `Open question:` and gains no digit or `%` the inputs lack.
+ */
+export const gradeRefine = (fixture: RefineGradeFixture, outcome: RefineOutcome): RefineGrade => {
+  const askedOutcomeFirstTurn =
+    outcome.firstTurn === undefined ? null : /\b(?:outcome|success|measur|metric)/i.test(outcome.firstTurn);
+  const body = outcome.valid ? outcome.body : undefined;
+  if (body === undefined) {
+    return {
+      flow: 'refine',
+      correct: false,
+      structurallyValid: false,
+      headingsInOrder: false,
+      outcomeOk: false,
+      inventedChars: [],
+      assumptionChecked: false,
+      askedOutcomeFirstTurn,
+    };
+  }
+
+  const lines = body.split('\n');
+  const contractHeadings = lines
+    .map((line) => H2.exec(line)?.[1])
+    .filter((h) => h !== undefined && (REFINE_HEADINGS as readonly string[]).includes(h));
+  const headingsInOrder = contractHeadings.join('\n') === REFINE_HEADINGS.join('\n');
+
+  const outcomeText = sectionOf(lines, 'Outcome');
+  const given = [fixture.ticket.title, fixture.ticket.description ?? '', fixture.operatorReply].join('\n');
+  const inventedChars = [...new Set(outcomeText.match(/[\d%]/g) ?? [])].filter((c) => !given.includes(c));
+  const outcomeOk =
+    fixture.expect.outcome === 'open-question'
+      ? outcomeText.includes(OPEN_QUESTION) && inventedChars.length === 0
+      : !outcomeText.includes(OPEN_QUESTION) &&
+        fixture.expect.tokens.every((t) => outcomeText.toLowerCase().includes(t.toLowerCase()));
+
+  const assumptionChecked = bulletsOf(sectionOf(lines, 'Assumptions')).some(
+    (b) => b.includes('**Check:**') || b.includes(OPEN_QUESTION)
+  );
+  return {
+    flow: 'refine',
+    correct: headingsInOrder && outcomeOk && assumptionChecked,
+    structurallyValid: true,
+    headingsInOrder,
+    outcomeOk,
+    inventedChars,
+    assumptionChecked,
+    askedOutcomeFirstTurn,
   };
 };

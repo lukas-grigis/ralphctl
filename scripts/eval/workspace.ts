@@ -107,7 +107,11 @@ export const materialize = async (
   if (!sandbox.ok) return fail(sandbox.error);
 
   try {
-    await fs.cp(join(fixtureDir, 'repo'), String(repo.value), { recursive: true });
+    // The loader requires repo/ for every flow but refine, whose session mounts no source tree.
+    await fs.cp(join(fixtureDir, 'repo'), String(repo.value), { recursive: true }).catch(async (cause: unknown) => {
+      if ((cause as { code?: unknown }).code !== 'ENOENT') throw cause;
+      await fs.mkdir(String(repo.value));
+    });
     await fs.mkdir(String(sandbox.value), { recursive: true });
   } catch (cause) {
     return fail(storageError(`copying the fixture repo failed: ${messageOf(cause)}`, fixtureDir, cause));
