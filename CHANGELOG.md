@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-22
+
 ### Added
 
 - **Refine asks what the ticket should change.** Before the usual scope questions, refine asks up to three
