@@ -133,7 +133,10 @@ the signal supplied it (all three are optional; a legacy or minimal signal still
 via `reason` alone) and surfaces in both the Tasks panel overlay and `ralphctl task list`.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
-no repo exploration; ticket `status` flips `pending → approved`. **Plan** (`plan` chain) requires
+no repo exploration; the interview opens with up to three outcome questions (outcome, signal, assumption),
+and the approved requirements carry `## Outcome` and `## Assumptions` sections between `## Problem` and
+`## Scope` — an unknown is written as an `Open question:`, never treated as a refinement failure, and plan reads
+both as context without turning them into tasks; ticket `status` flips `pending → approved`. **Plan** (`plan` chain) requires
 every ticket `approved`; every project repository is mounted as an equal `--add-dir` root, and repo
 selection lands per task as `Task.repositoryId` (resolved against `project.repositories`) — the sprint
 itself stores no repo list; AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
@@ -221,7 +224,7 @@ single-attempt behaviour.
 `{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
 the two sessions can run on different providers / models / effort levels (effort resolution rules
 described in `AI-SETTINGS.md` apply per-row). Default: generator runs `claude-code` /
-`claude-opus-5-5`, evaluator runs `openai-codex` / `gpt-6.1-sol` — deep-coder reasoning on the produce
+`claude-opus-5-5`, evaluator runs `openai-codex` / `gpt-6.2-sol` — deep-coder reasoning on the produce
 side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.

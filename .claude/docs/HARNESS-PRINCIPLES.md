@@ -100,8 +100,8 @@ shifts — each new engineer arrives with no memory of what happened on the prev
   `activated` / `transitioned to review` / `closed` lines between task-attempt sections)
 - Prompts that consume it: `progress.md` body inlined via `{{PRIOR_PROGRESS}}` (wrapped in `<prior_progress>`)
   in `src/integration/ai/prompts/plan/template.md`, `src/integration/ai/prompts/evaluate/template.md`,
-  `src/integration/ai/prompts/implement/template.md` (~line 65), `src/integration/ai/prompts/ideate/template.md`
-  (~line 47), and `src/integration/ai/prompts/refine/template.md` (~line 33)
+  `src/integration/ai/prompts/implement/template.md` (~line 82), `src/integration/ai/prompts/ideate/template.md`
+  (~line 47), and `src/integration/ai/prompts/refine/template.md` (~line 40)
 - **Auto-derived continuation-state fields (2026-08).** Each attempt section now carries a deterministic
   `### Continuation state` block — attempt terminal status, pre/post verify-run outcomes, pre/post attribution
   verdict, the landed commit's subject (gated on a commit actually landing), and a "Resumed after" breadcrumb
@@ -594,6 +594,28 @@ updating the recorded hash:
    record that the audit ran, not a reflex to make CI green.
 
 **Model-bump audit log.**
+
+- **2026-11-21 — Copilot 2026-11-16 retirements, GPT-6.2 on Codex and Copilot, Claude Fable 5.2, OpenCode
+  free-tier refresh.** Step 1: Copilot de-lists `claude-opus-4.8`, `claude-opus-5` and `gpt-5.6-terra`; all
+  three were Copilot ladder keys and none a destination, so the keys went with the ids and
+  `RETIRED_MODEL_REMAPS` moves persisted rows to `claude-opus-5.5` / `gpt-6.1-terra`. The same slugs stay live
+  on Claude Code and Codex, so those remaps are provider-guarded. Codex gains `gpt-6.2-sol`, `gpt-6.2-astra`
+  and `gpt-6.1-terra`; `gpt-6.2-sol` is the new top rung (`gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol` and
+  `gpt-5.6-sol` climb to it), so `gpt-6.1-sol` gained a key and every former `gpt-6.1-sol` destination moved.
+  Astra stays off the ladder. Claude gains `claude-fable-5-2` with no rung (Fable stays opt-in), and its
+  CLI-default-effort table gains the Fable 5.2 entry. OpenCode is outside the fingerprint and has no ladder;
+  its catalog refresh stranded nothing. Fingerprints for the Claude, Codex and Copilot catalogs were
+  re-recorded after this walk. Step 2: the only `partial` rows are §14 and §18, the audit mechanism itself;
+  there are no `gap` rows. Step 3: no capability was added that touches an `applied` row, so none was
+  re-measured and none removed. The same pass re-read every preset effort row against vendor guidance, the
+  model-capability assumption each row encodes: many rows were carried over from earlier models. Opus 5.5
+  `plan` / generator rows and the Fable 5.2 frontier rows moved from `xhigh` / `max` to `high` (`high` is
+  the start point for Fable 5.2 only; for Opus 5.5 it is our judgment over Anthropic's `medium` start; reserve
+  the top levels for a measured gain), Haiku 5.5 `refine` / `readiness` and Sonnet 5.5 `readiness` from `low`
+  to `medium`, Luna `refine` / `readiness` rows in the only and strong-gate presets to `high`, and every Grok row onto `grok-4.7`, which bills the
+  same as 4.5 / 4.6. Opus 5.5 evaluator rows stay at `xhigh` (`copilot-frontier`'s drops from `max`): no vendor page speaks to reviewer roles. These are
+  vendor start points, not measured on this harness, so an effort sweep (`EVALS.md`) is still owed before
+  any row is trusted as tuned.
 
 - **2026-10-17 — Copilot Haiku 5.5, the Copilot 2026-11-16 batch announced, Grok effort menus.** Step 1:
   `claude-haiku-5.5` joins the Copilot catalog (Copilot CLI 1.0.94+) and climbs to Sonnet 5.5; its effort

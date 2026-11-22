@@ -7,6 +7,87 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Refine asks what the ticket should change.** Before the usual scope questions, refine asks up to three
+  short questions about the outcome: who does what differently once this ships, what would show it, and what
+  has to be true for that to work. It skips any the ticket already answers. The approved requirements now carry
+  `## Outcome` and `## Assumptions` sections, and each assumption names how or with whom it can be checked.
+  Anything you can't answer yet stays as an `Open question:` in the requirements; it doesn't block approval.
+  Plan reads both sections as context and does not turn them into tasks.
+- **New models.** Claude Code gains `claude-fable-5-2` (needs Claude Code 2.1.321 or later). Codex gains
+  `gpt-6.2-sol` and `gpt-6.2-astra` (both need Codex CLI 0.166.0 or later) and `gpt-6.1-terra`. Copilot gains
+  `gpt-6.1-terra`, `gpt-6.2-sol`, `gpt-6.2-astra`, `gemini-4-hydrogen`, `claude-fable-5.2`, `gemini-4-carbon`,
+  `mai-code-2` and `mai-code-2-flash`. Only `gpt-6.1-terra` has been confirmed against a live account. The
+  others come from GitHub's documentation or from the Copilot CLI itself (`mai-code-2` and `mai-code-2-flash`
+  only from strings in its binary, so they are the least certain), and their effort levels aren't checked.
+  OpenAI notes that in two of its tests the 6.2 models were more likely to omit mentioning obstacles that
+  blocked their work, so read a 6.2 generator's final report with that in mind.
+- **`ralphctl runs stats` explains "unknown".** When criteria show up as unknown, a line under the criteria row
+  says no verdict was recorded: the task was never graded, which is always the case before v0.14.0.
+
+### Changed
+
+- **Codex presets run on GPT-6.2.** `gpt-6.2-sol` is now the Codex flagship, the Codex provider default and the
+  default implement evaluator, and `codex-frontier` and `mixed-frontier` use `gpt-6.2-astra`. A Codex CLI too
+  old to list the 6.2 ids gets the model that row used in 0.28.0 (`gpt-6.1-sol` or `gpt-6-astra`) when you apply a preset. The default escalation ladder
+  for Codex now tops out on `gpt-6.2-sol`.
+- **Claude frontier presets run on Fable 5.2.** `claude-frontier` and `mixed-frontier` move from
+  `claude-fable-5-1`, which stays selectable. Fable 5.2 defaults to `medium` effort in Claude Code, which the
+  harness already accounts for.
+- **Presets stamp different efforts and models than 0.28.0.** Several preset rows were carried over from
+  earlier models. They now follow each vendor's current guidance for the model on that row. Applying a preset
+  stamps these values; presets are not remembered, so settings you already saved don't change until you apply
+  one again. Only the rows below moved. Rows not listed are unchanged, and so are the Opus 5.5 evaluator rows outside `copilot-frontier`.
+  - **Claude Code.** `claude-only`: `plan` and the generator on Opus 5.5 go from `xhigh` to `high`.
+    `claude-economic`: Haiku 5.5 `refine` and `readiness` go from `low` to `medium`. `claude-strong-gate`:
+    `plan` goes from `xhigh` to `high`, and Sonnet 5.5 `readiness` from `low` to `medium`. `claude-frontier`:
+    the global effort and the Fable 5.2 `plan`, generator and evaluator rows go from `max` to `high`.
+  - **Mixed.** `mixed`: `plan` and the Opus generator go from `xhigh` to `high`. `mixed-strong-gate`: `plan`
+    goes from `xhigh` to `high`, and the Codex Luna `refine` row from `medium` to `high`. `mixed-frontier`:
+    the global effort and the Fable 5.2 `plan` and generator rows go from `max` to `high`; the `gpt-6.2-astra`
+    evaluator stays at `max`.
+  - **Copilot.** `copilot-only`: `plan` and the Opus 5.5 generator go from `xhigh` to `high`.
+    `copilot-strong-gate`: `plan` goes from `xhigh` to `high`. `copilot-frontier`: the global effort and the
+    Opus 5.5 `plan`, generator and evaluator rows go from `max` to `xhigh`.
+  - **Codex.** `codex-only`: Luna `readiness` goes from `medium` to `high`. `codex-strong-gate`: Luna
+    `refine` and `readiness` go from `medium` to `high`. OpenAI suggests starting Luna at `high`.
+  - **Grok.** Every Grok preset row now runs `grok-4.7`, with efforts unchanged, and so do the `xai-grok`
+    provider defaults. Before, lighter rows used `grok-4.5` or `grok-4.6`, which cost the same per token.
+    `grok-economic` now saves through lower effort, `grok-strong-gate` splits author (`high`) and judge
+    (`xhigh`) by effort, and `grok-fast` runs `grok-4.7` at `low`. `grok-4.5` and `grok-4.6` stay selectable.
+    These are the vendors' starting points. They haven't been tuned on ralphctl's own runs.
+- **OpenCode's light flows move to a zero-retention free model.** `opencode-only` and the OpenCode provider defaults now
+  run refine, readiness and create-pr on `deepseek-v4.1-flash-free` instead of `nemotron-3.5-lightning-free`.
+  OpenCode lists the Nemotron free endpoints as trial use only and not for personal or confidential data,
+  and those flows send repository content. DeepSeek V4.1 Flash Free's provider doesn't retain data or train on
+  it. Plan, implement and ideate stay on `big-pickle`, whose provider may use your data to improve the model during its free period. The free tier rotates, so the model can still disappear upstream.
+- **Older Codex ids map to `gpt-6.1-sol`.** Saved rows on `gpt-5.5`, `gpt-5.2`, `gpt-5.3-codex` and
+  `gpt-5.3-codex-spark` now move to `gpt-6.1-sol`, OpenAI's named replacement, instead of `gpt-5.6-sol`.
+- **Copilot remaps follow GitHub's retirements.** Rows on the retired `claude-opus-4.8` and `claude-opus-5` move
+  to `claude-opus-5.5`, `gpt-5.6-terra` moves to `gpt-6.1-terra`, `grok-4.5` moves to `grok-4.7`, and the
+  retired Gemini ids move to `gemini-4-hydrogen`. Copilot's `gpt-6.1-sol` no longer lists the `none` effort
+  level. GitHub schedules `claude-fable-5`, `claude-haiku-4.5`, `gemini-3.8-flash`, `grok-4.6` and `kimi-k3` to
+  retire on 2026-12-14 and `mai-code-1.1-flash` on 2026-12-18; they stay listed until then.
+- **Claude Code context windows.** `claude-opus-4-8` and `claude-fable-5` now count as 1M-token models, as
+  Claude Code runs them. The `[1m]` ids still work.
+- **The `manual` criterion is described correctly.** The id is unchanged. A `manual` criterion has no fixed
+  command: the evaluator checks it itself, running the changed behaviour when it can and otherwise citing the
+  code location. Nobody is asked to check it. The implement prompt used to say the evaluator only inspects
+  the code, which was wrong.
+- **OpenCode's free-tier list is refreshed** (verified on opencode-ai 1.18.35). Saved rows on
+  `deepseek-v4-flash-free` and `longcat-2.5-preview-free` move to `deepseek-v4.1-flash-free` and
+  `longcat-2.5-free`. The OpenCode docs link points at the 1.x reference.
+
+### Removed
+
+- **Retired Copilot models.** `claude-opus-4.8`, `claude-opus-5` and `gpt-5.6-terra` left the Copilot list,
+  along with their escalation steps. The same ids still work on Claude Code and Codex.
+- **OpenCode free-tier models that dropped out:** `exo-free`, `ling-3.0-flash-fin-free`, `ling-3.1-flash-free`,
+  `muse-spark-1.3-contributor-free`, `nemotron-3-ultra-free`, `space-bunny-free` and `step-5-preview-free`
+  (plus `longcat-2.5-preview-free`, which maps to `longcat-2.5-free`). Saved rows on `ling-3.0-tiny-free` or
+  `muse-spark-1.2-contributor-free` are kept as written, so the OpenCode CLI rejects them when it runs.
+
 ## [0.28.0] - 2026-11-11
 
 ### Added

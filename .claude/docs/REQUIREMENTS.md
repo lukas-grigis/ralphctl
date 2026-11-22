@@ -127,7 +127,9 @@ and `done → review` — that keep `done` from being a genuine dead end for the
 ## Two-Phase Planning
 
 - [x] **Refine** (`refine` chain, TUI) — per-ticket HITL clarification; implementation-agnostic (no repo
-      exploration); ticket status flips `pending → approved`.
+      exploration); asks up to three outcome questions first (outcome, signal, assumption — each skipped when
+      already answered) and writes `## Outcome` / `## Assumptions` into the requirements, with unknowns kept as
+      `Open question:` bullets; ticket status flips `pending → approved`.
 - [x] **Plan** (`plan` chain, TUI) — requires all tickets `approved` (`planSprint` rejects any `pending`
       ticket); the project's configured repositories (`project.repositories`, absolute paths) are mounted as
       equal `--add-dir` sources and the AI assigns each task an absolute `projectPath`; AI generates
