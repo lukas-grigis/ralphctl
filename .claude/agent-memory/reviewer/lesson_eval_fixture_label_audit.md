@@ -26,4 +26,12 @@ implementation that meets it. Three bug classes got past it:
    parameter it failed to use, in a repo with no ESLint. That makes a capability item trivial. Grep defect
    patches for lint suppressions, TODOs and comments that describe the defect.
 
+4. **Code graders over model prose (refine-style markdown).** Three things a green `check` hid: a pass
+   branch gated on a fixture field (`Open question:` assumption accepted only when the outcome is unknown)
+   that the prompt's own checklist does not have, so a template-literal body fails the other fixture; a
+   per-CHARACTER digit whitelist (`[\d%]` vs the inputs) that goes blind once the ticket holds any date or
+   id; and `slice(2)` marker-stripping after a bullet regex that also accepts `1.` / bold forms.
+   **How to apply:** for each acceptance branch, find the prompt sentence that licenses it and run the
+   reference body's alternative forms (the other fixture's shape, numbered, bold, CRLF) through a tsx probe.
+
 Related: [[lesson_ab_harness_review_checks]], [[lesson_tocontain_ignores_asymmetric_matchers]].

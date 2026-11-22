@@ -6,7 +6,8 @@
 - [lesson_second_implementation_of_shared_rule.md](lesson_second_implementation_of_shared_rule.md) — Hand-copied clamp drifts; grep `src/` for effort-floor literals
 - [lesson_eslint_flat_config_replaces_same_key.md](lesson_eslint_flat_config_replaces_same_key.md) — Overlapping flat-config blocks replace, not merge; probe fences
 - [lesson_memory_ledger_review_checklist.md](lesson_memory_ledger_review_checklist.md) — Four checks for learnings-ledger / distill diffs
-- [lesson_model_bump_drift_grep_list.md](lesson_model_bump_drift_grep_list.md) — What the fingerprint gate misses on a model bump
+- [lesson_model_bump_drift_grep_list.md](lesson_model_bump_drift_grep_list.md) — What the fingerprint gate misses on a model bump; dead fallback keys; packed Copilot binary
+- [lesson_data_driven_branch_loses_coverage.md](lesson_data_driven_branch_loses_coverage.md) — Helper over a const table: data refresh deletes the last triggering row + its test; branch goes uncovered
 - [lesson_binding_decision_over_design_table.md](lesson_binding_decision_over_design_table.md) — Review against the binding decision; unaddressed design risks are Must-Fix
 - [lesson_tocontain_ignores_asymmetric_matchers.md](lesson_tocontain_ignores_asymmetric_matchers.md) — `not.toContain(expect.stringContaining())` never fails
 - [lesson_nul_bytes_in_source.md](lesson_nul_bytes_in_source.md) — Literal NUL bytes pass lint/prettier but make git treat the file as binary
@@ -21,7 +22,7 @@
 - [lesson_cut_premise_covers_one_item.md](lesson_cut_premise_covers_one_item.md) — A cut spec's "no default enables X" premise may clear only one item; prove siblings dead separately
 - [lesson_ab_harness_review_checks.md](lesson_ab_harness_review_checks.md) — Eval/A-B tooling: per-flow parity grep, identical-input merge tests, tsx "bundled" dir = working tree
 - [lesson_cross_provider_usage_semantics.md](lesson_cross_provider_usage_semantics.md) — Token labels claim all 5 providers' semantics; legacy 0-defaults print as fact; probe old results file
-- [lesson_eval_fixture_label_audit.md](lesson_eval_fixture_label_audit.md) — `eval check` green ≠ labels right: clean must meet every spec clause; oracle must accept spec-literal impls
+- [lesson_eval_fixture_label_audit.md](lesson_eval_fixture_label_audit.md) — `eval check` green ≠ labels right: spec-literal alternatives, ungrounded grader gates, per-char digit proxies
 - [lesson_keyboard_guard_lost_in_hook_migration.md](lesson_keyboard_guard_lost_in_hook_migration.md) — useViewKeys mutes only for overlays, not prompts; diff `modalOpen` counts vs main after a migration
 - [lesson_group_kill_gate_must_exclude_injected_fakes.md](lesson_group_kill_gate_must_exclude_injected_fakes.md) — Group-leader marking at a spawn site also marks injected fakes; hostname as same-host test is unstable
 - [lesson_unscoped_bus_event_to_os_notification.md](lesson_unscoped_bus_event_to_os_notification.md) — Shared enqueue point publishes for foreground prompts too; require a negative test; run full suite for timer tests
@@ -40,4 +41,6 @@
 - [lesson_verify_cli_claims_from_published_package.md](lesson_verify_cli_claims_from_published_package.md) — Sandbox reaches npm: `npm view` dist-tags, `npm pack` + `strings` to confirm external CLI env vars/flags
 - [lesson_prompt_shell_quoting_is_shell_specific.md](lesson_prompt_shell_quoting_is_shell_specific.md) — POSIX single-quoting in prompt templates is untested on cmd/PowerShell; the sh round-trip test can't see it
 - [lesson_refactor_deleted_predicate_test_inlines_invariant.md](lesson_refactor_deleted_predicate_test_inlines_invariant.md) — Refactor drift classes: deleted predicate tests, Record dispatch prototype keys, Promise.all ordering, rest-spread vs whitelist
+- [lesson_prompt_option_count_vs_tool_schema.md](lesson_prompt_option_count_vs_tool_schema.md) — "Offer X alone" vs AskUserQuestion's 2-4 options; eval forces the no-tool branch
+- [lesson_preset_effort_rebaseline_checks.md](lesson_preset_effort_rebaseline_checks.md) — Lowered preset efforts reactivate/kill effort rungs; probe rungs per preset; doc "vendor start point" vs verdict
 - [recipe_review_branch_in_sibling_worktree.md](recipe_review_branch_in_sibling_worktree.md) — Gate a branch from its sibling worktree when pnpm rejects the Node engine; npx tool list

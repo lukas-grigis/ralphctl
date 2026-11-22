@@ -1,6 +1,6 @@
 ---
 name: seams_eval_harness
-description: Non-derivable traps in the opt-in prompt-eval harness (scripts/eval, evals/fixtures) — budget under-counts, private duplicated constants, fixture tooling exclusions, protectedPaths granularity
+description: Non-derivable traps in the opt-in prompt-eval harness (scripts/eval, evals/fixtures) — budget under-counts, private duplicated constants, fixture tooling exclusions, protectedPaths granularity, refine operator loop and grader-literal coupling
 metadata:
   type: project
 ---
@@ -14,3 +14,6 @@ metadata:
 - **Nudges are per-adapter (`PreparedTrial.nudges`).** Only evaluate and implement use `validateSignalsFileWithCorrectiveRetry` in production; detect-scripts and the best-of-N judge call plain `validateSignalsFile`. The runner passes `correctiveRetries: 0` for the others (which degrades to one plain validation). **Why:** a nudge-rescued verdict is one production discards, so counting it breaks "measures what ships". A new flow adapter must decide this flag from its production leaf.
 - **Under tsx the baseline templates are the working tree** (`defaultTemplatesDir()`), so `compare --candidate-templates <same dir>` is an A/A run; `main.ts` refuses on equal hashes. Any new arm-building path needs the same distinct-arms check.
 - **`report` recomputes metrics/usage from relabelled trials** (`summarizeArms`); merging stored maps collides because every single-arm run names its arm `baseline`.
+- **refine's operator turns ride the corrective `reinvoke` but are not nudges.** Its `validate` ignores `correctiveRetries`, replies only to `InvalidStateError` (missing file), and returns `nudgeCount: 0`. **Why:** counting interview turns as nudges would zero `structural-valid-first-try` for every refine trial; replying to an invalid file would rescue output production rejects.
+- **`claude -p` still lists `AskUserQuestion`** (only `--permission-prompts none` removes it), so the shipped question format alone would steer a headless model at a tool nobody answers. The refine adapter appends one no-tool sentence after the `question-format` partial at the loader port; a template that drops `{{QUESTION_FORMAT}}` silently loses it — `run-flows.test.ts` pins the sentence.
+- **`gradeRefine` matches template literals verbatim** (`## Problem/Outcome/Assumptions/Scope` once each, `Open question:`, `**Check:**`). A template or contract-example rewording turns every trial into a fail without any test going red; grep the grader before accepting a refine prompt change.

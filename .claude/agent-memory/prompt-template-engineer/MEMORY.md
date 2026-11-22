@@ -13,3 +13,4 @@
 - [feedback_prompt_claims_vs_contract_code.md](feedback_prompt_claims_vs_contract_code.md) — Check harness-behaviour claims in prompts against the contract code; pin the true verb in tests
 - [feedback_evaluator_exemptions_by_cause.md](feedback_evaluator_exemptions_by_cause.md) — "Pre-existing" carve-out keys on cause, not code location; FAIL scope and exemption must be complements
 - [feedback_checkout_free_branch_move.md](feedback_checkout_free_branch_move.md) — Fresh clean worktree: ff-merge + branch -m replaces a delegated `git checkout -b <sha>`
+- [project_refine_grader_literals.md](project_refine_grader_literals.md) — refine output literals are matched verbatim by `gradeRefine` in scripts/eval/grade.ts

@@ -54,6 +54,10 @@ backup-then-swap loop (to see a test fail against HEAD sources) silently backs u
 restore loop no-ops — the fixes are lost. Use an array (`files=(a b); for f in $files`) and check
 the backup exists before overwriting.
 
+**No `timeout` binary on this macOS shell.** `timeout 60 grep … | head` prints only "command not
+found" to stderr, so a piped search looks like an empty result. Use the tool's own limit
+(`curl --max-time`) or the Bash tool's timeout instead.
+
 **Isolated-worktree Bash guard false positive.** In a worktree-isolated run, a compound command (loop,
 variables) whose paths contain `github` — the repo's own `.../Workzone/github/...` path, raw-content URLs —
 is refused as "names git in a form too complex to verify". Write the loop to a scratchpad script and run
