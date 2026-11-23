@@ -178,7 +178,9 @@ The first two steps are yours (blue); from **Refine** onward ralphctl drives (gr
 your judgement matters.
 
 **Refine** is implementation-agnostic: the AI clarifies requirements with you, ticket by ticket, and flips each one from
-`pending` to `approved`. **Plan** requires every ticket approved — the AI explores the affected repos and generates a
+`pending` to `approved`. Before scope it asks what the ticket should change: who does what differently once it ships, what
+would show it, and what has to be true for that to work. An answer you don't have yet stays in the requirements as an
+open question. **Plan** requires every ticket approved — the AI explores the affected repos and generates a
 dependency-ordered task graph. **Implement** drives those tasks in dependency order through a generator-evaluator cycle:
 a second AI pass reviews each task against its spec before the harness marks it done and moves on. Independent tasks in
 the same dependency wave can run in parallel (opt-in) when you want a sprint to finish faster. **Review** closes the
@@ -492,6 +494,7 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                                             |
 | `ralphctl agents list`                  | List bundled + operator agent definitions and the implement role each is bound to                                                                                                             |
 | `ralphctl skills list`                  | List bundled + manually-dropped skills — tier, enabled flows, provenance                                                                                                                      |
+| `ralphctl prompts list`                 | List the bundled prompt templates and partials with name, kind and size                                                                                                                       |
 
 ### Project & Sprint Inspection
 
