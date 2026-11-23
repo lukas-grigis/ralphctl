@@ -557,7 +557,8 @@ Run `ralphctl <command> --help` for flag-level detail.
 | [Changelog](./CHANGELOG.md)                      | Version history                                          |
 
 **From the author** ([Lukas Grigis](https://lukasgrigis.dev/)):
-[Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (backstory)
+[Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl/) (backstory)
+| [What a ralph loop is, and how to run one](https://lukasgrigis.dev/blog/ralph-loop/) (explainer)
 | [From task CLI to ralph harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator deep-dive)
 | [The harness era caught up](https://lukasgrigis.dev/blog/ralphctl-harness-era/) (the field converges on the harness bet)
 
