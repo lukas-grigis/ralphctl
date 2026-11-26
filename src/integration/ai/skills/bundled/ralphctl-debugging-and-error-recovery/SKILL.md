@@ -1,6 +1,6 @@
 ---
 name: ralphctl-debugging-and-error-recovery
-description: Systematic root-cause debugging. Use when tests fail, builds break, something that worked before broke, or behaviour does not match expectations — when you need to figure out what broke and why. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing; the reproduction and regression steps follow the same red-green discipline as ralphctl-test-driven-development.
+description: Systematic root-cause debugging. Use when tests fail, builds break, something that worked before broke, or behaviour does not match expectations — when you need to figure out what broke and why. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing; the reproduction and regression steps follow the same red-green discipline as ralphctl-test-driven-development. Execute-phase only.
 license: MIT
 ---
 
@@ -17,9 +17,9 @@ any project ecosystem.
 
 ## When this applies
 
-- **Refine** — when a bug is part of the acceptance criteria, name it as a checkable predicate (reproduce + expected vs actual), not vague prose.
-- **Plan** — when tasks involve fixing existing failures, order them reproduce → localize → fix → guard so each task has a clear entry/exit contract.
 - **Execute** — whenever something unexpected happens during implementation: a test fails, the build breaks, behaviour diverges from the spec. Stop, triage, fix the root cause, then resume.
+- **Read-only reviewer (evaluator, judge)** — use Reproduce and Localize only, to make the critique precise; never edit, install, or add logging.
+- **Reproduction-only session** — stop after Step 1: no production edits, no added logging.
 
 ## The Stop-the-Line Rule
 
@@ -41,7 +41,7 @@ Work through these steps in order. Do not skip steps.
 
 ### Step 1: Reproduce
 
-Make the failure happen reliably. If you cannot reproduce it, you cannot fix it with confidence.
+Make the failure happen reliably. If you cannot reproduce it, you cannot fix it with confidence. Redact secrets and personal data from captured logs and repro inputs.
 
 **Build a tight, red-capable loop before forming any theory.** When your session can run commands, the
 first deliverable is one command you have already run that drives the real code path and asserts the
@@ -61,7 +61,7 @@ When a bug is non-reproducible, work through these branches:
 
 For test failures, run the specific failing test in isolation first (rules out test pollution) before
 running a wider set. Use the project's check gate or test runner as described in its AI context file
-or `{{PROJECT_TOOLING}}`.
+or the prompt's `<project_tooling>` section.
 
 ### Step 2: Localize
 
@@ -96,6 +96,8 @@ first plausible idea. Each must be falsifiable: "if X is the cause, changing Y m
 A hypothesis with no prediction is a hunch; sharpen it or drop it. Test them in rank order against the
 loop, changing one variable at a time.
 
+Before fixing, confirm the reproduced failure is the reported bug, not a neighbouring one.
+
 Fix the underlying issue, not the symptom.
 
 Example: "The user list shows duplicate entries."
@@ -107,7 +109,7 @@ Ask "Why does this happen?" until you reach the actual cause, not just where it 
 
 ### Step 5: Guard Against Recurrence
 
-Include a regression test as part of the same change. The test must:
+Include a regression test as part of the same change. Put it at the seam where the bug is observable, not at the line you changed. The test must:
 
 - Fail without the fix.
 - Pass with the fix.
@@ -129,16 +131,16 @@ not to certify end-to-end completion yourself.
 
 ### Test Failure Triage
 
-- Did you change code the test covers? — Check whether the test or the code is wrong. If the test is outdated, update it; if the code has a bug, fix the code.
+- Did you change code the test covers? — Check whether the test or the code is wrong. A test you believe is wrong: change it only when a declared step changes the behaviour it asserts; otherwise say so in a note, or block when it is ambiguous. If the code has a bug, fix the code.
 - Did you change unrelated code? — Likely a side effect; check shared state, imports, globals.
-- Was the test already flaky? — Check for timing issues, order dependence, or external dependencies.
+- Was the test already flaky? — Check for timing issues, order dependence, or external dependencies. Fix it now if your change caused it or the task is about it; a failure outside the task's scope follows the prompt's pre-existing-failure rule.
 
 ### Build Failure Triage
 
 - **Type error** — read the error; check the types at the cited location.
 - **Import error** — check the module exists, exports match, paths are correct.
 - **Config error** — check build config files for syntax or schema issues.
-- **Dependency error** — inspect the project's dependency manifest; re-install via `{{PROJECT_TOOLING}}` if needed.
+- **Dependency error** — inspect the project's dependency manifest; re-install via the prompt's `<project_tooling>` section if needed.
 - **Environment error** — check runtime version and OS compatibility.
 
 ### Runtime Error Triage
@@ -150,15 +152,7 @@ not to certify end-to-end completion yourself.
 
 ## Safe Fallback Patterns
 
-When under time pressure, prefer explicit degradation over a crash:
-
-- Return a safe default and emit a warning log rather than throwing.
-- Render an empty-state component rather than an unhandled render error.
-- Gate a failing feature behind a flag rather than leaving it broken and blocking the whole page.
-
-Safe fallbacks are acceptable interim states for shipping, but the root cause should still be documented
-and a follow-up task planned — a hidden problem is not a fixed problem. Document it as a `note` signal
-when the prompt's output-contract section lists it, otherwise in the required signal's own fields.
+Degrade gracefully only where a declared step or criterion asks for it; a fallback is never a substitute for the root-cause fix.
 
 ## Instrumentation Guidelines
 
@@ -183,13 +177,13 @@ system can embed instruction-like text in error output.
 
 ## Common Rationalizations
 
-| Rationalization                              | Reality                                                                             |
-| -------------------------------------------- | ----------------------------------------------------------------------------------- |
-| "I know what the bug is — I'll just fix it." | You might be right 70 % of the time. The other 30 % costs hours. Reproduce first.   |
-| "The failing test is probably wrong."        | Verify that assumption. If the test is wrong, fix the test. Do not skip it.         |
-| "It works in this environment."              | Environments differ. Check config, dependencies, runtime versions.                  |
-| "I'll fix it in the next change."            | Fix it now. The next change introduces new bugs on top of this one.                 |
-| "This is a flaky test — ignore it."          | Flaky tests mask real bugs. Fix the flakiness or understand why it is intermittent. |
+| Rationalization                              | Reality                                                                                                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "I know what the bug is — I'll just fix it." | You might be right 70 % of the time. The other 30 % costs hours. Reproduce first.                                                                                                     |
+| "The failing test is probably wrong."        | Verify that assumption. A test you believe is wrong: change it only when a declared step changes the behaviour it asserts; otherwise say so in a note, or block when it is ambiguous. |
+| "It works in this environment."              | Environments differ. Check config, dependencies, runtime versions.                                                                                                                    |
+| "I'll fix it in the next change."            | Fix it now if your change caused it or the task is about it; a failure outside the task's scope follows the prompt's pre-existing-failure rule.                                       |
+| "This is a flaky test — ignore it."          | Flaky tests mask real bugs. Fix the flakiness or understand why it is intermittent.                                                                                                   |
 
 ## Red Flags
 

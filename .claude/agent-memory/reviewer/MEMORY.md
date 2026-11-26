@@ -43,4 +43,5 @@
 - [lesson_refactor_deleted_predicate_test_inlines_invariant.md](lesson_refactor_deleted_predicate_test_inlines_invariant.md) — Refactor drift classes: deleted predicate tests, Record dispatch prototype keys, Promise.all ordering, rest-spread vs whitelist
 - [lesson_prompt_option_count_vs_tool_schema.md](lesson_prompt_option_count_vs_tool_schema.md) — "Offer X alone" vs AskUserQuestion's 2-4 options; eval forces the no-tool branch
 - [lesson_preset_effort_rebaseline_checks.md](lesson_preset_effort_rebaseline_checks.md) — Lowered preset efforts reactivate/kill effort rungs; probe rungs per preset; doc "vendor start point" vs verdict
+- [lesson_strict_parser_swap_and_folder_loader.md](lesson_strict_parser_swap_and_folder_loader.md) — Strict-YAML swap drops real operator skills; binary assets skip folders; "removed X ignored" claims
 - [recipe_review_branch_in_sibling_worktree.md](recipe_review_branch_in_sibling_worktree.md) — Gate a branch from its sibling worktree when pnpm rejects the Node engine; npx tool list

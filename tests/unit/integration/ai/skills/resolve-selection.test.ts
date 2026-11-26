@@ -103,6 +103,17 @@ describe('createResolvedSkillSource — disabled-name subtraction', () => {
     expect(seen).toEqual(['refine', 'plan']);
   });
 
+  it('ignores saved disabled names of retired bundled skills without erroring', async () => {
+    // Saved settings can outlive a skill's removal from BUNDLED_SKILLS.
+    const inner = fixedInner([skill('ralphctl-ponytail'), skill('ralphctl-test-driven-development')]);
+    const source = createResolvedSkillSource({
+      inner,
+      flowDisabled: () => ['ralphctl-alignment', 'ralphctl-surgical-simplicity', 'ralphctl-ponytail'],
+    });
+
+    expect(names(await source.getForFlow('implement'))).toEqual(['ralphctl-test-driven-development']);
+  });
+
   it('tolerates duplicate names in the disabled list (collapsed into a set)', async () => {
     const inner = fixedInner([skill('ralphctl-a'), skill('ralphctl-b')]);
     const source = createResolvedSkillSource({

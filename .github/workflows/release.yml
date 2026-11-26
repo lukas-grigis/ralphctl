@@ -126,7 +126,7 @@ jobs:
           RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-dist-smoke
         run: |
           skills=$(node dist/cli.mjs skills list)
-          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          printf '%s\n' "$skills" | grep -q '^ralphctl-ponytail'
           agents=$(node dist/cli.mjs agents list)
           printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
           prompts=$(node dist/cli.mjs prompts list)
@@ -158,7 +158,7 @@ jobs:
           version=$("$BIN" --version)
           printf '%s\n' "$version" | grep -qF "$VERSION"
           skills=$("$BIN" skills list)
-          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          printf '%s\n' "$skills" | grep -q '^ralphctl-ponytail'
           agents=$("$BIN" agents list)
           printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
           prompts=$("$BIN" prompts list)

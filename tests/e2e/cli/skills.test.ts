@@ -16,15 +16,13 @@ describe('ralphctl skills list', () => {
     const result = await runCliCaptured(cli, ['skills', 'list']);
     expect(result.exitCode).toBe(0);
 
-    // Descends from v1's global default bundle — default-ON for every flow whose launcher
-    // actually mounts skills, createPr included (its view / CLI compose a skill source
-    // directly — see `flowMountsSkills`'s doc comment in launcher.ts).
-    const alignmentLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-alignment'));
-    expect(alignmentLine).toBeDefined();
-    expect(alignmentLine).toContain('bundled');
-    expect(alignmentLine).toContain('flows: refine, plan, implement, readiness, ideate, createPr');
+    // Default-ON in two flows — proves the column lists every enabled flow.
+    const ponytailLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-ponytail'));
+    expect(ponytailLine).toBeDefined();
+    expect(ponytailLine).toContain('bundled');
+    expect(ponytailLine).toContain('flows: plan, implement');
 
-    // Curated addition scoped to a single phase — proves the column isn't just "every flow".
+    // Scoped to a single phase — proves the column isn't just "every flow".
     const ideationLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-idea-refinement'));
     expect(ideationLine).toBeDefined();
     expect(ideationLine).toContain('flows: ideate');
@@ -35,15 +33,16 @@ describe('ralphctl skills list', () => {
     const settingsRepo = createJsonSettingsRepository({ configRoot: cli.paths.configRoot });
     await settingsRepo.save({
       ...DEFAULT_SETTINGS,
-      ai: { ...DEFAULT_SETTINGS.ai, skills: { implement: { disabled: ['ralphctl-alignment'] } } },
+      // A retired bundled name in the saved row must not break the listing.
+      ai: { ...DEFAULT_SETTINGS.ai, skills: { implement: { disabled: ['ralphctl-ponytail', 'ralphctl-alignment'] } } },
     });
 
     const result = await runCliCaptured(cli, ['skills', 'list']);
     expect(result.exitCode).toBe(0);
-    const alignmentLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-alignment'));
-    expect(alignmentLine).toBeDefined();
-    // "implement" no longer sits between "plan," and "readiness," once opted out — a plain
-    // `not.toContain('implement')` would false-positive on unrelated description prose.
-    expect(alignmentLine).toContain('flows: refine, plan, readiness, ideate, createPr');
+    const ponytailLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-ponytail'));
+    expect(ponytailLine).toBeDefined();
+    // A plain `not.toContain('implement')` would false-positive on unrelated description prose.
+    expect(ponytailLine).toContain('flows: plan');
+    expect(ponytailLine).not.toContain('flows: plan, implement');
   });
 });

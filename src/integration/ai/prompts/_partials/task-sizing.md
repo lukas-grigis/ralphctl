@@ -21,6 +21,9 @@ implemented in a single session, and verified end-to-end against its criteria.
 micro-refactor (add a directive, remove an import) — merge each into the task it serves instead of
 splitting it out.
 
+**Order independent tasks by uncertainty.** Among tasks with no dependency between them, put the least
+certain first; foundations still precede their dependents.
+
 **Soft ceiling, not a target:** if a task will touch more than ~10 files or ~500 lines of
 meaningful change and a natural split point exists, split it. No natural split point? Keep it
 whole.

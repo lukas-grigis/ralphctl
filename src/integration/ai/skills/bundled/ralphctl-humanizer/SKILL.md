@@ -19,15 +19,14 @@ the content.
 - Apply it while writing the prose your output signal carries. The signal gets only the final text — no
   draft, no list of patterns found, no commentary about the edit.
 - The prompt's output contract wins: keep its required headings, sections, field formats, and literal
-  values. Leave code, commands, paths, identifiers, and link targets exactly as they are.
+  values. The output template's own formatting (bold labels, separators, fixed phrasings) counts as contract
+  format. Leave code, commands, paths, identifiers, and link targets exactly as they are.
 - Add nothing. No fact, name, number, date, or claim that is not in your source material. If a sentence
   only works with a detail you don't have, simplify the sentence instead.
 
 ## When this applies
 
 - **Create PR** — the title and the description body.
-- **Refine** — the prose around the requirements. Plain wording never costs a criterion its precision; a
-  testable predicate stays testable.
 
 ## Method
 
@@ -48,11 +47,14 @@ the content.
    positive one. A contrast earns its place if it fixes a misconception your reader really has, or if each
    side tells them something.
 2. **Closers that restate.** A last short line repeating the paragraph ("That's the whole point."), a
-   string of fragments for drama, emphasis by capitals or dotted words. Cut it unless it adds a fact.
+   string of fragments for drama, emphasis by capitals or dotted words. Cut it unless it adds a fact. The same goes for a closing sentence that opens with "Overall" or
+   "Ultimately" and only repeats the verdict the paragraph already gave.
 3. **Borrowed depth.** "At its heart", "the real question is", "X is the currency of Y". Drop the
    aphorism and state the concrete point.
 4. **Run-ups.** Announcing what comes next ("Here's the thing", "Let's walk through it", "Quick note").
-   Start with the content.
+   Start with the content. The vague stand-in "the part" does the same job ("here's the part that
+   matters", "the hard part is"): name the thing, or state it directly. Where "part" means an actual
+   component of something, leave it.
 5. **Answering no one.** "To be clear", "This doesn't mean", "You might think". Remove the defence unless
    the objection is real in context.
 
@@ -70,15 +72,15 @@ the content.
 ### Inflation
 
 10. **Stock model vocabulary.** Words that turn up far more in generated text than in people's: delve,
-    seamless, leverage and harness (as figurative verbs), robust (when not technical), crucial, pivotal,
-    myriad, realm, tapestry, landscape (abstract), foster, elevate, empower, unlock, streamline,
-    showcase, underscore, testament, meticulous, game-changing, cutting-edge. Use the plain word. One on
+    robust (when not technical), crucial, pivotal, tapestry, landscape (abstract), foster, showcase,
+    underscore, testament, meticulous, enduring, intricate, vibrant, interplay, garner, bolstered, "deep
+    dive", "align with". Use the plain word. One on
     its own is weak evidence; a cluster is strong.
 11. **Inflated significance.** "Marks a turning point", "paves the way", "raises the bar", a closing
     paragraph about what the future holds. Stop once the concrete facts run out.
 12. **Editorialising -ing tails.** "…, highlighting its importance", "…, ensuring a smooth experience".
     Keep the fact; drop the tail unless the source supports it.
-13. **Promotional tone.** "Powerful", "effortless", "best-in-class", "beautifully". Say what the thing does.
+13. **Promotional tone.** "Breathtaking", "stunning", "groundbreaking", "renowned", "nestled in". Say what the thing does.
 14. **Vague authority.** "Experts agree", "widely regarded". Name the source or drop the claim.
 15. **Dodging plain verbs.** "Serves as", "functions as", "boasts". Use is and has.
 16. **Vague links.** "Associated with", "tied to". Name the actual relation, or keep the vague wording

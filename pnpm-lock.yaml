@@ -39,6 +39,9 @@ importers:
       typescript-result:
         specifier: ^3.5.2
         version: 3.5.2
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7

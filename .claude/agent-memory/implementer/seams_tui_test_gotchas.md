@@ -78,4 +78,12 @@ directions.
 depths that resolve back inside `root` (`../escape`, `../../../escape-far`). The escape is still real
 (outside `session`) but the asserted path stays unique per run.
 
+## Known load flakes in full-suite runs
+
+`add-ticket-view.disk.test.tsx` fails intermittently even in isolation on a pristine `git archive HEAD`
+copy (disk read races the write); other `|tui|` view tests hit the 3s `waitForPredicate` only under the
+full suite. **Why:** an integration fixer otherwise burns time blaming the branch under test.
+**How to apply:** before chasing a `|tui|` failure, rerun it alone; to prove it pre-exists without git
+state changes, `git archive HEAD | tar -x` into the scratchpad and symlink `node_modules`.
+
 Related: [[seams_tui_architecture_patterns]], [[project_slugged_data_layout_resolver]].

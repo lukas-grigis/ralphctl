@@ -1,5 +1,6 @@
 /**
- * Port for reading the RAW (unparsed) bytes of a bundled skill's `SKILL.md`, keyed by skill name.
+ * Port for reading the RAW (unparsed) bytes of a bundled skill folder — `SKILL.md` plus its support
+ * files — keyed by skill name.
  *
  * Exists so the phase-scoped skill catalog (`phase/catalog.ts`) can hash + copy a bundled skill
  * VERBATIM without importing the `bundled/` sibling directly — `integration/ai/skills/<x>`
@@ -18,14 +19,21 @@
 
 import type { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { SkillFile } from '@src/integration/ai/skills/_engine/skill.ts';
+
+/** A skill folder exactly as it sits on disk: `SKILL.md` bytes plus its sorted support files. */
+export interface RawSkillFolder {
+  readonly skillMd: string;
+  readonly files: readonly SkillFile[];
+}
 
 export interface BundledSkillRawReader {
   /**
-   * Read `<bundledRoot>/<name>/SKILL.md` verbatim (no frontmatter parsing, no re-render). `name`
-   * is expected to be a registered `BUNDLED_SKILLS` entry — a missing file surfaces as a
+   * Read `<bundledRoot>/<name>/` verbatim (no frontmatter parsing, no re-render). `name` is
+   * expected to be a registered `BUNDLED_SKILLS` entry — a missing `SKILL.md` surfaces as a
    * `StorageError` (the bundled root is the single source of truth for the catalog's own
    * entries, so a missing file for a registered name is a build/packaging bug, not a soft
    * "not found").
    */
-  readRaw(name: string): Promise<Result<string, StorageError>>;
+  readFolder(name: string): Promise<Result<RawSkillFolder, StorageError>>;
 }

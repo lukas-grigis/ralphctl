@@ -79,6 +79,9 @@ observe is the actual reported behaviour, not an accident of the test's own plum
 **Do not commit.** Leave the new test uncommitted in the working tree — a later session commits it as
 part of its own work, not this one.
 
+Installed skills' fix, guard and logging steps don't apply in this session — stop once the failing
+reproduction exists.
+
 </constraints>
 
 <capabilities>

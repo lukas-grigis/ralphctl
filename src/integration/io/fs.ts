@@ -34,7 +34,15 @@ const nextTmpSeq = (): number => {
   return tmpSeq;
 };
 
-export const writeTextAtomic = async (path: string, content: string): Promise<Result<void, StorageError>> => {
+export const writeTextAtomic = (path: string, content: string): Promise<Result<void, StorageError>> =>
+  writeFileAtomic(path, content);
+
+/** {@link writeTextAtomic} for bytes too; `mode` sets the file's permission bits (e.g. `0o755`). */
+export const writeFileAtomic = async (
+  path: string,
+  content: string | Uint8Array,
+  mode?: number
+): Promise<Result<void, StorageError>> => {
   const dir = dirname(path);
   try {
     await fs.mkdir(dir, { recursive: true });
@@ -46,7 +54,8 @@ export const writeTextAtomic = async (path: string, content: string): Promise<Re
   try {
     const handle = await fs.open(tmp, 'w');
     try {
-      await handle.writeFile(content, 'utf8');
+      await (typeof content === 'string' ? handle.writeFile(content, 'utf8') : handle.writeFile(content));
+      if (mode !== undefined) await handle.chmod(mode);
       await handle.sync(); // flush data + metadata to disk before the rename makes it visible
     } finally {
       await handle.close();

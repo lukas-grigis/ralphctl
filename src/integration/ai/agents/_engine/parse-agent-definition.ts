@@ -1,12 +1,11 @@
 /**
- * Shared agent-definition parsing helpers — the frontmatter split + naive-YAML reader that
- * every agent-definition source backed by an on-disk Markdown file consumes.
+ * Shared agent-definition parsing helpers — the frontmatter split + YAML reader that every
+ * agent-definition source backed by an on-disk Markdown file consumes.
  *
- * Reuses the same flat `key: value` frontmatter shape as SKILL.md, so the generic split/YAML
- * primitives live in the shared `skills/_engine/frontmatter.ts` module rather than
- * being duplicated here — this reaches into skills' `_engine/` via the documented cross-concept
- * `_engine`-to-`_engine` import seam. A real YAML lib lands only when an agent definition needs
- * nested / multiline frontmatter.
+ * Agent definitions use the same YAML frontmatter as SKILL.md, so the split/YAML primitives live
+ * in the shared `skills/_engine/frontmatter.ts` module, reached via the documented cross-concept
+ * `_engine`-to-`_engine` import seam. The frontmatter is read as YAML (with the same tolerance for
+ * an unquoted `: ` in a value) and then projected flat: only top-level scalars reach the schema.
  *
  * `parseAgentDefinition` validates against {@link AgentDefinitionFrontmatterSchema} and asserts
  * frontmatter `name` matches the source name. The `label` parameter tailors the error message
@@ -17,7 +16,11 @@ import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import { AgentDefinitionFrontmatterSchema } from '@src/integration/ai/agents/_engine/agent-definition.ts';
-import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import {
+  flattenFrontmatter,
+  parseYamlFrontmatter,
+  splitFrontmatter,
+} from '@src/integration/ai/skills/_engine/frontmatter.ts';
 
 /**
  * Parse an already-read agent-definition file body into the canonical {@link AgentDefinition}
@@ -32,8 +35,17 @@ export const parseAgentDefinition = (
   raw: string
 ): Result<AgentDefinition, StorageError> => {
   const { frontmatter, body } = splitFrontmatter(raw);
-  const fm = parseSimpleYaml(frontmatter);
-  const parsed = AgentDefinitionFrontmatterSchema.safeParse(fm);
+  const fm = parseYamlFrontmatter(frontmatter);
+  if (!fm.ok) {
+    return Result.error(
+      new StorageError({
+        subCode: 'parse',
+        message: `${label} ${name}: frontmatter is not valid YAML (${fm.error})`,
+        path,
+      })
+    );
+  }
+  const parsed = AgentDefinitionFrontmatterSchema.safeParse(flattenFrontmatter(fm.value));
   if (!parsed.success) {
     return Result.error(
       new StorageError({

@@ -14,7 +14,7 @@ const posix = process.platform !== 'win32';
 
 /** INT32_MAX sits above every platform's pid ceiling, so no live process ever has it. */
 const DEAD_PID = 2_147_483_647;
-const NAME = 'ralphctl-alignment';
+const NAME = 'ralphctl-spec-driven-development';
 
 const makeSession = async (): Promise<AbsolutePath> => {
   const dir = await mkdtemp(join(tmpdir(), 'skills-stale-install-'));

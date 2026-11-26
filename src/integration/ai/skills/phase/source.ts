@@ -29,10 +29,10 @@
  * `git status` and the tracked uninstall reclaims them. The on-disk folder name and frontmatter
  * `name` stay un-prefixed; the prefix is applied only to the emitted {@link Skill} record.
  *
- * Only `SKILL.md` is ever read from a skill folder. A later task stamps a `.provenance.json` sidecar
- * next to it inside the same folder; that sidecar (and any other non-`SKILL.md` file) is ignored —
- * the {@link Skill} record is derived from `SKILL.md` alone. Dotfile directory entries (`.git`, …)
- * are skipped so they never produce a spurious "not readable" warning.
+ * A skill folder is read as `SKILL.md` plus its allowlisted support dirs (`references/`, `scripts/`,
+ * `assets/`). The catalog's `.provenance.json` sidecar (and anything else outside the allowlist) is
+ * ignored. Dotfile directory entries (`.git`, …) are skipped so they never produce a spurious
+ * "not readable" warning.
  *
  * Resilience contract (identical to the operator source — the operator owns these skills, never
  * fail the run for a bad one):
@@ -50,7 +50,8 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
-import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
+import { BUNDLED_SKILLS, type FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
+import { readProvenanceStamp } from '@src/integration/ai/skills/phase/provenance.ts';
 import { loadSkillFolders, type SkillContractWarner } from '@src/integration/ai/skills/_engine/skill-folder-loader.ts';
 
 /**
@@ -85,6 +86,19 @@ export interface PhaseSkillSourceDeps {
   readonly warnIfContractViolated?: SkillContractWarner;
 }
 
+const REGISTERED_BUNDLED: ReadonlySet<string> = new Set(BUNDLED_SKILLS.map((s) => s.name));
+
+/**
+ * A catalog copy stamped from a bundled skill that is no longer registered (removed for
+ * contradicting its flow's prompt) stops installing. An unstamped folder is the operator's own and
+ * always loads; the catalog still lists the retired copy as a `manual` row so it can be deleted.
+ */
+const retiredCopyReason = async (_name: string, dir: string): Promise<string | undefined> => {
+  const stamp = await readProvenanceStamp(dir);
+  if (!stamp.ok || stamp.value === undefined || REGISTERED_BUNDLED.has(stamp.value.skill)) return undefined;
+  return `copy of the removed bundled skill ${stamp.value.skill}; delete it from the skill catalog`;
+};
+
 /**
  * Enumerate + parse every `<root>/<flowDir>/<name>/SKILL.md` for one flow. Best-effort: a missing
  * flow directory yields `[]`; an unreadable / malformed individual skill is logged and skipped;
@@ -98,6 +112,7 @@ const loadFlowSkills = (deps: PhaseSkillSourceDeps, flowId: FlowId): Promise<rea
     log: deps.logger.named('skills.phase'),
     logFields: { flow: flowId },
     warnIfContractViolated: deps.warnIfContractViolated,
+    skipReason: retiredCopyReason,
   });
 
 export const createPhaseSkillSource = (deps: PhaseSkillSourceDeps): SkillSource => ({

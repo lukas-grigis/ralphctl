@@ -1,22 +1,23 @@
 ---
 name: ralphctl-karpathy-guidelines
-description: Behavioural guardrails against four empirical LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to unfamiliar code, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task, and loop until explicit success criteria pass; broader than the implementation-choice ladder in ralphctl-ponytail or the scope checklist in ralphctl-surgical-simplicity (when those are installed), which it complements rather than duplicates.
+description: Behavioural guardrails against four LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to unfamiliar code, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task and inside its boundary, and loop until explicit success criteria pass; complements the implementation-choice ladder in ralphctl-ponytail when installed.
 ---
 
 # Karpathy Guidelines
 
 > Distilled from Andrej Karpathy's public commentary on LLM coding pitfalls — his January 2026
-> [X post on agentic coding](https://x.com/karpathy/status/2015883857489522876). Clean-room —
-> concepts only, not copied text.
+> [X post on agentic coding](https://x.com/karpathy/status/2015883857489522876) — and the community
+> distillation of it in [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills).
+> Clean-room — concepts only, not copied text.
 
-Karpathy's observation, after moving most of his coding to agents: the mistakes agents make are
-not random — they cluster into four recurring failure modes. Each mode below pairs the failure
-with the counter-habit that prevents it. Treat these as standing behavioural rules for every
-coding turn, not a checklist to run once.
+Karpathy's post describes how agent mistakes cluster; the four-mode grouping below is a community
+distillation of it, restated here in ralphctl's terms. Each mode pairs the failure with the
+counter-habit that prevents it. Treat these as standing behavioural rules for every coding turn,
+not a checklist to run once.
 
 ## When this applies
 
-- **Plan** — modes 1 and 4 dominate: a plan built on an unstated assumption, or with success criteria that can't be checked, fails before any code exists.
+- **Plan** — modes 1 and 4 only, and only where the plan prompt does not already say it: an unstated assumption behind a task, or a verification criterion nothing can check.
 - **Execute** — all four modes: every generation, edit, and refactor is an opportunity to silently assume, over-build, damage bystander code, or stop before verifying.
 
 ## Mode 1 — Silent assumptions
@@ -29,8 +30,8 @@ The counter-habit:
 
 - When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why, then proceed with the least-surprising reading — as a `note` signal in `signals.json` when the prompt's output-contract section lists it (generator role: a `decision` signal instead — the evaluator's contract has no `decision` schema), otherwise fold the interpretation into the required signal's own fields.
 - When the task's description contradicts what you find in the code, surface the contradiction — do not quietly pick a side.
-- When two implementations satisfy the words of the task but differ in consequence, present the trade-off rather than silently committing to one.
-- Push back when the request is likely a mistake. Deference that ships a wrong change is not helpfulness.
+- When two implementations satisfy the words of the task but differ in consequence, present the trade-off rather than silently committing to one — without an interactive channel, choose the reading the task most directly supports and record the choice and the rejected alternative the way the first bullet records an interpretation — a `note` signal when the prompt's output-contract section lists it (generator role: a `decision` signal), otherwise the required signal's own fields.
+- Push back when the request is likely a mistake. Deference that ships a wrong change is not helpfulness. Without an interactive channel, pushing back means the prompt's blocked outcome, and only when the requested change conflicts with the code; otherwise record the concern and proceed.
 
 ## Mode 2 — Over-complication
 
@@ -41,6 +42,8 @@ The counter-habit:
 
 - Write the simplest version that solves the stated problem. Generality earns its place only when a second concrete caller exists.
 - Prefer one plain function over a class hierarchy, a flag, or a plugin point invented for a future that was never requested.
+- Add configuration or a flag only when a concrete requirement calls for it.
+- Omit defensive handling for states the surrounding code already rules out.
 - When your change makes code unreachable, delete that code in the same change — dead code you created is your cleanup, not a future task.
 - Re-read your diff asking one question: what can be removed without failing the task?
 
@@ -51,8 +54,10 @@ asked about — side effects on things you did not fully understand, orthogonal 
 
 The counter-habit:
 
+- The boundary is the task's declared steps plus the smallest extra change the done criteria clearly require — not the criteria alone.
 - Preserve comments you did not write unless your change makes them false — then update them, don't drop them.
-- Leave formatting, naming, and structure outside your change's boundary untouched, even when you disagree with it.
+- Leave formatting, naming, and structure outside your change's boundary untouched, even when you disagree with it. Do not reformat or restyle code your change does not own.
+- When you spot a pre-existing issue outside that boundary (dead code, a latent bug, a misleading comment), leave it untouched and surface it — as a `note` signal when the prompt's output-contract section lists it, otherwise in the required signal's own fields.
 - Never edit code you don't understand just because it sits next to code you do; the exception is when the task itself is to change that code — then understanding it first is the task.
 - If your tooling reformats or rewrites beyond your intended lines, trim the diff back to what the task requires.
 
@@ -73,4 +78,5 @@ The counter-habit:
 - [ ] Every assumption I made is either confirmed or explicitly surfaced.
 - [ ] Nothing in the diff exists "for later" — every line serves the stated task.
 - [ ] No comment, formatting, or bystander code changed without a task-driven reason.
+- [ ] Every out-of-scope issue I noticed is surfaced as a note, not fixed inline.
 - [ ] The success criteria were stated up front and each one has been demonstrated, not assumed.

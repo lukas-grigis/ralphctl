@@ -56,6 +56,26 @@ When designing an interface, ask: can it have fewer operations, simpler paramete
 Before committing to one shape, sketch two or three genuinely different interfaces for the same job and
 compare them on depth, locality, and where the seam falls.
 
+## Deepening
+
+When you merge a cluster of shallow modules into one deep one, classify what the cluster depends on. The
+category decides how you test across the seam:
+
+1. **In-process** — pure computation and in-memory state. Merge the modules and test through the new
+   interface directly; no adapter is needed.
+2. **Local and substitutable** — dependencies with a local stand-in (an in-memory database or filesystem).
+   Run the stand-in in the test suite. The seam stays internal; the module's interface exposes no port.
+3. **Remote but owned** — your own services across a network. Define a port at the seam, keep the logic
+   in the deep module, and inject the transport as an adapter: a real one in production, an in-memory one
+   in tests.
+4. **True external** — third-party services you don't control. Take the dependency as an injected port
+   and give tests a fake adapter.
+
+**Replace, don't layer.** Deepening replaces the shallow interfaces; it does not wrap them. Don't leave the
+old modules behind a new facade. Write the new tests at the deep module's interface, and delete the old
+unit tests that only pinned the shallow pieces. A test that must change whenever the internals change is
+testing past the interface.
+
 ## Designing for testability
 
 - **Accept dependencies instead of creating them.** A function that receives its payment gateway or

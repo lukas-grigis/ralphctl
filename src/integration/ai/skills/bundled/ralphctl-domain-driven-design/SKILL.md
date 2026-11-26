@@ -20,9 +20,9 @@ complexity becomes manageable and the system evolves gracefully as the business 
 
 ## When this applies
 
-- **Refine** — name acceptance criteria in the domain's language; a criterion that needs technical jargon to state usually hides an unmodelled concept.
-- **Plan** — draw task boundaries along context and aggregate boundaries, not along technical layers.
-- **Execute** — apply the building blocks below when creating or renaming types, modules, and events.
+- **Refine** — name acceptance criteria in the domain's language; a criterion that needs technical jargon to state usually hides an unmodelled concept. Use §1 Ubiquitous Language only. Aggregates, events and repositories are planning and implementation choices the requirements leave out.
+- **Plan** — draw task boundaries along the context boundaries the project already has, not along technical layers; naming a new context is a question for the operator, not a task.
+- **Execute** — apply the building blocks the project already uses. Don't introduce a layer, interface, anti-corruption wrapper or module layout the codebase lacks unless a declared step asks for it; elsewhere, the terms below guide naming.
 
 ## 1. Ubiquitous Language
 
@@ -35,6 +35,7 @@ when a developer says "order" and an expert means "purchase request," bugs are i
 - Technical jargon (`DataProcessor` vs. `ClaimAdjudicator`) hides domain logic from the experts who could correct it.
 - Name classes and methods after domain concepts and verbs — `LoanApplication`, `policy.underwrite()`, not `RequestHandler`, `process()`.
 - Organize modules by domain concept (`shipping/`, `billing/`), not technical role (`controllers/`, `services/`).
+- Use the project's glossary and recorded decisions (ADRs) when present; don't re-decide a recorded decision.
 - In review, flag `Manager`, `Helper`, `Processor`, `Utils` as naming smells.
 
 ## 2. Bounded Contexts and Context Mapping

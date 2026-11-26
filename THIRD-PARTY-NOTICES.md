@@ -11,7 +11,7 @@ upstream's license and copyright notice is reproduced in full below, as the MIT 
   `ralphctl-performance-optimization`, `ralphctl-frontend-ui-engineering`,
   `ralphctl-deprecation-and-migration`, `ralphctl-code-simplification`,
   `ralphctl-source-driven-development`, `ralphctl-observability-and-instrumentation`, and the
-  risk-first slicing in `ralphctl-iterative-review` — from
+  uncertainty-first task ordering in the `task-sizing` prompt partial — from
   [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)
 - `ralphctl-ponytail`, and the concrete-case and expected-load review rules in
   `ralphctl-code-review-and-quality` — from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)

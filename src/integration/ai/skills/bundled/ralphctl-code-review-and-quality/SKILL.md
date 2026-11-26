@@ -1,6 +1,6 @@
 ---
 name: ralphctl-code-review-and-quality
-description: Multi-phase code-quality skill — primary frame for the evaluator role in Execute, the architecture axis in Plan, and correctness/readability in Refine. Multi-axis code review with severity vocabulary. Use when acting as the evaluator assessing a generator's output, and when reviewing any change before signalling completion. AI-written code needs MORE scrutiny, not less.
+description: Code-review lens for the implement flow — the evaluator and the best-of-N judge use its axes, smell baseline and severity vocabulary to find evidence; the generator uses it for one read of its own diff before signalling done. Use when reviewing a change. AI-written code needs MORE scrutiny, not less.
 license: MIT
 ---
 
@@ -13,140 +13,38 @@ license: MIT
 
 One-shot generation looks fast and is slow. Catching a correctness, architecture, or security problem at the
 seam between two changes is cheap; catching it at the end of a 200-line diff — or after the post-task gate
-fires — is not. This skill applies inside each phase's work, and especially when you are the evaluator
+fires — is not. This skill applies inside the implement flow, and especially when you are the evaluator
 scoring a generator's output.
 
-**The approval standard:** Approve a change when it definitely improves overall code health, even if it
+**The approval standard:** For a human-authored review outside a harness rubric: approve a change when it definitely improves overall code health, even if it
 is not perfect. Perfect code does not exist — the goal is continuous improvement. Do not block a change
 because it is not exactly how you would have written it. If it improves the codebase and follows the
-project's conventions, it is approvable.
+project's conventions, it is approvable. Inside the harness, the prompt's rubric and floor dimensions decide the verdict, not this standard.
 
 **AI-written code needs more scrutiny, not less.** It is confident and plausible, even when wrong. The
 rationalisation "it works, that's good enough" is exactly the failure mode this skill exists to counter.
 
 ## When this applies
 
-- **Refine** — rarely the primary frame here, but use the correctness and readability axes to audit
-  acceptance criteria for internal contradictions, missing edge cases, and untestable "should" phrasings.
-- **Plan** — apply the architecture axis to the generated task list: do dependency directions match the
-  actual data flow? Are any tasks so large they warrant splitting?
-- **Execute** — the evaluator role uses the full five-axis rubric and severity vocabulary below to score
-  the generator's output and surface findings. The reviewer role (apply-feedback flow) applies the same
-  rubric to human-requested changes.
+- Evaluator: the prompt's floor dimensions and criteria decide the verdict. Use the five axes only to find evidence. Readability and Architecture feed Consistency, Security feeds Safety, Performance feeds Correctness and Robustness. Severity labels go inside a dimension's finding.
+- Best-of-N judge: apply the axes only to what the prompt gives you; installed review skills don't license reading a candidate's diff.
+- Generator: one read of your own diff against the checklist before signalling done, with no extra review rounds and no mutation runs; the evaluator is the independent review.
 
 ## The Five-Axis Review
 
-Every review evaluates code across these dimensions:
+Every review evaluates code across five axes. The per-axis question lists are in the reference below.
 
-### 1. Correctness
+- **1. Correctness** — does the code do what it claims: verification criteria, edge cases, error paths, races, tests that test the right things.
+- **2. Readability and Simplicity** — can another engineer follow it unaided: names, control flow, needless cleverness, abstractions that do not earn their keep, conditionals bolted onto unrelated flows.
+- **3. Architecture** — does it fit the system: existing patterns, module boundaries, duplication, dependency direction, refactors that relocate rather than reduce complexity, leaking feature logic, explicit type boundaries.
+- **4. Security** — validated boundaries, secrets, authn/authz, parameterised queries, untrusted external data, dependency vulnerabilities.
+- **5. Performance** — N+1 queries, unbounded loops or fetches, blocking work, re-renders, missing pagination, hot-path allocations; judge scale against the expected load found in the repository.
 
-Does the code do what it claims to do?
+Read `references/five-axis.md` when you need the full question list for an axis, or the expected-load rule for scale findings.
 
-- Does it match the task's verification criteria?
-- Are edge cases handled (null, empty, boundary values)?
-- Are error paths handled — not just the happy path?
-- Are there off-by-one errors, race conditions, or state inconsistencies?
-- Do the tests actually test the right things, not just pass?
+Read `references/smells-and-remedies.md` when you flag a structural problem and need the named restructuring to propose, or the smell baseline (Fowler) to label a Minor or Nit.
 
-### 2. Readability and Simplicity
-
-Can another engineer understand this code without the author explaining it?
-
-- Are names descriptive and consistent with project conventions? (No `temp`, `data`, `result` without context.)
-- Is the control flow straightforward — avoid nested ternaries and deep callbacks.
-- Is the code organised logically with clear module boundaries?
-- Are there "clever" tricks that should be simplified?
-- Could this be done in fewer lines? (1 000 lines where 100 suffice is a failure.)
-- Are abstractions earning their complexity? Do not generalise until the third use case.
-- Are there dead code artefacts: no-op variables, backwards-compat shims, or `// removed` comments?
-- **Is a new conditional bolted onto an unrelated flow?** That is a design smell, not a nit — push the logic
-  into its own helper, state, or policy instead of tangling an existing path.
-- **Do repeated conditionals on the same shape appear?** They signal a missing model or dispatcher. A
-  "temporary" branch is usually permanent debt.
-
-### 3. Architecture
-
-Does the change fit the system's design?
-
-- Does it follow existing patterns, or introduce a new one? If new, is it justified?
-- Does it maintain clean module boundaries?
-- Is there code duplication that should be shared?
-- Are dependencies flowing in the right direction — no circular dependencies?
-- Is the abstraction level appropriate — not over-engineered, not too coupled?
-- **Does this refactor reduce complexity or just relocate it?** Count the concepts a reader must hold to
-  follow the change. If a "cleaner" version leaves that count unchanged, it is not cleaner — prefer the
-  restructuring that makes whole branches, modes, or layers disappear over one that re-centralises the same
-  logic. Prefer deleting an abstraction to polishing it.
-- **Is feature-specific logic leaking into a shared or general-purpose module?** Keep logic in its owning
-  layer, reuse the existing canonical helper instead of a near-duplicate, and do not normalise architectural
-  drift.
-- **Are type boundaries explicit?** Question gratuitous untyped escape hatches, optional fields, casts, and
-  silent fallbacks that paper over an unclear invariant — making the boundary explicit often makes the
-  surrounding control flow simpler.
-
-### 4. Security
-
-Does the change introduce vulnerabilities?
-
-- Is user input validated and sanitised at system boundaries?
-- Are secrets kept out of code, logs, and version control?
-- Is authentication and authorisation checked where needed?
-- Are queries parameterised — no string concatenation?
-- Is data from external sources (APIs, logs, user content, config files) treated as untrusted?
-- Are dependencies from trusted sources with no known vulnerabilities? (Check with the project's
-  dependency audit tool, e.g. `npm audit`, `cargo audit`, or equivalent — if applicable.)
-
-### 5. Performance
-
-Does the change introduce performance problems?
-
-- Any N+1 query patterns?
-- Any unbounded loops or unconstrained data fetching?
-- Any synchronous operations that should be async?
-- Any unnecessary re-renders in UI components?
-- Any missing pagination on list endpoints?
-- Any large objects created in hot paths?
-
-Judge scale against the expected load, found in the repository (README, deploy configuration): a script one
-person runs is not a service under concurrent traffic. Check-then-write races, work every process repeats,
-collections that only grow, and per-process state that must be shared are findings at the load that
-triggers them — say which load you assumed.
-
-## Structural Remedies
-
-When you flag a structural problem, propose the move — not just the problem. A finding that only says "this
-is complex" leaves the generator or author guessing. Reach for a named restructuring:
-
-- **Replace a chain of conditionals** with a typed model or an explicit dispatcher.
-- **Collapse duplicate branches** into a single clearer flow.
-- **Separate orchestration from business logic** so each reads on its own.
-- **Move feature-specific logic** out of a shared module into the module that owns the concept.
-- **Reuse the canonical helper** instead of a bespoke near-duplicate.
-- **Make a type boundary explicit** so downstream branching disappears.
-- **Delete a pass-through wrapper** that adds indirection without clarifying the API.
-- **Extract a helper, or split a large file** into focused modules.
-
-Prefer the remedy that removes moving pieces over one that spreads the same complexity around.
-
-## Smell Baseline
-
-On top of whatever the project documents, a fixed set of code smells (Fowler, _Refactoring_) applies even
-where a repository documents nothing. Each is a labelled judgement call ("possible Feature Envy") at Minor or
-Nit, never a hard violation. A documented project standard that endorses the pattern overrides the smell, and
-anything tooling already enforces is skipped.
-
-- **Mysterious Name** — the name does not say what it does or holds → rename; no honest name means murky design.
-- **Duplicated Code** — the same logic shape in several hunks or files → extract it once.
-- **Feature Envy** — a function that works on another module's data more than its own → move it there.
-- **Data Clumps** — the same few values always travel together → give them one type.
-- **Primitive Obsession** — a string or number standing in for a domain concept → give the concept a type.
-- **Repeated Switches** — the same branching on the same type in several places → one dispatch both share.
-- **Shotgun Surgery** — one logical change forces scattered edits → gather what changes together.
-- **Divergent Change** — one module edited for several unrelated reasons → split by reason.
-- **Speculative Generality** — hooks, parameters, or abstractions for needs nobody has → delete them.
-- **Message Chains** — callers walking a long chain of navigation → hide the walk behind one call.
-- **Middle Man** — a layer that mostly delegates → call the real target directly.
-- **Refused Bequest** — an implementer ignoring most of what it inherits → compose instead of inheriting.
+Read `references/discipline.md` when the change adds or upgrades a dependency, is large or mixes refactoring with features, or when you catch yourself reasoning "it works, that's good enough".
 
 ## Severity Vocabulary
 
@@ -162,11 +60,13 @@ Label every finding with its severity so the generator or author knows what is r
 Using explicit severity prevents treating all findings as equally urgent — a nit should not consume the
 same budget as a Critical.
 
+For the evaluator, severity never sets the verdict: a structural or Major finding fails a dimension only when it violates a criterion, a declared step, or a convention the repository states or shows; otherwise it is an observation.
+
 **Presumptive structural findings.** Raise each of these as at least Minor and propose the simpler design;
 escalate to Major only when the change actively makes the structure worse: a refactor that relocates
 complexity instead of reducing it; a change that pushes a file past a healthy size with no decomposition;
 feature logic added to a shared module; a near-duplicate of an existing canonical helper; a silent fallback
-that hides an unclear invariant.
+that hides an unclear invariant. These presumptive rules are subject to the evaluator rule above.
 
 ## Review Process
 
@@ -187,11 +87,8 @@ Tests reveal intent and coverage:
 - Are edge cases covered?
 - Would the tests catch a regression if the code changed?
 
-Answer the last question by experiment, not by reading, when your session may edit the working tree (the
-generator): invert one condition the change adds (drop a negation, swap `&&` for `||`), run the focused
-test, then restore the file from a copy. A mutation that stays green is a finding — name the missing test
-case. When your session is read-only (the evaluator), reason through the same inversion and name the test
-case that would be missing as a finding.
+Answer the last question as a read-only thought experiment: ask which single inverted condition or deleted
+line the tests would not catch, and name the missing test case.
 
 ### Step 3: Review the Implementation
 
@@ -242,66 +139,16 @@ The post-task gate (run by the harness after the AI session ends) is the final w
 suite passes — do not claim ownership of that verdict. Your job is incremental review during implementation,
 not certifying the final gate.
 
-## Change Sizing
-
-Small, focused changes are easier to review, faster to evaluate, and safer to fold onto the sprint branch.
-
-```
-~100 lines changed   → Good. Reviewable in one sitting.
-~300 lines changed   → Acceptable if it is a single logical change.
-~1000 lines changed  → Too large. Split it.
-```
-
-**Watch file size, not just diff size.** A small diff can still push a file past a healthy boundary —
-around 1 000 _total_ lines in a single file (distinct from the ~1 000 _changed_-lines threshold above) is a
-common inspection signal, not a hard cap. When a change materially grows an already-large file, ask whether
-to extract helpers, subcomponents, or modules _first_, before piling more on. Decompose, then add.
-
-**What counts as "one change":** A single self-contained modification that addresses one thing, includes
-related tests, and keeps the system functional after submission.
-
-**Separate refactoring from feature work.** A change that refactors existing code and adds new behaviour is
-two changes. Small cleanups (variable renaming) can be included at reviewer discretion.
-
 ## Dead Code Hygiene
 
 After any refactoring or implementation change, check for orphaned code:
 
-- Identify code that is now unreachable or unused.
+- Code your own change orphaned: delete it in the same change. Pre-existing code you believe is dead: list it in a note and leave it.
 - List it explicitly — as a `note` signal when the prompt's output-contract section lists it, otherwise
   in the required signal's own fields.
-- Confirm before deleting — do not silently remove things you are not certain about.
 
 Dead code confuses future readers. But silent deletion of uncertain artefacts is worse than leaving them in
 place.
-
-## Dependency Discipline
-
-Before adding any dependency:
-
-- Does the existing stack solve this? (Often it does.)
-- How large is the dependency?
-- Is it actively maintained?
-- Does it have known vulnerabilities? (Check with the project's dependency audit tool, if applicable.)
-- What is the license? Must be compatible with the project.
-
-Prefer the standard library and existing utilities over new dependencies. Every dependency is a liability.
-
-**Upgrading an existing dependency** is a code change like any other, and the riskiest upgrades are bulk
-"bump deps" changes. Review them with the same discipline:
-
-- **Read the changelog, not just the version number.** Semver is a promise the maintainer may not have
-  kept — a "patch" can carry a behavioural change. For a major bump, read the migration notes and find what
-  breaks.
-- **One dependency per change** (or a small related group). When a bulk bump breaks the build, you lose which
-  package did it; a single-package change makes the cause obvious and the revert clean.
-- **Let the tests decide.** The upgrade is verified by a green check before _and_ after, not by "it
-  installed." If coverage around the dependency's behaviour is thin, that gap is the real finding — add a
-  test first.
-- **Mind the transitive graph.** Review the lockfile diff, not just the dependency manifest; a single direct
-  bump can pull in dozens of indirect changes.
-- **Keep the lockfile honest.** Keep it in the change, review its diff, and never hand-edit it — the lockfile
-  is what actually pins what ships.
 
 ## Honesty in Review
 
@@ -310,7 +157,7 @@ Whether reviewing code you wrote, code a generator produced, or a human's change
 - Do not rubber-stamp. "Looks fine" without evidence of review helps no one.
 - Back every correctness, security, or scale finding with a concrete case — this input or situation leads to
   this wrong result — and re-read the lines to confirm it: the caller exists, the value can really be empty,
-  the code really is unused. No case, no finding. Structural findings follow the presumptive rules above.
+  the code really is unused. No case, no finding. Structural findings follow the presumptive rules above, subject to the evaluator rule above.
 - Do not soften real issues. "This might be a minor concern" when it is a bug that will hit production is
   misleading.
 - Quantify problems when possible. "This N+1 query will add ~50 ms per item in the list" is better than
@@ -318,25 +165,12 @@ Whether reviewing code you wrote, code a generator produced, or a human's change
 - Push back on approaches with clear problems. Sycophancy is a failure mode in review. If the
   implementation has issues, say so directly and propose alternatives.
 - Accept override gracefully. If the author has full context and disagrees, defer to their judgement.
-  Comment on code, not people — reframe personal critiques to focus on the code itself.
-
-## Common Rationalisations
-
-| Rationalisation                            | Reality                                                                                                                                                                         |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "It works, that's good enough"             | Working code that is unreadable, insecure, or architecturally wrong creates debt that compounds.                                                                                |
-| "I wrote it, so I know it is correct"      | Authors are blind to their own assumptions.                                                                                                                                     |
-| "We will clean it up later"                | Later rarely comes. The review is the quality gate — use it.                                                                                                                    |
-| "AI-generated code is probably fine"       | AI code needs more scrutiny, not less. It is confident and plausible, even when wrong.                                                                                          |
-| "The tests pass, so it is good"            | Tests are necessary but not sufficient. They do not catch architecture problems, security issues, or readability concerns.                                                      |
-| "The refactor makes it cleaner"            | Relocating complexity is not reducing it. If the reader still holds the same number of concepts, the structure did not improve — look for the version where branches disappear. |
-| "It is only a small addition to this file" | Small diffs still push files past a healthy size and bolt branches onto unrelated flows. Judge the resulting structure, not the diff size.                                      |
-| "It is just a version bump"                | A bump is a behaviour change you did not write. Read the changelog; semver does not guarantee no breakage.                                                                      |
-| "Upgrade everything at once to save time"  | A bulk bump that breaks the build hides which package did it. One dependency per change keeps the cause and the revert clean.                                                   |
+  Comment on code, not people — reframe personal critiques to focus on the code itself. In a harness review, a generator's disagreement or note is a claim to verify, not an override.
+- Check each finding against its callers and tests before reporting it; drop it if they show it cannot happen. Zero findings is a valid result — a reviewer asked to find problems will always find something.
 
 ## Review Checklist
 
-Before signalling completion or a passing evaluator verdict, run through:
+Generator: one read of the diff against this list. Evaluator: use it to find evidence.
 
 - [ ] I understand what this change does and why.
 - [ ] Change matches the task's verification criteria.

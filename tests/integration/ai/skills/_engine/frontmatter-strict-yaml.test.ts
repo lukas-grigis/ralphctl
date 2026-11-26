@@ -4,16 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
-import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import { parse as parseStrictYaml } from 'yaml';
+import { parseYamlFrontmatter, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
 
 /**
  * Installed SKILL.md frontmatter is read back by the downstream CLIs' STRICT YAML parsers —
  * Copilot rejects an unquoted plain scalar containing `: ` with "mapping values are not allowed
- * in this context" and refuses to load the skill. ralphctl's own reader is deliberately naive
- * and tolerated such values, which is exactly how one shipped: this suite pins the contract
- * from the strict consumer's side, for both the render path (adapter install) and the bundled
- * sources that are copied verbatim.
+ * in this context" and refuses to load the skill. ralphctl's old hand-rolled reader tolerated such
+ * values, which is exactly how one shipped: this suite pins the contract from the strict
+ * consumer's side, for both the render path (adapter install) and the bundled sources that are
+ * copied verbatim.
  */
 
 /**
@@ -45,6 +46,13 @@ const install = async (skill: Skill): Promise<string> => {
   return readFile(join(String(session), '.github/skills', skill.name, 'SKILL.md'), 'utf-8');
 };
 
+/** Read frontmatter back through ralphctl's own reader, failing the test on invalid YAML. */
+const readBack = (frontmatter: string): Readonly<Record<string, unknown>> => {
+  const parsed = parseYamlFrontmatter(frontmatter);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.value;
+};
+
 describe('renderSkill — strict-YAML-safe frontmatter for downstream parsers', () => {
   it('quotes a description containing ": " (the exact shape Copilot rejected unquoted)', async () => {
     const description =
@@ -55,7 +63,7 @@ describe('renderSkill — strict-YAML-safe frontmatter for downstream parsers', 
     for (const line of frontmatter.split('\n'))
       expect(line, `unsafe frontmatter line: ${line}`).toSatisfy(isStrictSafeLine);
     // Round-trip: ralphctl's own reader recovers the original description from the quoted form.
-    expect(parseSimpleYaml(frontmatter)['description']).toBe(description);
+    expect(readBack(frontmatter)['description']).toBe(description);
   });
 
   it('escapes embedded double quotes and backslashes, and round-trips them', async () => {
@@ -65,7 +73,7 @@ describe('renderSkill — strict-YAML-safe frontmatter for downstream parsers', 
     const { frontmatter } = splitFrontmatter(raw);
     for (const line of frontmatter.split('\n'))
       expect(line, `unsafe frontmatter line: ${line}`).toSatisfy(isStrictSafeLine);
-    expect(parseSimpleYaml(frontmatter)['description']).toBe(description);
+    expect(readBack(frontmatter)['description']).toBe(description);
   });
 
   it('leaves a safe plain-scalar description unquoted (files stay human-readable)', async () => {
@@ -88,7 +96,7 @@ describe('renderSkill — strict-YAML-safe frontmatter for downstream parsers', 
     const { frontmatter } = splitFrontmatter(raw);
     for (const line of frontmatter.split('\n'))
       expect(line, `unsafe frontmatter line: ${line}`).toSatisfy(isStrictSafeLine);
-    const parsed = parseSimpleYaml(frontmatter);
+    const parsed = readBack(frontmatter);
     expect(parsed['license']).toBe('MIT: see LICENSE');
     expect(parsed['allowed-tools']).toBe('Read, Grep: no writes');
   });
@@ -108,8 +116,8 @@ describe('bundled skill sources — frontmatter parses under strict YAML', () =>
       const raw = await readFile(join(bundledDir, dir.name, 'SKILL.md'), 'utf-8');
       const { frontmatter } = splitFrontmatter(raw);
       expect(frontmatter, `${dir.name}/SKILL.md has no frontmatter`).not.toBe('');
-      for (const line of frontmatter.split('\n'))
-        expect(line, `${dir.name}/SKILL.md unsafe frontmatter line: ${line}`).toSatisfy(isStrictSafeLine);
+      // A strict YAML 1.2 parser — the same class of parser the provider CLIs use.
+      expect(() => parseStrictYaml(frontmatter, { strict: true, uniqueKeys: true }), dir.name).not.toThrow();
     }
   });
 });

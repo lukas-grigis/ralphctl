@@ -23,7 +23,7 @@ pnpm coverage          # vitest run --coverage (ad-hoc threshold check; not in v
 pnpm verify:coverage   # alias for pnpm coverage
 pnpm format:check      # prettier
 pnpm deadcode          # knip (clean tree exits 0)
-pnpm skills:update     # re-vendor upstream SKILL.md into scripts/vendor/skills/ for review (maintainers only)
+pnpm skills:update     # re-vendor upstream skill files into scripts/vendor/skills/ for review (maintainers only)
 pnpm eval <check|run|compare|report>  # opt-in prompt/model eval harness (scripts/eval/); never part of verify — see .claude/docs/EVALS.md
 ```
 

@@ -34,13 +34,14 @@ An invoice is ...
 - `name` matches the folder name: lowercase letters, digits and single hyphens, at most 64 characters.
 - `description` says what the skill covers and when to use it. The model reads it to decide whether to
   open the skill.
-- Keep the frontmatter flat, one `key: value` per line. Nested blocks are ignored, and `>` or `|` values
-  aren't supported.
+- The frontmatter is YAML. `>` and `|` values and nested blocks such as `metadata` work, and keys beyond
+  the spec's fields are kept in the installed copy. Duplicate keys or a syntax error skip the skill.
 
 ## Gotchas
 
-- **Only `SKILL.md` is copied** from the `~/.ralphctl` folders. Put everything in the body, or point at
-  files in the repo.
+- **Skills can be folders.** From the `~/.ralphctl` folders ralphctl copies `SKILL.md` plus the
+  `references/`, `scripts/` and `assets/` folders next to it (text files only). Point the body at them so
+  the model opens them when needed; anything else in the folder is ignored.
 - **Commit repo skills.** In parallel mode each task runs in a fresh git worktree, which only has committed
   files.
 - **Refine, plan, ideate and readiness can't run shell commands** when they run headless on Claude Code,

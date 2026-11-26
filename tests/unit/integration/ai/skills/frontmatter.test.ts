@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import {
+  flattenFrontmatter,
+  parseYamlFrontmatter,
+  splitFrontmatter,
+} from '@src/integration/ai/skills/_engine/frontmatter.ts';
 
 // Canonical frontmatter-parsing suite — the single implementation both SKILL.md sources
 // (skills/_engine/parse-skill.ts) and agent-definition sources (agents/_engine/parse-agent-
@@ -55,7 +59,12 @@ describe('splitFrontmatter', () => {
   });
 });
 
-describe('parseSimpleYaml', () => {
+const parseSimpleYaml = (input: string): Record<string, string> => {
+  const parsed = parseYamlFrontmatter(input);
+  return parsed.ok ? flattenFrontmatter(parsed.value) : {};
+};
+
+describe('flattenFrontmatter over parseYamlFrontmatter', () => {
   it('parses flat key: value lines', () => {
     expect(parseSimpleYaml('name: x\ndescription: does a thing')).toEqual({
       name: 'x',
@@ -71,8 +80,8 @@ describe('parseSimpleYaml', () => {
     expect(parseSimpleYaml('a: 1\n\n# a comment\nb: 2')).toEqual({ a: '1', b: '2' });
   });
 
-  it('skips lines with no colon', () => {
-    expect(parseSimpleYaml('not a kv line\na: 1')).toEqual({ a: '1' });
+  it('rejects a stray non key: value line instead of silently skipping it', () => {
+    expect(parseSimpleYaml('not a kv line\na: 1')).toEqual({});
   });
 
   it('unescapes \\" and \\\\ inside a double-quoted value (the renderer emits this shape)', () => {
@@ -83,7 +92,52 @@ describe('parseSimpleYaml', () => {
     expect(parseSimpleYaml("a: 'no \\\" unescaping here'")).toEqual({ a: 'no \\" unescaping here' });
   });
 
-  it('treats a lone quote character as a plain value, not an empty quoted string', () => {
-    expect(parseSimpleYaml('a: "\nb: \'')).toEqual({ a: '"', b: "'" });
+  it('projects only top-level scalars to strings — a nested map never clobbers a top-level key', () => {
+    expect(parseSimpleYaml('name: real\nmetadata:\n  name: nested\neffort: 3')).toEqual({ name: 'real', effort: '3' });
+  });
+
+  it('reads a folded scalar as its text, not the `>` indicator', () => {
+    expect(parseSimpleYaml('description: >\n  folded\n  text')).toEqual({ description: 'folded text' });
+  });
+
+  it('yields an empty map for frontmatter that is not valid YAML', () => {
+    expect(parseSimpleYaml('a: "\nb: \'')).toEqual({});
+  });
+});
+
+describe('parseYamlFrontmatter', () => {
+  it('parses a folded scalar (`>`) into its folded text', () => {
+    const r = parseYamlFrontmatter('name: x\ndescription: >\n  first line\n  second line\n');
+    expect(r.ok && r.value['description']).toBe('first line second line\n');
+  });
+
+  it('parses a literal scalar (`|`) keeping its line breaks', () => {
+    const r = parseYamlFrontmatter('description: |\n  one\n  two\n');
+    expect(r.ok && r.value['description']).toBe('one\ntwo\n');
+  });
+
+  it('keeps a nested metadata map nested — its keys never overwrite top-level keys', () => {
+    const r = parseYamlFrontmatter('name: real\nmetadata:\n  name: nested\n  version: "1.0"\n');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value['name']).toBe('real');
+      expect(r.value['metadata']).toEqual({ name: 'nested', version: '1.0' });
+    }
+  });
+
+  it('keeps non-string scalars typed (booleans stay booleans)', () => {
+    const r = parseYamlFrontmatter('disable-model-invocation: true');
+    expect(r.ok && r.value['disable-model-invocation']).toBe(true);
+  });
+
+  it('returns an empty map for empty frontmatter', () => {
+    const r = parseYamlFrontmatter('');
+    expect(r.ok && r.value).toEqual({});
+  });
+
+  it('rejects malformed YAML, duplicate keys and a non-map document', () => {
+    expect(parseYamlFrontmatter('a: "unterminated').ok).toBe(false);
+    expect(parseYamlFrontmatter('a: 1\na: 2').ok).toBe(false);
+    expect(parseYamlFrontmatter('- just\n- a list').ok).toBe(false);
   });
 });

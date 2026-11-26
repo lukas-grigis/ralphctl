@@ -1,11 +1,9 @@
 /**
- * Shared SKILL.md parsing helpers — the canonical frontmatter split + naive-YAML reader + body
+ * Shared SKILL.md parsing helpers — the canonical frontmatter split + YAML reader + body
  * extraction that every {@link SkillSource} backed by on-disk `SKILL.md` folders consumes.
  *
- * The generic split/YAML primitives live in `./frontmatter.ts` — shared byte-for-byte
- * with `agents/_engine/parse-agent-definition.ts`, which reaches into this module's sibling via
- * the documented cross-concept `_engine`-to-`_engine` import seam (both formats use the same
- * flat `key: value` frontmatter shape).
+ * The generic split/YAML primitives live in `./frontmatter.ts`, shared with
+ * `agents/_engine/parse-agent-definition.ts` via the `_engine`-to-`_engine` import seam.
  *
  * `parseSkill` validates against {@link SkillFrontmatterSchema} and asserts frontmatter `name`
  * matches the on-disk folder name per the Agent Skills spec. The `label` parameter tailors the
@@ -14,9 +12,9 @@
 
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { parseSimpleYaml, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import { parseYamlFrontmatter, splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
-import { SkillFrontmatterSchema } from '@src/integration/ai/skills/_engine/skill.ts';
+import { SkillFrontmatterSchema, TYPED_FRONTMATTER_KEYS } from '@src/integration/ai/skills/_engine/skill.ts';
 
 /**
  * Parse an already-read SKILL.md body into the canonical {@link Skill} record. Split from the
@@ -25,8 +23,17 @@ import { SkillFrontmatterSchema } from '@src/integration/ai/skills/_engine/skill
  */
 export const parseSkill = (label: string, path: string, name: string, raw: string): Result<Skill, StorageError> => {
   const { frontmatter, body } = splitFrontmatter(raw);
-  const fm = parseSimpleYaml(frontmatter);
-  const parsed = SkillFrontmatterSchema.safeParse(fm);
+  const fm = parseYamlFrontmatter(frontmatter);
+  if (!fm.ok) {
+    return Result.error(
+      new StorageError({
+        subCode: 'parse',
+        message: `${label} ${name}: frontmatter is not valid YAML (${fm.error})`,
+        path,
+      })
+    );
+  }
+  const parsed = SkillFrontmatterSchema.safeParse(fm.value);
   if (!parsed.success) {
     return Result.error(
       new StorageError({
@@ -45,12 +52,14 @@ export const parseSkill = (label: string, path: string, name: string, raw: strin
       })
     );
   }
+  const extra = Object.fromEntries(Object.entries(fm.value).filter(([key]) => !TYPED_FRONTMATTER_KEYS.has(key)));
   return Result.ok({
     name: parsed.data.name,
     description: parsed.data.description,
     ...(parsed.data.license !== undefined ? { license: parsed.data.license } : {}),
     ...(parsed.data.compatibility !== undefined ? { compatibility: parsed.data.compatibility } : {}),
     ...(parsed.data['allowed-tools'] !== undefined ? { allowedTools: parsed.data['allowed-tools'] } : {}),
+    ...(Object.keys(extra).length > 0 ? { extraFrontmatter: extra } : {}),
     content: body,
   });
 };

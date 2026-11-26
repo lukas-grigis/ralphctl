@@ -78,7 +78,7 @@ jobs:
           RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-dist-smoke
         run: |
           skills=$(node dist/cli.mjs skills list)
-          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          printf '%s\n' "$skills" | grep -q '^ralphctl-ponytail'
           agents=$(node dist/cli.mjs agents list)
           printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
           prompts=$(node dist/cli.mjs prompts list)
@@ -94,7 +94,7 @@ jobs:
           npm install "$TARBALL"
           ./node_modules/.bin/ralphctl --version
           skills=$(./node_modules/.bin/ralphctl skills list)
-          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          printf '%s\n' "$skills" | grep -q '^ralphctl-ponytail'
 
   # Reproducibility gate. The fast `check` job above runs against whatever
   # node_modules the pnpm cache restores; that path can pass even when the

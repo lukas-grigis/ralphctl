@@ -14,17 +14,12 @@
  *                         May overlap `defaultFor`, but by convention we list only the *extra*
  *                         phases beyond the defaults to keep the two columns readable.
  *
- * Default-set curation: the first eight rows keep the assignments inherited from v1's
- * `FLOW_SKILLS`; the curated additions below them are promoted into the phases where their
- * discipline is strongest (rationale inline per row). Overlap between skills is deliberate —
- * skill bodies are lightweight and the per-run / per-flow opt-out (`settings.ai.skills`,
- * customize-picker skills step) lets an operator trim any of it. Some curated skills stay
- * default-OFF: `ralphctl-cherny-workflow`, because the harness itself already enforces its core
- * loop (plan gate, check gate, evaluator), and `ralphctl-spec-driven-development`, because the
- * refine / ideate prompts already own the requirements output and its approval gate — both are
- * opt-in reinforcements. The topic-specific skills at the end of the table are catalog-only too:
- * each fits only some tasks, and every default costs context on every session of its phase
- * (implement already loads ten).
+ * Default-set curation: a skill is default-ON only in the phases where its discipline is the
+ * prompt's missing piece and nothing it says contradicts that phase's prompt. Every default costs
+ * context on every session of its phase, and implement's evaluator shares the generator's skill
+ * set, so defaults stay few. Everything else is catalog-only: topic-specific skills fit only some
+ * tasks, and the reinforcement skills restate what a prompt already owns. The per-run / per-flow
+ * opt-out (`settings.ai.skills`, customize-picker skills step) trims any default.
  *
  * `FlowId` is re-exported from `domain/value/flow-id.ts` so this module, the settings schema,
  * the skill sources, and the launcher all read one definition of the flow set. The registry
@@ -36,12 +31,9 @@
  * appear below, and adapters install in that order.
  */
 
-import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 export type { FlowId };
-
-/** Every AI flow — skills carried over from v1's global `default/` bundle are default-ON here. */
-const ALL_FLOWS = FLOW_IDS;
 
 /**
  * One bundled skill and its phase assignments. `name` must match a `bundled/<name>/SKILL.md`
@@ -61,101 +53,96 @@ export interface BundledSkillEntry {
  * The bundled-skill catalog. Order is significant — see the module doc comment.
  */
 export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
-  // The four skills below descend from v1's global `default/` bundle, so they stay default-ON
-  // everywhere; there is no phase left to recommend them for.
-  { name: 'ralphctl-alignment', defaultFor: ALL_FLOWS, recommendedFor: [] },
-  { name: 'ralphctl-iterative-review', defaultFor: ALL_FLOWS, recommendedFor: [] },
-  { name: 'ralphctl-abstraction-first', defaultFor: ALL_FLOWS, recommendedFor: [] },
-  { name: 'ralphctl-minimal-scaffolding', defaultFor: ALL_FLOWS, recommendedFor: [] },
-  // Implement-centric skills — recommendedFor names conservative adjacent phases where the
-  // discipline plausibly earns its place beyond the default set.
+  // Default-ON skills first — table order is install order.
   {
-    name: 'ralphctl-debugging-and-error-recovery',
-    defaultFor: ['implement'],
-    recommendedFor: ['readiness'],
-  },
-  {
-    name: 'ralphctl-test-driven-development',
-    defaultFor: ['implement'],
-    recommendedFor: ['plan', 'readiness'],
-  },
-  {
-    // createPr is recommended opt-in, not default. This skill coaches emitting review-oriented
-    // <note> / <decision> signals; create-pr's output contract keeps only the single pr-content
-    // signal and DROPS any such narrative signal (generate-pr-content.contract.ts is tolerant by
-    // design), so recommending it here is safe. It stays opt-in rather than default because
-    // review-signal guidance is only sometimes what you want while authoring a PR body.
-    name: 'ralphctl-code-review-and-quality',
-    defaultFor: ['implement'],
-    recommendedFor: ['readiness', 'createPr'],
-  },
-  {
-    name: 'ralphctl-surgical-simplicity',
-    defaultFor: ['implement', 'ideate'],
-    recommendedFor: ['refine', 'plan'],
-  },
-  // Curated catalog additions — promoted into the phases where each discipline is strongest
-  // (see the module doc comment for the curation posture).
-  {
-    // The anti-over-engineering ladder pays off where approach and dependencies get chosen
-    // (plan) and code gets written (implement); createPr is review-time — suggestion only.
+    // The approach ladder (reuse, stdlib, an installed dependency) is the only implementation-
+    // choice guidance plan and implement get. Not for createPr: the diff-only PR author cannot
+    // honestly name what was skipped.
     name: 'ralphctl-ponytail',
     defaultFor: ['plan', 'implement'],
-    recommendedFor: ['createPr'],
+    recommendedFor: [],
   },
   {
-    // Default only where its unique value lands: silent assumptions and uncheckable success
-    // criteria (modes 1 and 4) sink a plan before any code exists. On implement its modes 2–3
-    // restate what surgical-simplicity and ponytail already cover there by default, so it is a
-    // suggestion only.
-    name: 'ralphctl-karpathy-guidelines',
-    defaultFor: ['plan'],
-    recommendedFor: ['implement'],
+    // The evaluator and the best-of-N judge share implement's skill set; the review axes sharpen
+    // their evidence-gathering. readiness has no code under review and createPr drops review
+    // signals.
+    name: 'ralphctl-code-review-and-quality',
+    defaultFor: ['implement'],
+    recommendedFor: [],
   },
   {
-    // Default-OFF by design: the harness already structures this skill's loop (plan gate,
-    // check gate, evaluator), so it is an opt-in reinforcement, not a default.
-    name: 'ralphctl-cherny-workflow',
-    defaultFor: [],
-    recommendedFor: ['implement', 'createPr'],
-  },
-  {
-    // Divergent→convergent idea shaping is the ideate flow's core job; refine benefits when a
-    // ticket is still fuzzy — suggestion only.
-    name: 'ralphctl-idea-refinement',
-    defaultFor: ['ideate'],
-    recommendedFor: ['refine'],
-  },
-  {
-    // Ubiquitous language and boundary placement sharpen requirements (refine) and drive
-    // module boundaries (plan); implement keeps it as a suggestion.
-    name: 'ralphctl-domain-driven-design',
-    defaultFor: ['refine', 'plan'],
-    recommendedFor: ['implement'],
-  },
-  {
-    // Trust-boundary discipline earns its place wherever code is written or reviewed: implement
-    // mounts it for the generator AND the read-only evaluator, so its escalation guidance is
-    // role-split (the generator blocks, a reviewer records a finding). Plan (abuse cases as
-    // verification criteria, authorising sensitive changes up front) and createPr (flagging
-    // security-relevant changes for the human reviewer) are suggestions only.
+    // Trust-boundary tiers match implement's blocked rules; plan has no security guidance of its
+    // own, so authorising sensitive changes in task steps is a suggestion there.
     name: 'ralphctl-security-and-hardening',
     defaultFor: ['implement'],
-    recommendedFor: ['plan', 'createPr'],
+    recommendedFor: ['plan'],
   },
   {
-    // Default-OFF by design: refine and ideate already own the requirements output, its layout,
-    // and the operator approval gate. This skill only sharpens that body (objective, boundaries,
-    // testable criteria, open questions) and is adapted to add no files or gates of its own —
-    // an opt-in reinforcement, like cherny-workflow.
+    // Execute-phase only: plan's tests-with-feature coupling lives in task-sizing, and readiness
+    // runs no tests.
+    name: 'ralphctl-test-driven-development',
+    defaultFor: ['implement'],
+    recommendedFor: [],
+  },
+  {
+    // Only implement debugs anything; readiness is read-only inspection.
+    name: 'ralphctl-debugging-and-error-recovery',
+    defaultFor: ['implement'],
+    recommendedFor: [],
+  },
+  {
+    // Turning a raw idea into a direction is ideate's core job. Not refine: generating variations
+    // contradicts refine's elicit-don't-design rule (ralphctl-ambition is the opt-in there).
+    name: 'ralphctl-idea-refinement',
+    defaultFor: ['ideate'],
+    recommendedFor: [],
+  },
+  {
+    // readiness's whole output is always-loaded context. plan writes task specs cold agents read,
+    // and implement tasks sometimes edit AGENTS.md or skills; refine's requirements are agent-read.
+    name: 'ralphctl-writing-for-agents',
+    defaultFor: ['readiness'],
+    recommendedFor: ['refine', 'plan', 'implement'],
+  },
+  // Opt-in reinforcements — the prompt already owns the discipline, so these are catalog-only.
+  {
+    // A stricter scope voice for operators who want one; implement's prompt plus ponytail already
+    // cover scope, and plan restates its assumption and success-criteria modes.
+    name: 'ralphctl-karpathy-guidelines',
+    defaultFor: [],
+    recommendedFor: ['implement', 'plan'],
+  },
+  {
+    // refine and ideate own the requirements output and its approval gate; this only sharpens
+    // the body and adds no files or gates.
     name: 'ralphctl-spec-driven-development',
     defaultFor: [],
     recommendedFor: ['refine', 'ideate'],
   },
-  // Topic-specific catalog additions — default-OFF (see the module doc comment); each suggests
-  // only the phases where its topic gets decided or written.
   {
-    // Interface contracts get shaped when work is split (plan) and written (implement).
+    // Widens the ask before it is pinned down. Never implement (the evaluator shares that set and
+    // would grade against criteria nobody asked for) and never createPr (nothing to raise).
+    name: 'ralphctl-ambition',
+    defaultFor: [],
+    recommendedFor: ['ideate', 'refine', 'plan'],
+  },
+  {
+    // The PR body is human-facing prose with no contract conflict. Not refine: its formatting
+    // rules clash with refine's prescribed output template.
+    name: 'ralphctl-humanizer',
+    defaultFor: [],
+    recommendedFor: ['createPr'],
+  },
+  // Topic-specific — default-OFF; each suggests only the phases where its topic gets decided or
+  // written.
+  {
+    // Valuable for domain-heavy business code, noise for CLIs, libraries and UIs.
+    name: 'ralphctl-domain-driven-design',
+    defaultFor: [],
+    recommendedFor: ['refine', 'plan', 'implement'],
+  },
+  {
+    // Interface contracts get decided in plan steps and written in implement.
     name: 'ralphctl-api-and-interface-design',
     defaultFor: [],
     recommendedFor: ['plan', 'implement'],
@@ -173,7 +160,7 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     recommendedFor: ['implement'],
   },
   {
-    // Migration phases are sequenced in plan and carried out one per task in implement.
+    // plan sequences expand / migrate / contract; implement carries out one phase per task.
     name: 'ralphctl-deprecation-and-migration',
     defaultFor: [],
     recommendedFor: ['plan', 'implement'],
@@ -185,13 +172,13 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     recommendedFor: ['implement'],
   },
   {
-    // Version-grounded API use matters when code is written, and when plan names the pattern.
+    // Version-grounded API use matters when plan names a pattern and when implement writes it.
     name: 'ralphctl-source-driven-development',
     defaultFor: [],
     recommendedFor: ['implement', 'plan'],
   },
   {
-    // Telemetry is written with the feature (implement) and belongs in task steps (plan).
+    // Telemetry belongs with the feature: planned in task steps, written in implement.
     name: 'ralphctl-observability-and-instrumentation',
     defaultFor: [],
     recommendedFor: ['implement', 'plan'],
@@ -201,19 +188,6 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     name: 'ralphctl-codebase-design',
     defaultFor: [],
     recommendedFor: ['plan', 'implement'],
-  },
-  {
-    // Default for readiness: its whole output is a context file every future session loads, so
-    // pruning discipline pays there every run. Refine's requirements are agent-read too.
-    name: 'ralphctl-writing-for-agents',
-    defaultFor: ['readiness'],
-    recommendedFor: ['refine'],
-  },
-  {
-    // Human-facing prose: the PR body (createPr) and the requirements text (refine).
-    name: 'ralphctl-humanizer',
-    defaultFor: [],
-    recommendedFor: ['createPr', 'refine'],
   },
 ];
 

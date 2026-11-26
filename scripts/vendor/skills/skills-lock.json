@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "skills": {
+    "ralphctl-api-and-interface-design": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-code-review-and-quality": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/shared/security-checklist.md",
+        "references/shared/performance-checklist.md"
+      ]
+    },
+    "ralphctl-code-simplification": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-codebase-design": {
+      "repo": "mattpocock/skills",
+      "ref": "main",
+      "sha": "6f7f7831a625f040a8e06a0e7954826b87ce775a",
+      "files": [
+        "SKILL.md",
+        "DEEPENING.md",
+        "DESIGN-IT-TWICE.md"
+      ]
+    },
+    "ralphctl-debugging-and-error-recovery": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-deprecation-and-migration": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-domain-driven-design": {
+      "repo": "wondelai/skills",
+      "ref": "main",
+      "sha": "c37678106e63ef1c5472d848fb3d8b8c5b33fafe",
+      "files": [
+        "SKILL.md",
+        "references/bounded-contexts.md",
+        "references/building-blocks.md",
+        "references/domain-events.md",
+        "references/repositories-factories.md",
+        "references/strategic-design.md",
+        "references/ubiquitous-language.md"
+      ]
+    },
+    "ralphctl-frontend-ui-engineering": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/shared/accessibility-checklist.md"
+      ]
+    },
+    "ralphctl-humanizer": {
+      "repo": "blader/humanizer",
+      "ref": "main",
+      "sha": "a32f24407364c74c812b43c15926d638bee1e072",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-idea-refinement": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "examples.md",
+        "frameworks.md",
+        "refinement-criteria.md"
+      ]
+    },
+    "ralphctl-observability-and-instrumentation": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/shared/observability-checklist.md"
+      ]
+    },
+    "ralphctl-performance-optimization": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/optimization-patterns.md",
+        "references/shared/performance-checklist.md"
+      ]
+    },
+    "ralphctl-ponytail": {
+      "repo": "DietrichGebert/ponytail",
+      "ref": "main",
+      "sha": "ebd8654c2c627f721eb8f9c0d1bd4090a29f9e10",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-security-and-hardening": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/hardening-patterns.md",
+        "references/shared/security-checklist.md"
+      ]
+    },
+    "ralphctl-source-driven-development": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-spec-driven-development": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "ralphctl-test-driven-development": {
+      "repo": "addyosmani/agent-skills",
+      "ref": "main",
+      "sha": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74",
+      "files": [
+        "SKILL.md",
+        "references/shared/testing-patterns.md"
+      ]
+    },
+    "ralphctl-writing-for-agents": {
+      "repo": "mattpocock/skills",
+      "ref": "main",
+      "sha": "6f7f7831a625f040a8e06a0e7954826b87ce775a",
+      "files": [
+        "SKILL.md",
+        "SKILL-MECHANICS.md"
+      ]
+    }
+  }
+}

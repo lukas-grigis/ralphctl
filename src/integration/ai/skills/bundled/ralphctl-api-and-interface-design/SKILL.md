@@ -16,9 +16,8 @@ express it in the project's own idiom and with its own typing or schema mechanis
 
 ## When this applies
 
-- **Plan** — when a ticket adds or changes an interface, make the contract its own task or the first step
-  of one, and put its shape in the verification criteria: inputs, outputs, error cases, and what existing
-  consumers must keep seeing. Name who consumes the interface today.
+- **Plan** — when a ticket adds or changes an interface, make the contract the first step of the task, and put its shape in the verification criteria: inputs,
+  outputs, error cases, and what existing consumers must keep seeing. Name who consumes the interface today.
 - **Execute** — define the contract before the body, and check every change to an existing interface
   against its current consumers before making it. When reviewing, a breaking change the task did not ask
   for is a finding even when the new code is correct.
@@ -70,8 +69,8 @@ ralphctl-security-and-hardening when installed.
 Follow the conventions the project already uses for this kind of surface, identically across every
 operation: casing, resource naming, boolean prefixes, time and id formats. Model variants as an explicit
 tagged union or discriminated record rather than a bag of optional fields. Where the language allows,
-give each kind of id its own type so one cannot be passed for another. List operations paginate (a limit
-plus a stable order or cursor) from the start; partial updates change only the fields provided.
+give each kind of id its own type so one cannot be passed for another. A list operation this task creates paginates (a limit
+plus a stable order or cursor) from the start; existing endpoints the task doesn't touch stay as they are; partial updates change only the fields provided.
 
 ### Retry safety
 
@@ -94,7 +93,7 @@ it honours one:
 | "Nobody uses that undocumented behaviour"  | If it is observable, someone depends on it. Treat it as a commitment.                     |
 | "We'll pin the contract down later"        | The contract is the documentation. Define it first; the implementation follows it.        |
 | "Internal interfaces don't need contracts" | Internal consumers are still consumers. Contracts are what let them change independently. |
-| "We don't need pagination yet"             | Adding it once a list has grown is a breaking change.                                     |
+| "We don't need pagination yet"             | For a list this task creates: adding it once it has grown is a breaking change.           |
 | "Accepting the idempotency key is enough"  | Accepting it tells clients retries are safe; storing it against the result makes it so.   |
 
 ## Red flags
@@ -103,7 +102,7 @@ it honours one:
 - Inconsistent error formats across one interface.
 - Validation scattered through internal code instead of at the boundary.
 - A field changed, renamed, or removed in place.
-- A list operation without pagination.
+- A new list operation without pagination.
 - Third-party responses used without validation.
 - A lookup-then-insert idempotency check, or a key regenerated on every attempt.
 

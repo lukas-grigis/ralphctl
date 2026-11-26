@@ -1,6 +1,6 @@
 ---
 name: ralphctl-code-simplification
-description: Behaviour-preserving simplification of existing code — understand why the code exists before changing it, then reduce nesting, unclear names, duplication, dead code, and needless indirection one step at a time with the existing tests unchanged and green after each. Use when a task asks to refactor or clean up working code, or when code you just made work is heavier than it needs to be; for keeping a new change small from the start, see ralphctl-surgical-simplicity and ralphctl-ponytail when installed.
+description: Behaviour-preserving simplification of existing code — understand why the code exists before changing it, then reduce nesting, unclear names, duplication, dead code, and needless indirection one step at a time with the existing tests unchanged and green after each. Use when a task asks to refactor or clean up working code, or when code you just made work is heavier than it needs to be; for keeping a new change small from the start, see ralphctl-ponytail and ralphctl-karpathy-guidelines when installed.
 license: MIT
 ---
 
@@ -15,8 +15,8 @@ someone new to this code follow the result more easily?
 
 ## When this applies
 
-- **Execute** — when the task asks for a refactor or cleanup, and after a change works, on the code that
-  change touched. Simplification outside the task's scope is a finding to surface, not an edit to make —
+- **Execute** — when the task asks for a refactor or cleanup, simplify the task's own new code before the
+  completion checks, never as a separate pass after them — unless the task is itself a refactor. Simplification outside the task's scope is a finding to surface, not an edit to make —
   record it in a `note` signal when the prompt's output-contract section lists it; otherwise fold it into
   the required signal's own fields.
 

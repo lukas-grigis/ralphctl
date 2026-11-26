@@ -120,8 +120,9 @@ Stop asking when all of the following are true:
 
 {{APPROVAL_GATE}}
 
-Present the requirements with sections for Problem, Acceptance Criteria, Scope, and Edge Cases; the
-Step 1.1 stop criteria are the checks to pass first. The approval question:
+Present the requirements with sections for Problem, Acceptance Criteria, Scope, and Edge Cases, and any
+open question inline as `Open question: …`, as refine does; the Step 1.1 stop criteria are the checks to
+pass first. The approval question:
 
 ```
 Question: "Does this look correct? Any changes needed?"

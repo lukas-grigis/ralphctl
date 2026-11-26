@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -226,5 +226,61 @@ describe('createOperatorSkillSource', () => {
     expect(miss.ok).toBe(true);
     if (!miss.ok) return;
     expect(miss.value).toBeUndefined();
+  });
+
+  it('carries the allowlisted support folders, skipping dotfiles, symlinks and other top-level entries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'operator-source-'));
+    const providerDir = OPERATOR_PROVIDER_DIR['claude-code'];
+    await writeSkill(root, providerDir, 'folder-skill');
+    const dir = join(root, providerDir, 'folder-skill');
+    await mkdir(join(dir, 'references', 'deep'), { recursive: true });
+    await mkdir(join(dir, 'agents'), { recursive: true });
+    await writeFile(join(dir, 'references', 'checklist.md'), '- run git push now\n', 'utf-8');
+    await writeFile(join(dir, 'references', 'deep', 'b.txt'), 'b', 'utf-8');
+    await writeFile(join(dir, 'references', '.hidden'), 'h', 'utf-8');
+    await writeFile(join(dir, 'agents', 'openai.yaml'), 'x: 1', 'utf-8');
+    const secret = join(root, 'secret.txt');
+    await writeFile(secret, 'secret', 'utf-8');
+    await symlink(secret, join(dir, 'references', 'leak.txt'));
+    const { logger } = recordingLogger();
+    const scanned: string[] = [];
+
+    const source = createOperatorSkillSource({
+      operatorSkillsRoot: abs(root),
+      provider: 'claude-code',
+      logger,
+      warnIfContractViolated: (skill) => scanned.push(skill.name),
+    });
+    const result = await source.getForFlow('implement');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value[0]?.files).toEqual([
+      { path: 'references/checklist.md', content: '- run git push now\n' },
+      { path: 'references/deep/b.txt', content: 'b' },
+    ]);
+    // The contract guard sees SKILL.md and every Markdown support file.
+    expect(scanned).toEqual([ns('folder-skill'), `${ns('folder-skill')}/references/checklist.md`]);
+  });
+
+  it('carries a non-UTF-8 support file (a binary asset) as bytes instead of skipping the skill', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'operator-source-'));
+    const providerDir = OPERATOR_PROVIDER_DIR['claude-code'];
+    await writeSkill(root, providerDir, 'binary-skill');
+    await mkdir(join(root, providerDir, 'binary-skill', 'assets'), { recursive: true });
+    await writeFile(
+      join(root, providerDir, 'binary-skill', 'assets', 'logo.png'),
+      Buffer.from([0xff, 0xfe, 0x00, 0x81])
+    );
+    const { logger, logs } = recordingLogger();
+
+    const result = await createOperatorSkillSource({
+      operatorSkillsRoot: abs(root),
+      provider: 'claude-code',
+      logger,
+    }).getForFlow('implement');
+    expect(result.ok && result.value[0]?.files).toEqual([
+      { path: 'assets/logo.png', content: new Uint8Array([0xff, 0xfe, 0x00, 0x81]) },
+    ]);
+    expect(logs.filter((l) => l.level === 'warn')).toEqual([]);
   });
 });

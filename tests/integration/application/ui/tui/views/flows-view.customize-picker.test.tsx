@@ -938,8 +938,12 @@ describe('runCustomizePicker — skills step', () => {
   const FIXTURE_CANDIDATES: SkillCandidatesResult = {
     settingsFlow: 'refine',
     candidates: [
-      { name: 'ralphctl-alignment', description: 'Confirm scope before diving into work', origin: 'bundled-default' },
-      { name: 'ralphctl-iterative-review', description: 'Iterate on the review', origin: 'bundled-default' },
+      {
+        name: 'ralphctl-ponytail',
+        description: 'Prefer the smallest change that solves the task',
+        origin: 'bundled-default',
+      },
+      { name: 'ralphctl-test-driven-development', description: 'Red-green-refactor', origin: 'bundled-default' },
     ],
     savedDisabled: [],
     degraded: false,
@@ -997,12 +1001,12 @@ describe('runCustomizePicker — skills step', () => {
   });
 
   it('Customize skills + uncheck one + run-only → skills.disabled = [that name]; saveAsDefault false', async () => {
-    // The checklist opens pre-checked to both candidates; leaving only `ralphctl-alignment`
+    // The checklist opens pre-checked to both candidates; leaving only `ralphctl-ponytail`
     // checked in the submitted (enabled) set disables the other one.
     const { interactive } = buildScriptedPrompt([
       ...KEEP_ROW_SCRIPT,
       { action: 'pick', choice: 'customize' },
-      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'multiPick', choices: ['ralphctl-ponytail'] },
       { action: 'pick', choice: 'run-only' },
     ]);
     const result = await runCustomizePicker({
@@ -1013,14 +1017,14 @@ describe('runCustomizePicker — skills step', () => {
       skillCandidates: FIXTURE_CANDIDATES,
     });
     if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
-    expect(result.skills).toEqual({ disabled: ['ralphctl-iterative-review'], saveAsDefault: false });
+    expect(result.skills).toEqual({ disabled: ['ralphctl-test-driven-development'], saveAsDefault: false });
   });
 
   it('Customize skills + uncheck one + remember → saveAsDefault true', async () => {
     const { interactive } = buildScriptedPrompt([
       ...KEEP_ROW_SCRIPT,
       { action: 'pick', choice: 'customize' },
-      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'multiPick', choices: ['ralphctl-ponytail'] },
       { action: 'pick', choice: 'remember' },
     ]);
     const result = await runCustomizePicker({
@@ -1031,17 +1035,17 @@ describe('runCustomizePicker — skills step', () => {
       skillCandidates: FIXTURE_CANDIDATES,
     });
     if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
-    expect(result.skills).toEqual({ disabled: ['ralphctl-iterative-review'], saveAsDefault: true });
+    expect(result.skills).toEqual({ disabled: ['ralphctl-test-driven-development'], saveAsDefault: true });
   });
 
   it('Customize skills + re-check a saved-disabled skill + run-only → skills.disabled = [] (re-enables it)', async () => {
-    // savedDisabled has `ralphctl-iterative-review` off; the checklist opens with it UNCHECKED
-    // (only `ralphctl-alignment` pre-checked). Submitting with BOTH checked re-enables it for
+    // savedDisabled has `ralphctl-test-driven-development` off; the checklist opens with it UNCHECKED
+    // (only `ralphctl-ponytail` pre-checked). Submitting with BOTH checked re-enables it for
     // this run — the mechanism a per-run RE-ENABLE relies on.
     const { interactive } = buildScriptedPrompt([
       ...KEEP_ROW_SCRIPT,
       { action: 'pick', choice: 'customize' },
-      { action: 'multiPick', choices: ['ralphctl-alignment', 'ralphctl-iterative-review'] },
+      { action: 'multiPick', choices: ['ralphctl-ponytail', 'ralphctl-test-driven-development'] },
       { action: 'pick', choice: 'run-only' },
     ]);
     const result = await runCustomizePicker({
@@ -1049,7 +1053,7 @@ describe('runCustomizePicker — skills step', () => {
       flowId: 'refine',
       flowTitle: 'Refine',
       settings: DEFAULT_SETTINGS,
-      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-iterative-review'] },
+      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-test-driven-development'] },
     });
     if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
     expect(result.skills).toEqual({ disabled: [], saveAsDefault: false });
@@ -1063,7 +1067,7 @@ describe('runCustomizePicker — skills step', () => {
       { action: 'pick', choice: otherModel },
       { action: 'pick', choice: REFINE_KEEP_EFFORT },
       { action: 'pick', choice: 'customize' },
-      { action: 'multiPick', choices: ['ralphctl-iterative-review'] },
+      { action: 'multiPick', choices: ['ralphctl-test-driven-development'] },
       { action: 'pick', choice: 'run-only' },
     ]);
     const result = await runCustomizePicker({
@@ -1075,7 +1079,7 @@ describe('runCustomizePicker — skills step', () => {
     });
     if (result.kind !== 'single') throw new Error(`expected kind 'single', got ${result.kind}`);
     expect(result.override.model).toBe(otherModel);
-    expect(result.skills).toEqual({ disabled: ['ralphctl-alignment'], saveAsDefault: false });
+    expect(result.skills).toEqual({ disabled: ['ralphctl-ponytail'], saveAsDefault: false });
   });
 
   it('cancel at the skills entry prompt → kind cancel (row change discarded too)', async () => {
@@ -1110,7 +1114,7 @@ describe('runCustomizePicker — skills step', () => {
     const { interactive } = buildScriptedPrompt([
       ...KEEP_ROW_SCRIPT,
       { action: 'pick', choice: 'customize' },
-      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'multiPick', choices: ['ralphctl-ponytail'] },
       { action: 'cancel' },
     ]);
     const result = await runCustomizePicker({
@@ -1169,19 +1173,19 @@ describe('runCustomizePicker — skills step', () => {
       flowId: 'refine',
       flowTitle: 'Refine',
       settings: DEFAULT_SETTINGS,
-      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-iterative-review'] },
+      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-test-driven-development'] },
     });
     // Origin marker only — no redundant state suffix; the pre-checked seeding carries the state.
-    expect(checklistOptions).toEqual(['ralphctl-alignment (default)', 'ralphctl-iterative-review (default)']);
+    expect(checklistOptions).toEqual(['ralphctl-ponytail (default)', 'ralphctl-test-driven-development (default)']);
     // Pre-checked to the effective set — only the non-saved-disabled candidate.
-    expect(checklistInitial).toEqual(['ralphctl-alignment']);
+    expect(checklistInitial).toEqual(['ralphctl-ponytail']);
   });
 });
 
 describe('runCustomizePicker — implement skills step runs once, flow-level', () => {
   const FIXTURE_CANDIDATES: SkillCandidatesResult = {
     settingsFlow: 'implement',
-    candidates: [{ name: 'ralphctl-alignment', description: 'Confirm scope', origin: 'bundled-default' }],
+    candidates: [{ name: 'ralphctl-ponytail', description: 'Smallest change', origin: 'bundled-default' }],
     savedDisabled: [],
     degraded: false,
   };
@@ -1213,7 +1217,7 @@ describe('runCustomizePicker — implement skills step runs once, flow-level', (
     });
     // Both roles kept every default, so `kind` is 'defaults' — modulo the skills change.
     if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
-    expect(result.skills).toEqual({ disabled: ['ralphctl-alignment'], saveAsDefault: false });
+    expect(result.skills).toEqual({ disabled: ['ralphctl-ponytail'], saveAsDefault: false });
     // Exactly one "Skills:" prompt — never per-role.
     expect(captured.filter((c) => c.message === 'Skills:')).toHaveLength(1);
   });

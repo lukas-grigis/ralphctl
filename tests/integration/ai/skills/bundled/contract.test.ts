@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkSkillContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
+import {
+  checkSkillContract,
+  skillContractDocuments,
+} from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
+import { readSkillSupportFiles } from '@src/integration/ai/skills/_engine/skill-support-files.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // tests/integration/ai/skills/bundled → ../../../../../src/integration/ai/skills/bundled
@@ -24,12 +28,17 @@ describe('checkSkillContract — bundled posture skills', () => {
 
   for (const dir of dirs) {
     const name = dir.split('/').pop() ?? dir;
-    it(`bundled skill "${name}" satisfies the harness contract`, () => {
+    it(`bundled skill "${name}" satisfies the harness contract in every Markdown file of its folder`, async () => {
       const content = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
-      const report = checkSkillContract(name, content);
-      // Surface the exact rule + line on failure so a regression is immediately actionable.
-      const detail = report.violations.map((v) => `  ${v.rule} @L${v.lineNumber}: ${v.evidence}`).join('\n');
-      expect(report.pass, `${name} tripped contract rules:\n${detail}`).toBe(true);
+      const files = await readSkillSupportFiles(dir);
+      expect(files.ok).toBe(true);
+      const docs = skillContractDocuments({ name, content, files: files.ok ? files.value : [] });
+      // Surface the exact file + rule + line on failure so a regression is immediately actionable.
+      const violations = docs.flatMap((d) =>
+        checkSkillContract(d.name, d.content).violations.map((v) => ({ ...v, doc: d.name }))
+      );
+      const detail = violations.map((v) => `  ${v.doc} ${v.rule} @L${v.lineNumber}: ${v.evidence}`).join('\n');
+      expect(violations, `${name} tripped contract rules:\n${detail}`).toEqual([]);
     });
   }
 });
@@ -60,6 +69,59 @@ describe('checkSkillContract — synthetic rule detection', () => {
     expect(ruleIds('- Run `pnpm test` to verify your changes.')).toContain('S4');
     expect(ruleIds('1. npm install the new dependency.')).toContain('S4');
     expect(ruleIds('- Run `go test ./...` before signalling.')).toContain('S4');
+  });
+
+  it('S4 — flags the wider package-manager / build-tool set', () => {
+    for (const line of [
+      '- Run `yarn test` to verify.',
+      '- Run `yarn run build` first.',
+      '- Use `npx prettier --write .` on the file.',
+      '- Run `pnpm exec vitest` for the unit.',
+      '- Run `bun test` before signalling.',
+      '- Run `uv run pytest` for the module.',
+      '- Run `poetry install` to sync.',
+      '- Run `mvn test` on the module.',
+      '- Run `./gradlew test` on the module.',
+      '- Run `gradle build` once.',
+      '- Run `dotnet test` on the project.',
+    ]) {
+      expect(ruleIds(line), line).toContain('S4');
+    }
+  });
+
+  it('S4 — needs a word boundary, so prose that merely contains the letters does not trip it', () => {
+    expect(ruleIds('- Let the ego run its course before the review.')).not.toContain('S4');
+    expect(ruleIds('- A menu run of the gallery app.')).not.toContain('S4');
+  });
+
+  it('S4 — the hint points at generic wording, never at a template placeholder', () => {
+    const [violation] = checkSkillContract('synthetic', '- Run `pnpm test`.').violations;
+    expect(violation?.description).not.toContain('{{');
+  });
+
+  it('S8 — flags an unsubstituted template placeholder on any line, even after a negation', () => {
+    expect(ruleIds('Never hardcode commands; use {{PROJECT_TOOLING}} instead.')).toContain('S8');
+    expect(ruleIds('- Run {{ CHECK_GATE_EXAMPLE }} before signalling.')).toContain('S8');
+    expect(ruleIds(['```', '{{PROJECT_TOOLING}}', '```'].join('\n'))).toContain('S8');
+  });
+
+  it('S8 — leaves lowercase view-template syntax in examples alone', () => {
+    expect(ruleIds(['```vue', '<p>{{ user.name }}</p>', '```'].join('\n'))).not.toContain('S8');
+  });
+
+  it('skillContractDocuments — SKILL.md first, then each Markdown support file named by its path', () => {
+    const docs = skillContractDocuments({
+      name: 'x',
+      content: 'body',
+      files: [
+        { path: 'references/a.md', content: 'A' },
+        { path: 'scripts/run.sh', content: 'echo' },
+      ],
+    });
+    expect(docs).toEqual([
+      { name: 'x', content: 'body' },
+      { name: 'x/references/a.md', content: 'A' },
+    ]);
   });
 
   it('S5 — flags spawning subagents / new provider sessions', () => {

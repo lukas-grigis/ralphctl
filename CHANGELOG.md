@@ -7,6 +7,49 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Ambition skill (opt-in).** `ralphctl-ambition` is a new bundled skill, off by default and suggested in the
+  Skills catalog for ideate, refine and plan. It asks what the ticket is really for and what a top expert would
+  do, so the requirements or plan aim past the first reading of the request. It is distilled from Felix
+  Rieseberg's article on being more ambitious with models. It is never suggested for implement, where the
+  evaluator would grade against criteria nobody asked for.
+- **Skills can be folders.** A bundled skill, or one you drop into `~/.ralphctl/skills/`, can carry
+  `references/`, `scripts/` and `assets/` next to its `SKILL.md`; ralphctl installs them with the skill and
+  copies them in full when you enable it from the Skills catalog. The code-review, security and
+  test-driven-development skills now keep their checklists there and load them on demand instead of in every
+  session.
+- **Skill frontmatter is real YAML.** Folded (`>`) and literal (`|`) values, nested blocks such as `metadata`
+  and extra keys now work, and the installed copy keeps them. A duplicate key or a syntax error skips the skill
+  and says why. The contract check now also flags `{{PLACEHOLDER}}`-style template syntax and scans every
+  Markdown file in a skill folder.
+
+### Changed
+
+- **Skills now load only where they help.** Defaults are now: plan gets `ralphctl-ponytail`; implement gets
+  `ralphctl-ponytail`, code review, security, test-driven development and debugging; ideate gets
+  `ralphctl-idea-refinement`; readiness gets `ralphctl-writing-for-agents`; refine and create-pr get none.
+  `ralphctl-karpathy-guidelines` and `ralphctl-domain-driven-design` are now opt-in (they loaded in plan, and in
+  refine and plan, before). The Skills catalog suggestions were re-checked against each flow and trimmed
+  accordingly: `ralphctl-humanizer` is suggested for create-pr only, and the code-oriented skills are no longer
+  suggested for readiness or create-pr.
+- **Bundled skills no longer contradict the prompts they run under.** Questions are no longer batched against
+  refine's one-at-a-time rule, plan no longer picks repositories, one-shot and autonomous sessions no longer wait
+  for an agreement nobody can give, and the plateau, check-gate and test rules in the skills now match the
+  harness. Plan also puts the least certain independent task first. Skills resynced from their upstream sources
+  at pinned commits, and the evaluator grades every finding by the same rule whichever skill raised it.
+- **`pnpm skills:update` pins upstream commits.** It records the commit it fetched in
+  `scripts/vendor/skills/skills-lock.json` and also syncs each skill's extra reference files.
+
+### Removed
+
+- **Six bundled skills are gone.** `ralphctl-alignment`, `ralphctl-iterative-review`,
+  `ralphctl-abstraction-first`, `ralphctl-minimal-scaffolding` and `ralphctl-cherny-workflow` are deleted: each
+  loaded in flows where it contradicted the prompt or repeated what the harness already does.
+  `ralphctl-surgical-simplicity` is merged into `ralphctl-karpathy-guidelines`. A saved selection
+  (`settings.ai.skills`) or a flow-folder copy that names a removed skill is ignored; nothing needs migrating.
+  Twenty bundled skills remain.
+
 ## [0.29.0] - 2026-11-22
 
 ### Added

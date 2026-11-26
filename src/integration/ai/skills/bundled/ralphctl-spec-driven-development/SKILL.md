@@ -55,6 +55,10 @@ Turn each assumption that matters into a question for the operator, using the qu
 session's prompt defines — one concern per question, most critical first. An assumption the operator
 cannot settle in this session becomes an open question, not a silent default.
 
+Requirement-level assumptions become questions or open questions. When the prompt has its own
+Assumptions section, keep that section's meaning (assumptions about the world that people check) and put
+scope or data assumptions where the prompt's layout keeps them.
+
 ## What the spec must pin down
 
 Fill the session's own section layout with these four things. They are content to supply, not an
@@ -94,6 +98,9 @@ REFRAMED SUCCESS CRITERIA:
 "Faster", "robust", and "user-friendly" are not criteria. Numbers, observable states, and named failure
 behaviours are.
 
+A proposed number is a question to the operator, never a default. Never propose a target for an outcome
+or signal the prompt says the operator supplies.
+
 ## Keeping the spec alive
 
 The spec is only useful while it matches the decisions behind it.
@@ -113,6 +120,13 @@ The spec is only useful while it matches the decisions behind it.
 - **The approved body is the source of truth downstream.** Tasks trace to it and implementing sessions
   verify against it. If the direction changes after approval, that is a new refinement, not a silent
   divergence between the spec and the code built from it.
+
+### Changing existing behaviour
+
+When the ticket changes something that already exists, state the current behaviour and the new behaviour
+side by side, and add at least one must-not-change criterion for what has to keep working. Current
+behaviour comes from the ticket or the operator, never from reading source, because requirements phases
+are source-free.
 
 ## Common rationalisations
 

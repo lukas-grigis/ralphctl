@@ -230,9 +230,9 @@ describe('opt-in skills — cross-module roundtrip', () => {
     expect(result.value.updated).not.toContain(editedSkill.name);
 
     const staleAfter = await readFile(join(staleDir, 'SKILL.md'), 'utf-8');
-    const realStaleRaw = await rawReader.readRaw(staleSkill.name);
+    const realStaleRaw = await rawReader.readFolder(staleSkill.name);
     expect(realStaleRaw.ok).toBe(true);
-    if (realStaleRaw.ok) expect(staleAfter).toBe(realStaleRaw.value);
+    if (realStaleRaw.ok) expect(staleAfter).toBe(realStaleRaw.value.skillMd);
 
     const editedAfter = await readFile(join(editedDir, 'SKILL.md'), 'utf-8');
     expect(editedAfter).toBe(tamperedRaw); // untouched — an edit is never silently discarded

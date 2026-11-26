@@ -39,6 +39,7 @@ import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
+import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { passthroughRunInTerminal } from '@src/integration/io/run-in-terminal.ts';
@@ -95,6 +96,16 @@ const forFlow = async (
   return r.value;
 };
 
+/** A bundled-layer stand-in that returns the same skills for every flow. */
+const fixedSource = (skills: readonly Skill[]): SkillSource => ({
+  async getForFlow() {
+    return Result.ok(skills);
+  },
+  async getByName(name: string) {
+    return Result.ok(skills.find((s) => s.name === name));
+  },
+});
+
 const withSkills = (disabled: NonNullable<Settings['ai']['skills']>): Settings => ({
   ...DEFAULT_SETTINGS,
   ai: { ...DEFAULT_SETTINGS.ai, skills: disabled },
@@ -117,39 +128,39 @@ describe('buildComposedSkillSource — zero-config invariant', () => {
 describe('buildComposedSkillSource — opt-out subtraction', () => {
   it('drops a skill named in the saved settings.ai.skills[flow].disabled row', async () => {
     const deps = await makeDeps();
-    const settings = withSkills({ implement: { disabled: ['ralphctl-alignment'] } });
+    const settings = withSkills({ implement: { disabled: ['ralphctl-ponytail'] } });
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'implement', settings, {});
 
     const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
-    expect(names).not.toContain('ralphctl-alignment');
+    expect(names).not.toContain('ralphctl-ponytail');
     // Everything else the flow loads by default is untouched.
     const baseline = (await forFlow(createBundledSkillSource(), 'implement')).map((s) => s.name);
-    expect(names).toEqual(baseline.filter((n) => n !== 'ralphctl-alignment'));
+    expect(names).toEqual(baseline.filter((n) => n !== 'ralphctl-ponytail'));
   });
 
   it('drops a skill named in the per-run skillsOverride.disabled (no saved row)', async () => {
     const deps = await makeDeps();
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'implement', DEFAULT_SETTINGS, {
-      skillsOverride: { disabled: ['ralphctl-iterative-review'] },
+      skillsOverride: { disabled: ['ralphctl-test-driven-development'] },
     });
 
     const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
-    expect(names).not.toContain('ralphctl-iterative-review');
+    expect(names).not.toContain('ralphctl-test-driven-development');
   });
 
   it('a per-run override REPLACES the saved row — it does not union with it', async () => {
-    // Run-replaces-saved semantics (not union): the saved row disables `ralphctl-alignment`, but
-    // this run's override only names `ralphctl-iterative-review`, so alignment is NOT subtracted
+    // Run-replaces-saved semantics (not union): the saved row disables `ralphctl-ponytail`, but
+    // this run's override only names `ralphctl-test-driven-development`, so ponytail is NOT subtracted
     // for this launch — the override wins outright.
     const deps = await makeDeps();
-    const settings = withSkills({ implement: { disabled: ['ralphctl-alignment'] } });
+    const settings = withSkills({ implement: { disabled: ['ralphctl-ponytail'] } });
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'implement', settings, {
-      skillsOverride: { disabled: ['ralphctl-iterative-review'] },
+      skillsOverride: { disabled: ['ralphctl-test-driven-development'] },
     });
 
     const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
-    expect(names).toContain('ralphctl-alignment');
-    expect(names).not.toContain('ralphctl-iterative-review');
+    expect(names).toContain('ralphctl-ponytail');
+    expect(names).not.toContain('ralphctl-test-driven-development');
   });
 
   it('an empty per-run override RE-ENABLES every saved-disabled skill for the run', async () => {
@@ -157,13 +168,13 @@ describe('buildComposedSkillSource — opt-out subtraction', () => {
     // disable this run means `skillsOverride: { disabled: [] }`, which still REPLACES the saved
     // row (an empty array is a defined override, not an absent one).
     const deps = await makeDeps();
-    const settings = withSkills({ implement: { disabled: ['ralphctl-alignment'] } });
+    const settings = withSkills({ implement: { disabled: ['ralphctl-ponytail'] } });
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'implement', settings, {
       skillsOverride: { disabled: [] },
     });
 
     const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
-    expect(names).toContain('ralphctl-alignment');
+    expect(names).toContain('ralphctl-ponytail');
     const baseline = (await forFlow(createBundledSkillSource(), 'implement')).map((s) => s.name);
     expect(names).toEqual(baseline);
   });
@@ -173,26 +184,39 @@ describe('buildComposedSkillSource — aliased-flow row inheritance', () => {
   it('a review launch reads implement’s saved disabled row (aiFlowIdFor: review → implement)', async () => {
     const deps = await makeDeps();
     // The opt-out is stored under implement; a review dispatch must honour it.
-    const settings = withSkills({ implement: { disabled: ['ralphctl-alignment'] } });
+    const settings = withSkills({ implement: { disabled: ['ralphctl-ponytail'] } });
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'review', settings, {});
 
     // Review would enumerate implement's skills — getForFlow('implement') is the phase it resolves.
     const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
-    expect(names).not.toContain('ralphctl-alignment');
+    expect(names).not.toContain('ralphctl-ponytail');
   });
 
   it('maps the create-pr orchestration id to the createPr settings row', async () => {
+    // createPr has no bundled defaults, so a stub bundled layer supplies one skill for every flow;
+    // disabling it under createPr proves the create-pr → createPr row mapping.
     const deps = await makeDeps();
-    // ralphctl-alignment is one of the four ALL_FLOWS defaults (content-generic, no contract
-    // tension with create-pr's single-signal output contract) — it's actually present by
-    // default for createPr, so disabling it proves the opt-out subtraction, unlike a skill
-    // that's createPr-recommendedFor-only (e.g. ralphctl-code-review-and-quality) and was
-    // never in the resolved set to begin with.
-    const settings = withSkills({ createPr: { disabled: ['ralphctl-alignment'] } });
-    const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'create-pr', settings, {});
+    const stub: Skill = { name: 'ralphctl-humanizer', description: 'stub', content: '# stub' };
+    const app = { ...deps.app, skillSource: fixedSource([stub]) } as unknown as AppDeps;
+    const settings = withSkills({ createPr: { disabled: ['ralphctl-humanizer'] } });
+    const resolved = buildComposedSkillSource({ ...deps, app }, snapshot, 'claude-code', 'create-pr', settings, {});
 
     const names = (await forFlow(resolved, 'createPr')).map((s) => s.name);
-    expect(names).not.toContain('ralphctl-alignment');
+    expect(names).not.toContain('ralphctl-humanizer');
+  });
+});
+
+describe('buildComposedSkillSource — retired skill names in saved settings', () => {
+  it('ignores a saved disabled row naming skills no longer bundled', async () => {
+    const deps = await makeDeps();
+    const settings = withSkills({
+      implement: { disabled: ['ralphctl-alignment', 'ralphctl-surgical-simplicity', 'ralphctl-ponytail'] },
+    });
+    const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'implement', settings, {});
+
+    const names = (await forFlow(resolved, 'implement')).map((s) => s.name);
+    const baseline = (await forFlow(createBundledSkillSource(), 'implement')).map((s) => s.name);
+    expect(names).toEqual(baseline.filter((n) => n !== 'ralphctl-ponytail'));
   });
 });
 
@@ -237,11 +261,11 @@ describe('buildSkillCandidates — pre-subtraction, origin-tagged candidate list
 
   it('savedDisabled mirrors settings.ai.skills[flow].disabled — candidates are NOT pre-subtracted', async () => {
     const deps = await makeDeps();
-    const settings = withSkills({ implement: { disabled: ['ralphctl-alignment'] } });
+    const settings = withSkills({ implement: { disabled: ['ralphctl-ponytail'] } });
     const result = await buildSkillCandidates(deps, snapshot, 'implement', settings);
-    expect(result.savedDisabled).toEqual(['ralphctl-alignment']);
+    expect(result.savedDisabled).toEqual(['ralphctl-ponytail']);
     // Nothing is subtracted here — the disabled skill is still a candidate the picker can toggle.
-    expect(result.candidates.map((c) => c.name)).toContain('ralphctl-alignment');
+    expect(result.candidates.map((c) => c.name)).toContain('ralphctl-ponytail');
   });
 });
 

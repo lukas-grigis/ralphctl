@@ -1,6 +1,6 @@
 ---
 name: ralphctl-idea-refinement
-description: Ideation skill — refine a raw, unshaped idea into a sharp, buildable concept through divergent expansion (variation lenses like inversion, simplification, audience shift) followed by convergent stress-testing (user value, feasibility, differentiation), ending in a one-pager with explicit assumptions and a "Not Doing" list. Use when an idea is still vague and multiple directions should be widened before narrowing; once a direction is already concrete, confirming it is the shorter restate-and-agree pass in ralphctl-alignment, not a full ideation cycle.
+description: Ideation skill — refine a raw, unshaped idea into a sharp, buildable concept through divergent expansion (variation lenses like inversion, simplification, audience shift) followed by convergent stress-testing (user value, feasibility, differentiation), ending in a one-pager with explicit assumptions and a "Not Doing" list. Use when an idea is still vague and multiple directions should be widened before narrowing.
 license: MIT
 ---
 
@@ -14,8 +14,7 @@ worth building — through structured divergent and convergent thinking, not a t
 
 ## When this applies
 
-- **Ideate** — the primary home: turning a raw prompt or hunch into evaluated, distinct directions.
-- **Refine** — when the input requirement is really an unshaped idea: run a compressed version of the phases below before writing acceptance criteria.
+- **Ideate** — the primary home: turning a raw prompt or hunch into evaluated, distinct directions. The stages below run inside the prompt's requirements phase.
 
 **Not for:** a direction that is already chosen and now needs sharp requirements — that is ralphctl-spec-driven-development when installed.
 
@@ -27,21 +26,19 @@ worth building — through structured divergent and convergent thinking, not a t
 - Challenge every assumption. "How it's usually done" is not a reason.
 - Show people the future — don't just give them better horses.
 
-## Phase 1 — Understand & Expand (divergent)
+## Expand (divergent)
 
 Take the raw idea and open it up.
 
 - **Restate the idea** as a crisp "How Might We" problem statement. This forces clarity on what is actually being solved.
-- **Ask 3-5 sharpening questions** — no more. Who is this for, specifically? What does success look like? What are the real constraints (time, tech, resources)? What's been tried before? Why now? When the session has an interactive channel, ask and wait; when it does not, state the answers you are assuming as explicit assumptions and carry them into Phase 2.
+- **Ask sharpening questions** one at a time in the prompt's question format; the prompt's stop criteria decide when to stop. Who is this for, specifically? What does success look like? What are the real constraints (time, tech, resources)? What's been tried before? Why now? When the session has no interactive channel, state the answers you are assuming as explicit assumptions and carry them into Converge.
 - **Generate 5-8 idea variations** using these lenses: inversion ("what if we did the opposite?"), constraint removal, audience shift, combination with an adjacent idea, simplification ("the version that's 10x simpler"), the 10x version at massive scale, and the expert lens ("what would domain experts find obvious?"). Pick the lenses that fit the idea — don't run every lens mechanically.
 
-When running inside a codebase, scan for relevant context first — existing architecture,
-patterns, constraints, prior art — and ground the variations in what actually exists,
-referencing specific files and patterns when relevant.
+When the prompt keeps the requirements phase source-free, ground the variations in the idea text and the operator's answers; codebase grounding belongs to planning.
 
-## Phase 2 — Evaluate & Converge
+## Converge
 
-After reactions to Phase 1 (which ideas resonate, pushback, added context) — or, without an
+After reactions to Expand (which ideas resonate, pushback, added context) — or, without an
 interactive channel, after weighing the variations against the stated constraints — shift to
 convergent mode:
 
@@ -53,9 +50,9 @@ Be honest, not supportive. If an idea is weak, say so with kindness. A good idea
 not a yes-machine: push back on complexity, question real value, and point out when the emperor
 has no clothes.
 
-## Phase 3 — Sharpen & Ship
+## Sharpen
 
-Produce a concrete artifact — a markdown one-pager that moves work forward:
+When the prompt defines the requirements layout, fold the result into it — direction into Problem, MVP into Scope in, Not Doing into Scope out, assumptions and open questions where the layout keeps them. Never emit a separate one-pager. Use the template below only as the field checklist:
 
 ```markdown
 # [Idea Name]
@@ -86,8 +83,7 @@ Produce a concrete artifact — a markdown one-pager that moves work forward:
 ```
 
 The "Not Doing" list is arguably the most valuable part. Focus is about saying no to good ideas —
-make the trade-offs explicit. Deliver the one-pager through the flow's designated output channel
-rather than inventing a location for it.
+make the trade-offs explicit.
 
 ## Anti-patterns
 
@@ -95,9 +91,9 @@ rather than inventing a location for it.
 - **Yes-machining.** Push back on weak ideas with specificity and kindness.
 - **Skipping "who is this for."** Every good idea starts with a person and their problem.
 - **A plan without surfaced assumptions.** Untested assumptions are the #1 killer of good ideas.
-- **Over-engineering the process.** Three phases, each doing one thing well — resist adding steps.
+- **Over-engineering the process.** Three stages, each doing one thing well — resist adding steps.
 - **Listing ideas without a story.** Each variation should have a reason it exists, not just be a bullet point.
-- **Ignoring the codebase.** Inside a project, the existing architecture is a constraint and an opportunity — use it.
+- **Ignoring stated constraints.** The operator's answers and the idea text are the ground truth for the variations — use them.
 
 ## Verification (self-review before finishing)
 
@@ -106,4 +102,4 @@ rather than inventing a location for it.
 - [ ] Multiple directions were explored, not just the first idea.
 - [ ] Hidden assumptions are listed with validation strategies.
 - [ ] A "Not Doing" list makes trade-offs explicit.
-- [ ] The output is a concrete one-pager, not just conversation.
+- [ ] The result is folded into the prompt's requirements layout, not left as conversation.

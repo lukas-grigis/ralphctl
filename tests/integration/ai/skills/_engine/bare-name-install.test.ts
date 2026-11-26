@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
@@ -86,7 +88,7 @@ describe('installBareSkill — claude adapter', () => {
 
     // Install a bare skill, then a regular (bundled) one alongside.
     await adapter.installBareSkill(session, skill('setup', '# bare body'));
-    await adapter.install(session, [skill('ralphctl-alignment', '# bundled body')]);
+    await adapter.install(session, [skill('ralphctl-spec-driven-development', '# bundled body')]);
 
     // Uninstall removes only the manifest-tracked (bundled) entries.
     const uninstall = await adapter.uninstall(session);
@@ -96,7 +98,7 @@ describe('installBareSkill — claude adapter', () => {
     expect(existsSync(join(String(session), '.claude/skills/setup/SKILL.md'))).toBe(true);
     expect(await readFile(join(String(session), '.claude/skills/setup/SKILL.md'), 'utf-8')).toContain('# bare body');
     // The bundled skill is gone.
-    expect(existsSync(join(String(session), '.claude/skills/ralphctl-alignment'))).toBe(false);
+    expect(existsSync(join(String(session), '.claude/skills/ralphctl-spec-driven-development'))).toBe(false);
   });
 
   it('idempotent — second call with an existing SKILL.md is a no-op (project-wins)', async () => {
@@ -120,7 +122,7 @@ describe('installBareSkill — claude adapter', () => {
     await writeFile(join(String(session), '.git/info/exclude'), '', 'utf-8');
 
     const adapter = createClaudeSkillsAdapter();
-    await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
+    await adapter.install(session, [skill('ralphctl-spec-driven-development', '# A')]);
 
     const exclude = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
     expect(exclude).toContain('.claude/skills/ralphctl-*');
@@ -169,10 +171,13 @@ describe('skills adapter — rejects names that are not bare kebab-case identifi
     const session = await makeNestedSession();
     const adapter = createClaudeSkillsAdapter();
 
-    const result = await adapter.install(session, [skill('ralphctl-alignment', '# ok'), skill('../evil', '# pwned')]);
+    const result = await adapter.install(session, [
+      skill('ralphctl-spec-driven-development', '# ok'),
+      skill('../evil', '# pwned'),
+    ]);
 
     expect(result.ok).toBe(false);
-    expect(existsSync(join(String(session), '.claude/skills/ralphctl-alignment/SKILL.md'))).toBe(true);
+    expect(existsSync(join(String(session), '.claude/skills/ralphctl-spec-driven-development/SKILL.md'))).toBe(true);
     expect(existsSync(resolve(String(session), '.claude/skills', '../evil'))).toBe(false);
   });
 });
@@ -194,5 +199,40 @@ describe('installBareSkill — copilot adapter targets .github/skills/', () => {
     const result = await adapter.installBareSkill(session, skill('verify', '# Verify body'));
     expect(result.ok).toBe(true);
     expect(existsSync(join(String(session), '.github/skills/verify/SKILL.md'))).toBe(true);
+  });
+});
+
+describe('installBareSkill — atomic write seam', () => {
+  it('lands SKILL.md through the injected WriteFile, so a crash never leaves a truncated project copy', async () => {
+    const session = await makeSession();
+    const writes: string[] = [];
+    const adapter = createFilesystemSkillsAdapter({
+      providerId: 'claude-code',
+      parentDir: '.claude',
+      convention: 'c',
+      writeFile: async (path, content) => {
+        writes.push(String(path));
+        await mkdir(dirname(String(path)), { recursive: true });
+        await writeFile(String(path), content, 'utf-8');
+        return Result.ok(undefined);
+      },
+    });
+
+    expect((await adapter.installBareSkill(session, skill('setup', '# Setup'))).ok).toBe(true);
+    expect(writes).toEqual([join(String(session), '.claude/skills/setup/SKILL.md')]);
+  });
+
+  it('surfaces a failed write as an error and leaves no SKILL.md behind', async () => {
+    const session = await makeSession();
+    const adapter = createFilesystemSkillsAdapter({
+      providerId: 'claude-code',
+      parentDir: '.claude',
+      convention: 'c',
+      writeFile: async (path) =>
+        Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: String(path) })),
+    });
+
+    expect((await adapter.installBareSkill(session, skill('setup', '# Setup'))).ok).toBe(false);
+    expect(existsSync(join(String(session), '.claude/skills/setup/SKILL.md'))).toBe(false);
   });
 });

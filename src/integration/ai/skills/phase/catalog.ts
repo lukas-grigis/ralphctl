@@ -6,8 +6,8 @@
  * The catalog's single unit of truth is the filesystem, exactly as the port's module doc
  * describes: a skill is "enabled for a flow" iff `<operatorSkillsRoot>/<flowDir>/<name>/` exists.
  * This module never touches the bundled skill folders directly — reads go through the injected
- * {@link BundledSkillRawReader} port so the raw bytes copied into a phase folder are byte-for-byte
- * identical to the bundled origin (required for the provenance hash to mean anything; see
+ * {@link BundledSkillRawReader} port so the folder copied into a phase dir (`SKILL.md` plus its
+ * `references/` / `scripts/` / `assets/`) is byte-for-byte identical to the bundled origin (required for the provenance hash to mean anything; see
  * `phase/provenance.ts`).
  *
  * Folders that exist under a phase dir but don't match any `BUNDLED_SKILLS` entry are surfaced as
@@ -34,6 +34,11 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { isNodeErrnoCode, removeDir } from '@src/integration/io/fs.ts';
+import { SKILL_SUPPORT_DIRS } from '@src/integration/ai/skills/_engine/skill.ts';
+import {
+  readSkillSupportFiles,
+  writeSkillSupportFiles,
+} from '@src/integration/ai/skills/_engine/skill-support-files.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 import { BUNDLED_SKILLS, type FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
@@ -43,12 +48,15 @@ import type {
   SkillCatalogPort,
   SkillInstallStatus,
 } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
-import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
+import type {
+  BundledSkillRawReader,
+  RawSkillFolder,
+} from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
 import { PHASE_FLOW_DIR } from '@src/integration/ai/skills/phase/source.ts';
 import {
   createProvenanceStore,
   deriveStatus,
-  hashSkillContent,
+  hashSkillFolder,
   type ProvenanceStamp,
   type ProvenanceStore,
 } from '@src/integration/ai/skills/phase/provenance.ts';
@@ -66,20 +74,24 @@ export interface SkillCatalogDeps {
 /** Shared context threaded through the module-level helpers below. */
 interface CatalogCtx {
   readonly operatorSkillsRoot: AbsolutePath;
+  readonly log: Logger;
   readonly writeFile: WriteFile;
   readonly provenanceStore: ProvenanceStore;
 }
 
-/** One install's resolved raw bytes + status, or `undefined` when the folder doesn't exist. */
+/**
+ * One install's `SKILL.md`, resolved raw folder and status. `folder` is `undefined` (status
+ * `broken`) when the support files can't be read — over the size caps, or unreadable.
+ */
 interface ExistingInstall {
-  readonly raw: string;
+  readonly skillMd: string;
+  readonly folder: RawSkillFolder | undefined;
   readonly status: SkillInstallStatus;
 }
 
 /**
- * The installs found for one skill name, plus the raw bytes of the first one found (if any) —
- * the manual-entry path uses that raw content to derive a description since it has no bundled
- * counterpart.
+ * The installs found for one skill name, plus the `SKILL.md` of the first one found (if any) —
+ * the manual-entry path uses it to derive a description since it has no bundled counterpart.
  */
 interface InstallsForName {
   readonly installs: readonly SkillCatalogInstall[];
@@ -90,8 +102,8 @@ const skillDirPath = (ctx: CatalogCtx, flowId: FlowId, name: string): string =>
   join(String(ctx.operatorSkillsRoot), PHASE_FLOW_DIR[flowId], name);
 
 /**
- * Read `<skillDir>/SKILL.md` + its provenance stamp and derive the install's status.
- * `currentBundledRaw === undefined` means "no bundled counterpart to compare against" (a manual
+ * Read `<skillDir>/` (SKILL.md + support files) + its provenance stamp and derive the install's status.
+ * `currentBundled === undefined` means "no bundled counterpart to compare against" (a manual
  * entry) — status collapses to `'manual'` regardless of any stamp found. Returns
  * `Result.ok(undefined)` when the folder simply doesn't exist (not an error — the common,
  * expected case for a not-yet-enabled flow).
@@ -100,7 +112,7 @@ const readInstall = async (
   ctx: CatalogCtx,
   flowId: FlowId,
   name: string,
-  currentBundledRaw: string | undefined
+  currentBundled: RawSkillFolder | undefined
 ): Promise<Result<ExistingInstall | undefined, StorageError>> => {
   const dirStr = skillDirPath(ctx, flowId, name);
   const skillMdPath = join(dirStr, 'SKILL.md');
@@ -118,6 +130,13 @@ const readInstall = async (
       })
     );
   }
+  const filesR = await readSkillSupportFiles(dirStr);
+  if (!filesR.ok) {
+    // One bad folder must not fail the whole catalog; a broken row can still be disabled.
+    ctx.log.warn('installed skill support files not readable', { flow: flowId, name, error: filesR.error.message });
+    return Result.ok({ skillMd: raw, folder: undefined, status: 'broken' });
+  }
+  const folder: RawSkillFolder = { skillMd: raw, files: filesR.value };
   const dirAbs = AbsolutePath.parse(dirStr);
   if (!dirAbs.ok) {
     return Result.error(
@@ -127,18 +146,33 @@ const readInstall = async (
   const stampR = await ctx.provenanceStore.readProvenance(dirAbs.value);
   if (!stampR.ok) return Result.error(stampR.error);
   const status: SkillInstallStatus =
-    currentBundledRaw === undefined
-      ? 'manual'
-      : deriveStatus({ folderSkillMdRaw: raw, stamp: stampR.value, currentBundledRaw });
-  return Result.ok({ raw, status });
+    currentBundled === undefined ? 'manual' : deriveStatus({ installed: folder, stamp: stampR.value, currentBundled });
+  return Result.ok({ skillMd: raw, folder, status });
 };
 
-/** Copy `raw` verbatim into `<flowDir>/<name>/SKILL.md` and (re-)write its provenance stamp. */
+/** Drop the support dirs of an earlier copy so files the bundle no longer ships don't linger. */
+const clearSupportDirs = async (dirStr: string): Promise<Result<void, StorageError>> => {
+  for (const sub of SKILL_SUPPORT_DIRS) {
+    const path = join(dirStr, sub);
+    try {
+      await fs.rm(path, { recursive: true, force: true });
+    } catch (cause) {
+      return Result.error(new StorageError({ subCode: 'io', message: `could not clear ${path}`, path, cause }));
+    }
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Copy `folder` verbatim into `<flowDir>/<name>/` and (re-)write its provenance stamp. Support files
+ * go first and `SKILL.md` last, then the stamp — an interrupted copy reads as modified or manual,
+ * never as a clean in-sync copy.
+ */
 const writeInstall = async (
   ctx: CatalogCtx,
   flowId: FlowId,
   name: string,
-  raw: string
+  folder: RawSkillFolder
 ): Promise<Result<void, StorageError>> => {
   const dirStr = skillDirPath(ctx, flowId, name);
   const dirAbs = AbsolutePath.parse(dirStr);
@@ -153,12 +187,16 @@ const writeInstall = async (
       new StorageError({ subCode: 'io', message: `install SKILL.md path not absolute: ${dirStr}`, path: dirStr })
     );
   }
-  const written = await ctx.writeFile(skillMdAbs.value, raw);
+  const cleared = await clearSupportDirs(dirStr);
+  if (!cleared.ok) return cleared;
+  const support = await writeSkillSupportFiles(dirStr, folder.files, ctx.writeFile);
+  if (!support.ok) return support;
+  const written = await ctx.writeFile(skillMdAbs.value, folder.skillMd);
   if (!written.ok) return written;
   const stamp: ProvenanceStamp = {
     source: 'bundled',
     skill: name,
-    contentHash: hashSkillContent(raw),
+    contentHash: hashSkillFolder(folder),
     ralphctlVersion: CLI_METADATA.currentVersion,
     copiedAt: new Date().toISOString(),
   };
@@ -198,20 +236,20 @@ const readAllInstalledNames = async (
 
 /**
  * Resolve every flow's install for `name` (skipping flows where no folder is present).
- * `currentBundledRaw` is `undefined` for a manual entry — see {@link readInstall}. Also returns
+ * `currentBundled` is `undefined` for a manual entry — see {@link readInstall}. Also returns
  * the raw bytes of the first install found so the manual-entry path can derive a description.
  */
 const buildInstalls = async (
   ctx: CatalogCtx,
   perFlowNames: ReadonlyMap<FlowId, readonly string[]>,
   name: string,
-  currentBundledRaw: string | undefined
+  currentBundled: RawSkillFolder | undefined
 ): Promise<Result<InstallsForName, StorageError>> => {
   const installs: SkillCatalogInstall[] = [];
   let firstRaw: string | undefined;
   for (const flowId of FLOW_IDS) {
     if (!(perFlowNames.get(flowId) ?? []).includes(name)) continue;
-    const installR = await readInstall(ctx, flowId, name, currentBundledRaw);
+    const installR = await readInstall(ctx, flowId, name, currentBundled);
     if (!installR.ok) return Result.error(installR.error);
     if (installR.value === undefined) {
       // The folder was listed by readdir but holds no readable SKILL.md — an interrupted copy
@@ -221,7 +259,7 @@ const buildInstalls = async (
       continue;
     }
     installs.push({ flow: flowId, status: installR.value.status });
-    if (firstRaw === undefined) firstRaw = installR.value.raw;
+    if (firstRaw === undefined) firstRaw = installR.value.skillMd;
   }
   return Result.ok({ installs, firstRaw });
 };
@@ -260,11 +298,11 @@ const buildBundledEntry = async (
   registryEntry: (typeof BUNDLED_SKILLS)[number],
   bundledRawReader: BundledSkillRawReader
 ): Promise<Result<SkillCatalogEntry, StorageError>> => {
-  const bundledR = await bundledRawReader.readRaw(registryEntry.name);
+  const bundledR = await bundledRawReader.readFolder(registryEntry.name);
   if (!bundledR.ok) return Result.error(bundledR.error);
   const installsR = await buildInstalls(ctx, perFlowNames, registryEntry.name, bundledR.value);
   if (!installsR.ok) return Result.error(installsR.error);
-  const description = descriptionFromRaw(registryEntry.name, bundledR.value, (message) =>
+  const description = descriptionFromRaw(registryEntry.name, bundledR.value.skillMd, (message) =>
     log.warn('bundled skill frontmatter invalid, showing without a description', {
       name: registryEntry.name,
       error: message,
@@ -321,24 +359,31 @@ const enableForFlow = async (
   ctx: CatalogCtx,
   flowId: FlowId,
   name: string,
-  bundledRaw: string
+  bundled: RawSkillFolder
 ): Promise<Result<'copied' | 'skipped', StorageError>> => {
-  const existingR = await readInstall(ctx, flowId, name, bundledRaw);
+  const existingR = await readInstall(ctx, flowId, name, bundled);
   if (!existingR.ok) return Result.error(existingR.error);
-  // Never clobber operator-owned content: a hand-dropped folder (`manual`) or a copy the
-  // operator has since edited (`locally-modified`) is left untouched and reported as skipped —
+  // Never clobber operator-owned content: a hand-dropped folder (`manual`), a copy the
+  // operator has since edited (`locally-modified`) or one whose support files can't be read
+  // (`broken`) is left untouched and reported as skipped —
   // the caller routes through `update` (with confirmation) if it really means to overwrite.
   // Exception: an unstamped copy whose bytes EQUAL the current bundle is a stranded pristine
   // copy (interrupted stamp write), not operator content — re-writing it loses nothing and
   // repairs the missing sidecar, so a retried enable self-heals instead of no-oping forever.
-  if (existingR.value?.status === 'manual' && existingR.value.raw === bundledRaw) {
-    const repaired = await writeInstall(ctx, flowId, name, bundledRaw);
+  const existingFolder = existingR.value?.folder;
+  if (
+    existingR.value?.status === 'manual' &&
+    existingFolder !== undefined &&
+    hashSkillFolder(existingFolder) === hashSkillFolder(bundled)
+  ) {
+    const repaired = await writeInstall(ctx, flowId, name, bundled);
     return repaired.ok ? Result.ok('copied') : repaired;
   }
-  if (existingR.value?.status === 'manual' || existingR.value?.status === 'locally-modified') {
+  const status = existingR.value?.status;
+  if (status === 'manual' || status === 'locally-modified' || status === 'broken') {
     return Result.ok('skipped');
   }
-  const written = await writeInstall(ctx, flowId, name, bundledRaw);
+  const written = await writeInstall(ctx, flowId, name, bundled);
   return written.ok ? Result.ok('copied') : written;
 };
 
@@ -347,8 +392,9 @@ export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => 
     operatorSkillsRoot: deps.operatorSkillsRoot,
     writeFile: deps.writeFile,
     provenanceStore: createProvenanceStore({ writeFile: deps.writeFile }),
+    log: deps.logger.named('skills.catalog'),
   };
-  const log = deps.logger.named('skills.catalog');
+  const log = ctx.log;
 
   return {
     list: () => buildCatalogList(ctx, log, deps.bundledRawReader),
@@ -357,7 +403,7 @@ export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => 
       name: string,
       flows: readonly FlowId[]
     ): Promise<Result<{ readonly copied: readonly FlowId[]; readonly skipped: readonly FlowId[] }, StorageError>> {
-      const bundledR = await deps.bundledRawReader.readRaw(name);
+      const bundledR = await deps.bundledRawReader.readFolder(name);
       if (!bundledR.ok) return Result.error(bundledR.error);
       const copied: FlowId[] = [];
       const skipped: FlowId[] = [];
@@ -381,7 +427,7 @@ export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => 
     },
 
     async update(name: string, flows: readonly FlowId[]): Promise<Result<void, StorageError>> {
-      const bundledR = await deps.bundledRawReader.readRaw(name);
+      const bundledR = await deps.bundledRawReader.readFolder(name);
       if (!bundledR.ok) return Result.error(bundledR.error);
       for (const flowId of flows) {
         const written = await writeInstall(ctx, flowId, name, bundledR.value);
@@ -393,7 +439,7 @@ export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => 
     async updateAll(): Promise<Result<{ readonly updated: readonly string[] }, StorageError>> {
       const updated = new Set<string>();
       for (const registryEntry of BUNDLED_SKILLS) {
-        const bundledR = await deps.bundledRawReader.readRaw(registryEntry.name);
+        const bundledR = await deps.bundledRawReader.readFolder(registryEntry.name);
         if (!bundledR.ok) return Result.error(bundledR.error);
         for (const flowId of FLOW_IDS) {
           const existingR = await readInstall(ctx, flowId, registryEntry.name, bundledR.value);

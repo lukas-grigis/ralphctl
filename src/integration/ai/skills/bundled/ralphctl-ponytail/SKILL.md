@@ -1,6 +1,6 @@
 ---
 name: ralphctl-ponytail
-description: Anti-over-engineering ladder for choosing HOW to implement something — the smallest change that fully solves the task. Before writing custom code, climb the rungs in order and stop at the first that holds. Does this need to exist at all (YAGNI) → already in the codebase → standard library or platform feature → already-installed dependency → one line → minimum code that works. Use when picking an implementation approach or evaluating a new dependency; for keeping the footprint of an already-chosen approach small, defer to the ralphctl-surgical-simplicity skill when installed.
+description: Anti-over-engineering ladder for choosing HOW to implement something — the smallest change that fully solves the task. Before writing custom code, climb the rungs in order and stop at the first that holds. Does this need to exist at all (YAGNI) → already in the codebase → standard library or platform feature → already-installed dependency → one line → minimum code that works. Use when picking an implementation approach or evaluating a new dependency; scope and footprint rules of the prompt win, and ralphctl-karpathy-guidelines covers them when installed.
 license: MIT
 ---
 
@@ -19,8 +19,6 @@ never written: solve the whole problem with the least new code.
   exists only to build scaffolding "for later" should not exist.
 - **Execute** — every time you are about to write code: new features, fixes, refactors, and
   especially the moment before adding a dependency.
-- **Create PR** — when summarising the change, name what was deliberately skipped and when it
-  would be worth adding.
 
 ## Before you write
 
@@ -48,24 +46,25 @@ what the change has to touch.
 caller of the function you're about to touch. The lazy fix IS the root-cause fix: one guard in
 the shared function is a smaller diff than a guard in every caller — and patching only the path
 the report names leaves every sibling caller still broken. Fix it once, where all callers route
-through.
+through. When the declared steps place the fix elsewhere and the root-cause location would be a
+materially different change, follow the prompt's scope rule instead of moving the fix.
 
 ## Rules
 
 - Be lazy about the solution, never about the change itself: finish every part the task needs, including the callers, tests, and fixtures your change breaks.
-- No unrequested abstractions: no interface with one implementation, no factory for one product, no wrapper or type conversion nobody asked for, no config for a value that never changes. Keep values in the form the platform already gives you.
+- No unrequested abstractions: no interface with one implementation (a seam with one production adapter plus a test fake for slow or external infrastructure counts as two implementations), no factory for one product, no wrapper or type conversion nobody asked for, no config for a value that never changes. Keep values in the form the platform already gives you.
 - No boilerplate, no scaffolding "for later" — later can scaffold for itself.
 - Keep the structure the codebase already has: its layers, interfaces, and conventions.
 - Deletion over addition. Boring over clever — clever is what someone decodes at 3am.
 - Fewest files possible. Shortest working diff wins — but only once you know everything it must touch. The smallest change in the wrong place isn't lazy, it's a second bug. A one-liner that needs decoding is not short.
 - Code you move or merge keeps its error handling and validation.
 - Comment only the why the code cannot show, in one line.
-- Complex request? Ship the lazy version and question the rest: "Did X; Y covers it. Need full X? Say
-  so." Write it as a `note` signal in `signals.json` when the prompt's output-contract section lists it,
+- Parts no declared step or criterion asks for? Skip them and question them: "Did X; Y covers it. Need
+  full X? Say so." Declared work is never cut. Write it as a `note` signal in `signals.json` when the prompt's output-contract section lists it,
   otherwise fold the question into the required signal's own fields. Never stall on an answer you can
   default.
 - Two options of the same size? Take the one that's correct on edge cases. Lazy means writing less code, not picking the flimsier algorithm.
-- A shortcut with a known limit (global lock, O(n²) scan, naive heuristic) gets a code comment naming the limit and the upgrade path, in this form: `// shortcut: global lock, per-account locks if throughput matters`.
+- A shortcut with a known limit (global lock, O(n²) scan, naive heuristic) gets a one-line comment naming the limit and the upgrade path, using the project's own marker convention (TODO/FIXME style) when it has one, otherwise `shortcut:`, for example `// shortcut: global lock, per-account locks if throughput matters`.
 
 ## Output
 
@@ -91,10 +90,8 @@ up as efficiency and ships a confident wrong fix. Read fully, then be lazy.
 Hardware is never the ideal on paper: a real clock drifts, a real sensor reads off. Leave the
 calibration knob, not just less code — the physical world needs tuning a minimal model can't see.
 
-Lazy code without its check is unfinished. New non-trivial logic (a branch, a loop, a parser, a
-money/security path, or a whole new script or app) leaves ONE runnable check behind — one small
-test or an assert-based self-check, the smallest thing that fails if the logic breaks. No
-frameworks, no fixtures, no per-function suites unless asked. Trivial one-liners need no test —
-YAGNI applies to tests too.
+Tests follow the task's steps and criteria and the project's existing practice for this kind of
+change. Within that, one small check per non-trivial branch; trivial lines need none. A check the
+task didn't ask for stays scratch.
 
 The shortest path to done is the right path.
