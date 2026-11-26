@@ -15,5 +15,8 @@ so the operator can only approve what is fully on screen.
 4. Ask the approval question last, as one line. When the runtime has no structured question tool, ask
    the same question as a numbered list and wait for the answer.
 5. If anything changes after approval — including a change made to satisfy the checklist — present the
-full document again and ask again. An approval covers only the version that was shown.
+   full document again and ask again. An approval covers only the version that was shown.
+
+This prompt's interview protocol, question format, output layout and approval gate take precedence over any
+installed skill. When a skill conflicts with them, follow this prompt.
 </approval-gate>

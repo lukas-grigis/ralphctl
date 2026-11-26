@@ -420,7 +420,7 @@ describe('skill-suggestions names — path-traversal containment at the wire', (
     '..',
     '',
     '   ',
-    'ralphctl-alignment\nallowed-tools: Bash',
+    'ralphctl-spec-driven-development\nallowed-tools: Bash',
     'Réact-patterns',
     'react⁄patterns',
     'react patterns',
@@ -434,8 +434,8 @@ describe('skill-suggestions names — path-traversal containment at the wire', (
   });
 
   it('keeps well-formed names and drops only the hostile ones (one bad name never fails the round)', () => {
-    expect(parseNames(['ralphctl-alignment', '../evil', 'react-patterns', '/abs'])).toEqual([
-      'ralphctl-alignment',
+    expect(parseNames(['ralphctl-spec-driven-development', '../evil', 'react-patterns', '/abs'])).toEqual([
+      'ralphctl-spec-driven-development',
       'react-patterns',
     ]);
   });

@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import type { RawSkillFolder } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
 import {
   createProvenanceStore,
   deriveStatus,
   hashSkillContent,
+  hashSkillFolder,
   PROVENANCE_FILENAME,
   type ProvenanceStamp,
 } from '@src/integration/ai/skills/phase/provenance.ts';
@@ -18,11 +20,12 @@ const abs = (p: string): AbsolutePath => {
   return r.value;
 };
 
-const BUNDLED = '---\nname: ralphctl-alignment\ndescription: Confirm scope\n---\n\n# Alignment\nbody\n';
+const BUNDLED =
+  '---\nname: ralphctl-spec-driven-development\ndescription: Write the spec first\n---\n\n# Spec-driven development\nbody\n';
 
 const stampFor = (raw: string): ProvenanceStamp => ({
   source: 'bundled',
-  skill: 'ralphctl-alignment',
+  skill: 'ralphctl-spec-driven-development',
   contentHash: hashSkillContent(raw),
   ralphctlVersion: '9.9.9',
   copiedAt: '2026-07-02T12:00:00Z',
@@ -40,29 +43,55 @@ describe('hashSkillContent', () => {
   });
 });
 
+const folder = (skillMd: string): RawSkillFolder => ({ skillMd, files: [] });
+
+describe('hashSkillFolder', () => {
+  it('equals the SKILL.md hash when there are no support files, so pre-folder stamps stay in-sync', () => {
+    expect(hashSkillFolder(folder(BUNDLED))).toBe(hashSkillContent(BUNDLED));
+  });
+
+  it('changes when a support file changes, and ignores file order', () => {
+    const a = { path: 'references/a.md', content: 'A' };
+    const b = { path: 'scripts/b.sh', content: 'B' };
+    const base = hashSkillFolder({ skillMd: BUNDLED, files: [a, b] });
+    expect(base).not.toBe(hashSkillContent(BUNDLED));
+    expect(hashSkillFolder({ skillMd: BUNDLED, files: [b, a] })).toBe(base);
+    expect(hashSkillFolder({ skillMd: BUNDLED, files: [a, { ...b, content: 'B2' }] })).not.toBe(base);
+  });
+});
+
 describe('deriveStatus', () => {
+  it('reports locally-modified when only a support file was edited', () => {
+    const shipped = { skillMd: BUNDLED, files: [{ path: 'references/a.md', content: 'A' }] };
+    const stamp = { ...stampFor(BUNDLED), contentHash: hashSkillFolder(shipped) };
+    const edited = { skillMd: BUNDLED, files: [{ path: 'references/a.md', content: 'A edited' }] };
+    expect(deriveStatus({ installed: edited, stamp, currentBundled: shipped })).toBe('locally-modified');
+  });
+
   it('reports manual when there is no stamp (a hand-dropped folder)', () => {
-    expect(deriveStatus({ folderSkillMdRaw: BUNDLED, stamp: undefined, currentBundledRaw: BUNDLED })).toBe('manual');
+    expect(deriveStatus({ installed: folder(BUNDLED), stamp: undefined, currentBundled: folder(BUNDLED) })).toBe(
+      'manual'
+    );
   });
 
   it('reports in-sync when folder matches the stamp and the stamp matches the bundle', () => {
-    expect(deriveStatus({ folderSkillMdRaw: BUNDLED, stamp: stampFor(BUNDLED), currentBundledRaw: BUNDLED })).toBe(
-      'in-sync'
-    );
+    expect(
+      deriveStatus({ installed: folder(BUNDLED), stamp: stampFor(BUNDLED), currentBundled: folder(BUNDLED) })
+    ).toBe('in-sync');
   });
 
   it('reports update-available when the bundle moved on but the folder still matches its stamp', () => {
     const newBundled = `${BUNDLED}\nnew upstream line\n`;
-    expect(deriveStatus({ folderSkillMdRaw: BUNDLED, stamp: stampFor(BUNDLED), currentBundledRaw: newBundled })).toBe(
-      'update-available'
-    );
+    expect(
+      deriveStatus({ installed: folder(BUNDLED), stamp: stampFor(BUNDLED), currentBundled: folder(newBundled) })
+    ).toBe('update-available');
   });
 
   it('reports locally-modified when the folder diverges from its stamp', () => {
     const editedFolder = `${BUNDLED}\noperator edit\n`;
-    expect(deriveStatus({ folderSkillMdRaw: editedFolder, stamp: stampFor(BUNDLED), currentBundledRaw: BUNDLED })).toBe(
-      'locally-modified'
-    );
+    expect(
+      deriveStatus({ installed: folder(editedFolder), stamp: stampFor(BUNDLED), currentBundled: folder(BUNDLED) })
+    ).toBe('locally-modified');
   });
 
   it('lets locally-modified win when the folder is edited AND the bundle also moved on', () => {
@@ -70,7 +99,7 @@ describe('deriveStatus', () => {
     const newBundled = `${BUNDLED}\nnew upstream line\n`;
     // Both divergences hold; the edit must win so `update` never silently discards it.
     expect(
-      deriveStatus({ folderSkillMdRaw: editedFolder, stamp: stampFor(BUNDLED), currentBundledRaw: newBundled })
+      deriveStatus({ installed: folder(editedFolder), stamp: stampFor(BUNDLED), currentBundled: folder(newBundled) })
     ).toBe('locally-modified');
   });
 });

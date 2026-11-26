@@ -15,8 +15,8 @@ someone new to this code follow the result more easily?
 
 ## When this applies
 
-- **Execute** — when the task asks for a refactor or cleanup, and after a change works, on the code that
-  change touched. Simplification outside the task's scope is a finding to surface, not an edit to make —
+- **Execute** — when the task asks for a refactor or cleanup, simplify the task's own new code before the
+  completion checks, never as a separate pass after them — unless the task is itself a refactor. Simplification outside the task's scope is a finding to surface, not an edit to make —
   record it in a `note` signal when the prompt's output-contract section lists it; otherwise fold it into
   the required signal's own fields.
 

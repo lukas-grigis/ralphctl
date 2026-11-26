@@ -13,6 +13,10 @@ import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapt
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
 import { createGrokSkillsAdapter } from '@src/integration/ai/skills/grok/adapter.ts';
 import { createOpencodeSkillsAdapter } from '@src/integration/ai/skills/opencode/adapter.ts';
+import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
+import { splitFrontmatter } from '@src/integration/ai/skills/_engine/frontmatter.ts';
+import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { parse as parseYaml } from 'yaml';
 
 /**
  * The per-provider skills adapters are thin wrappers over `createFilesystemSkillsAdapter`; only the
@@ -121,17 +125,67 @@ describe.each(ROWS)('$provider skills adapter', ({ provider, create }) => {
     await writeFile(at(session, '.git/info/exclude'), '# default\n', 'utf-8');
 
     const adapter = create();
-    await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
-    await adapter.install(session, [skill('ralphctl-iterative-review', '# B')]);
+    await adapter.install(session, [skill('ralphctl-spec-driven-development', '# A')]);
+    await adapter.install(session, [skill('ralphctl-karpathy-guidelines', '# B')]);
 
     const lines = (await readFile(at(session, '.git/info/exclude'), 'utf-8')).split('\n');
     expect(lines.filter((l) => l.trim() === `${skillsDir}/ralphctl-*`)).toHaveLength(1);
   });
 
+  it('installs the whole folder — references/ and scripts/ land next to SKILL.md', async () => {
+    const session = await makeSession();
+    const folderSkill: Skill = {
+      ...skill('ralphctl-folder', '# Body\n\nSee references/checklist.md.'),
+      files: [
+        { path: 'references/checklist.md', content: '# Checklist\n' },
+        { path: 'scripts/nested/run.sh', content: 'echo hi\n' },
+      ],
+    };
+    // Built through the composition-root factory, not the per-tool wrapper, so the wiring is fenced too.
+    expect((await createSkillsAdapter({ provider }).install(session, [folderSkill])).ok).toBe(true);
+    const dir = at(session, skillsDir, 'ralphctl-folder');
+    expect(await readFile(join(dir, 'references/checklist.md'), 'utf-8')).toBe('# Checklist\n');
+    expect(await readFile(join(dir, 'scripts/nested/run.sh'), 'utf-8')).toBe('echo hi\n');
+    expect(await readFile(join(dir, 'SKILL.md'), 'utf-8')).toContain('See references/checklist.md.');
+  });
+
+  it('refuses a support file path outside the allowlisted folders', async () => {
+    const session = await makeSession();
+    const escaping: Skill = {
+      ...skill('ralphctl-escape', '# B'),
+      files: [{ path: 'references/../../x.md', content: 'x' }],
+    };
+    expect((await create().install(session, [escaping])).ok).toBe(false);
+    expect(existsSync(at(session, skillsDir, 'x.md'))).toBe(false);
+  });
+
+  it('round-trips disable-model-invocation, nested metadata and a multi-line description', async () => {
+    const session = await makeSession();
+    const rich: Skill = {
+      name: 'ralphctl-rich',
+      description: 'Line one: with a colon\nline two',
+      content: '# Rich',
+      extraFrontmatter: { 'disable-model-invocation': true, metadata: { author: 'acme', version: '1.0' } },
+    };
+    expect((await create().install(session, [rich])).ok).toBe(true);
+    const raw = await readFile(at(session, skillsDir, 'ralphctl-rich/SKILL.md'), 'utf-8');
+    // Strict consumers (the provider CLIs) must read the same values back.
+    expect(parseYaml(splitFrontmatter(raw).frontmatter, { strict: true, uniqueKeys: true })).toEqual({
+      name: 'ralphctl-rich',
+      description: 'Line one: with a colon\nline two',
+      'disable-model-invocation': true,
+      metadata: { author: 'acme', version: '1.0' },
+    });
+    const reparsed = parseSkill('installed skill', 'SKILL.md', 'ralphctl-rich', raw);
+    expect(reparsed.ok && reparsed.value.extraFrontmatter).toEqual(rich.extraFrontmatter);
+  });
+
   it('installs into a non-git working tree', async () => {
     const session = await makeSession();
-    expect((await create().install(session, [skill('ralphctl-alignment', '# A')])).ok).toBe(true);
-    expect(await readFile(at(session, skillsDir, 'ralphctl-alignment/SKILL.md'), 'utf-8')).toContain('# A');
+    expect((await create().install(session, [skill('ralphctl-spec-driven-development', '# A')])).ok).toBe(true);
+    expect(await readFile(at(session, skillsDir, 'ralphctl-spec-driven-development/SKILL.md'), 'utf-8')).toContain(
+      '# A'
+    );
     expect(existsSync(at(session, '.git'))).toBe(false);
   });
 });

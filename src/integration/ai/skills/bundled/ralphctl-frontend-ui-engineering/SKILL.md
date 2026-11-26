@@ -66,7 +66,11 @@ Check long and short content, and the narrowest and widest layouts the product s
 - Every control is reachable and operable from the keyboard, in a sensible order.
 - Every input has a label; an icon-only control has an accessible name.
 - Move focus deliberately when content changes — into a dialog when it opens, back when it closes.
-- Text meets WCAG AA contrast (4.5:1 for body text, 3:1 for large text).
+- The baseline is WCAG 2.2 AA. Follow the WAI-ARIA Authoring Practices patterns for custom widgets, and
+  use live regions to announce async status changes.
+- Pointer targets are at least 24x24 CSS px.
+- Contrast: 4.5:1 for text and 3:1 for large text (18pt, or 14pt bold); 3:1 for UI components and focus
+  indicators.
 - Never convey state by colour alone; pair it with text or an icon.
 
 ## Verification
@@ -74,7 +78,8 @@ Check long and short content, and the narrowest and widest layouts the product s
 Extend the project's existing UI tests for the new states and controls. When the project has no way to
 check something in this session (a visual check, a screen-reader pass), say what was not verified in a
 `note` signal when the prompt's output-contract section lists it; otherwise fold it into the required
-signal's own fields.
+signal's own fields. Don't add a toolchain only to verify; use what the project declares. Installing
+declared dependencies is fine.
 
 ## Red flags
 

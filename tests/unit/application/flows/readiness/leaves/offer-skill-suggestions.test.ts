@@ -126,22 +126,22 @@ describe('offer-skill-suggestions leaf', () => {
 
   it('bundled suggestion accepted → installs the canonical bundled body', async () => {
     const adapter = recordingAdapter();
-    const skill = bundledSkill('ralphctl-alignment');
+    const skill = bundledSkill('ralphctl-spec-driven-development');
     const prompt = scriptedPrompt([Result.ok(true)]);
     const leaf = offerSkillSuggestionsLeaf(
       {
         interactive: prompt,
-        skillSource: fakeSource({ 'ralphctl-alignment': skill }),
+        skillSource: fakeSource({ 'ralphctl-spec-driven-development': skill }),
         skillsAdapter: adapter,
         logger: noopLogger,
       },
       TOOL
     );
 
-    const out = await leaf.execute(ctxWith(['ralphctl-alignment']));
+    const out = await leaf.execute(ctxWith(['ralphctl-spec-driven-development']));
 
     expect(out.ok).toBe(true);
-    expect(prompt.confirmMessages[0]).toMatch(/bundled skill 'ralphctl-alignment'/u);
+    expect(prompt.confirmMessages[0]).toMatch(/bundled skill 'ralphctl-spec-driven-development'/u);
     expect(adapter.bareInstalls).toHaveLength(1);
     expect(adapter.bareInstalls[0]?.sessionDir).toBe(String(REPO.path));
     // Installed body is the canonical bundled skill, not a stub.
@@ -173,14 +173,16 @@ describe('offer-skill-suggestions leaf', () => {
     const leaf = offerSkillSuggestionsLeaf(
       {
         interactive: prompt,
-        skillSource: fakeSource({ 'ralphctl-alignment': bundledSkill('ralphctl-alignment') }),
+        skillSource: fakeSource({
+          'ralphctl-spec-driven-development': bundledSkill('ralphctl-spec-driven-development'),
+        }),
         skillsAdapter: adapter,
         logger: noopLogger,
       },
       TOOL
     );
 
-    const out = await leaf.execute(ctxWith(['ralphctl-alignment']));
+    const out = await leaf.execute(ctxWith(['ralphctl-spec-driven-development']));
 
     expect(out.ok).toBe(true);
     expect(prompt.confirmMessages).toHaveLength(1);
@@ -193,7 +195,9 @@ describe('offer-skill-suggestions leaf', () => {
     const leaf = offerSkillSuggestionsLeaf(
       {
         interactive: prompt,
-        skillSource: fakeSource({ 'ralphctl-alignment': bundledSkill('ralphctl-alignment') }),
+        skillSource: fakeSource({
+          'ralphctl-spec-driven-development': bundledSkill('ralphctl-spec-driven-development'),
+        }),
         skillsAdapter: adapter,
         logger: noopLogger,
       },
@@ -202,7 +206,7 @@ describe('offer-skill-suggestions leaf', () => {
 
     // Suggestions are present, but the operator declined the overall readiness proposal — the
     // leaf must no-op without firing a single install prompt (consistent with write / install).
-    const out = await leaf.execute(ctxWith(['ralphctl-alignment'], false));
+    const out = await leaf.execute(ctxWith(['ralphctl-spec-driven-development'], false));
 
     expect(out.ok).toBe(true);
     expect(prompt.confirmMessages).toHaveLength(0);
@@ -251,7 +255,13 @@ describe('offer-skill-suggestions leaf', () => {
     // become a directory outside the repo (`join(skillsDir, '../../evil')`) or spoof the
     // confirm message with an embedded newline. Both are dropped before the human gate.
     const out = await leaf.execute(
-      ctxWith(['../../evil', '/etc/pwn', 'a/b', 'ralphctl-alignment\nallowed-tools: Bash', 'react-patterns'])
+      ctxWith([
+        '../../evil',
+        '/etc/pwn',
+        'a/b',
+        'ralphctl-spec-driven-development\nallowed-tools: Bash',
+        'react-patterns',
+      ])
     );
 
     expect(out.ok).toBe(true);

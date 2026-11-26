@@ -243,7 +243,7 @@ in `domain/repository/<aggregate>/`.
 | `PublishSignal` (fn type)                                     | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `TemplateLoader`                                              | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ReadinessProbe`                                              | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `SkillsAdapter` + `SkillSource`                               | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against seven harness rules (S1–S7) — see § Skills subsystem                                                                                                                                                                                                                                                                                                  |
+| `SkillsAdapter` + `SkillSource`                               | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against eight harness rules (S1–S8) — see § Skills subsystem                                                                                                                                                                                                                                                                                                  |
 | `SkillCatalogPort`                                            | `integration/ai/skills/_engine/`    | `createSkillCatalog` (`skills/phase/catalog.ts`) — list / enable / disable / update / updateAll over the phase folders, provenance-stamped                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `AgentDefinitionAdapter` + `AgentDefinitionSource`            | `integration/ai/agents/_engine/`    | per-provider adapter (`claude` / `copilot` / `codex` / `opencode` / `grok` under `agents/<tool>/`, all backed by `createFilesystemAgentDefinitionAdapter`) + bundled / operator sources composed by `composeAgentDefinitionSources`; `parseAgentDefinition` extracts an `AgentDefinition` from frontmatter Markdown; `checkAgentDefinitionQuality` flags vague bodies — see § Agent definitions subsystem                                                                                                                                                                    |
 | `GitRunner` / `ShellScriptRunner`                             | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -282,12 +282,12 @@ Shared engine-level helpers (not ports — no interface boundary, but architectu
 Four `SkillSource` implementations compose into one union at launch time (`buildComposedSkillSource` in
 `application/ui/shared/launcher.ts`), in a fixed order — bundled → project → operator → phase:
 
-| Source     | Folder                            | Scope                                                                                                                                                |
-| ---------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bundled`  | `integration/ai/skills/bundled/`  | Committed `ralphctl-*` skills; per-skill `defaultFor` phases (`_engine/registry.ts`'s `BUNDLED_SKILLS`)                                              |
-| `project`  | `integration/ai/skills/project/`  | Per-repo `setup`/`verify` guidance materialised from `Repository.setupSkill`/`verifySkill`                                                           |
-| `operator` | `integration/ai/skills/operator/` | Global, per-provider drop-ins under `<appRoot>/skills/<claude,copilot,codex,opencode,grok>/<name>/SKILL.md`                                          |
-| `phase`    | `integration/ai/skills/phase/`    | Global, per-flow opt-in folders under `<appRoot>/skills/<flow>/<name>/SKILL.md` — provider-agnostic; the Skills-catalog view's copy-on-enable target |
+| Source     | Folder                            | Scope                                                                                                                                                                         |
+| ---------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundled`  | `integration/ai/skills/bundled/`  | Committed `ralphctl-*` skills — a bare `SKILL.md` or a folder with `references/`; per-skill `defaultFor` / `recommendedFor` phases (`_engine/registry.ts`'s `BUNDLED_SKILLS`) |
+| `project`  | `integration/ai/skills/project/`  | Per-repo `setup`/`verify` guidance materialised from `Repository.setupSkill`/`verifySkill`                                                                                    |
+| `operator` | `integration/ai/skills/operator/` | Global, per-provider drop-ins under `<appRoot>/skills/<claude,copilot,codex,opencode,grok>/<name>/SKILL.md`                                                                   |
+| `phase`    | `integration/ai/skills/phase/`    | Global, per-flow opt-in folders under `<appRoot>/skills/<flow>/<name>/SKILL.md` — provider-agnostic; the Skills-catalog view's copy-on-enable target                          |
 
 `createResolvedSkillSource` (`_engine/resolve-selection.ts`) wraps the composed union as the single skill-
 selection resolution seam: `getForFlow` dedupes by install name keeping the LAST occurrence (so a phase-
@@ -300,15 +300,31 @@ leaf, not an install seam, so opt-out never hides a name from being recognised.
 
 `SkillCatalogPort` (`_engine/skill-catalog-port.ts`, implemented by `createSkillCatalog` in
 `phase/catalog.ts`) drives the TUI Skills catalog view (`views/skills-view.tsx`, Home hotkey `K`). The
-phase folder IS the enabled/disabled state: `enable` copies a bundled skill's raw `SKILL.md` bytes
-(via the narrow `BundledSkillRawReader` port — never round-tripped through `parseSkill`) into
+phase folder IS the enabled/disabled state: `enable` copies a bundled skill's raw folder — `SKILL.md`
+plus its support files (via the narrow `BundledSkillRawReader` port's `readFolder` — never round-tripped
+through `parseSkill`) — into
 `<appRoot>/skills/<flow>/<name>/` and writes a `.provenance.json` sidecar (`phase/provenance.ts`: sha256
-of the copied bytes, `ralphctlVersion`, `copiedAt`); `disable` removes the folder. The sidecar lets
+of the copied folder, `ralphctlVersion`, `copiedAt`); `disable` removes the folder. The sidecar lets
 `list()` classify each install as `manual` (no stamp — hand-dropped), `in-sync`, `update-available` (the
 bundle moved on upstream), or `locally-modified` (the operator edited the copy — checked first, so it
 always wins over `update-available` and `update`/`updateAll` never silently discard an edit). The
-sidecar is catalog-only bookkeeping — no `SkillSource` ever emits or installs it into a session; a
-`Skill` is always `{ name, description, content }` derived from `SKILL.md` alone.
+sidecar is catalog-only bookkeeping — no `SkillSource` ever emits or installs it into a session. A
+`Skill` is derived from the folder alone: `{ name, description, content }` from `SKILL.md`, plus
+`files` (the support files) and `extraFrontmatter` (below).
+
+**Folder skills and frontmatter.** A skill is the whole folder: `SKILL.md` plus optional `references/`,
+`scripts/` and `assets/` (`SKILL_SUPPORT_DIRS` in `_engine/skill.ts`) that the body points into and the
+model loads on demand. `_engine/skill-support-files.ts` is the one reader / writer for them, shared by the
+bundled, operator and phase sources, the phase catalog and the provider install path: UTF-8 regular files
+only, dotfiles and symlinks skipped, paths re-validated before every write, size and file-count caps. The
+adapter writes support files first and `SKILL.md` last, through the atomic `WriteFile` seam, so a
+`SKILL.md` on disk means a complete folder. `scripts/build-assets.ts` ships the same allowlist into
+`dist/skills/<name>/`. Frontmatter is read by a real YAML parser (the `yaml` package,
+`_engine/frontmatter.ts`'s `parseYamlFrontmatter`): folded / literal scalars, nested maps and lists work,
+duplicate keys and syntax errors are rejected. `SkillFrontmatterSchema` is a loose object — `name`,
+`description`, `license`, `compatibility` and `allowed-tools` are typed; every other key (`metadata`,
+provider keys) passes through into `extraFrontmatter` and is re-emitted in the installed `SKILL.md`.
+Agent-definition parsing reuses the flat string projection `parseSimpleYaml`.
 
 ## Agent definitions subsystem (`integration/ai/agents/`)
 
@@ -325,8 +341,8 @@ skills, definitions are not flow-scoped: every source's `list()` returns its ful
 the two into one `AgentDefinitionSource`, later-source-wins on a name collision — an operator definition
 overrides a bundled one of the same name. There is no enumerable "project" source: a project-authored file
 already lives where the provider's CLI looks for it, so project-wins precedence is realised one layer down,
-in the adapter's install step (below). `parseAgentDefinition` / `splitFrontmatter` / `parseSimpleYaml`
-(`_engine/parse-agent-definition.ts`) share the same flat-frontmatter reader as `SKILL.md` parsing, and
+in the adapter's install step (below). `parseAgentDefinition` (`_engine/parse-agent-definition.ts`) shares
+`splitFrontmatter` / `parseSimpleYaml` (`skills/_engine/frontmatter.ts`) with `SKILL.md` parsing, and
 assert the frontmatter `name` matches the source file's base name.
 
 Five per-provider renderers (`_engine/render-{claude,copilot,codex,opencode,grok}-agent.ts`) turn one canonical

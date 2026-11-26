@@ -66,7 +66,7 @@ const violations = (files: ReadonlyArray<[string, string]>): string[] => {
 describe('prompt hygiene', () => {
   it('scans a non-trivial file set', async () => {
     const prompts = await loadAll(PROMPTS_DIR, (n) => n.endsWith('.md'));
-    const skills = await loadAll(SKILLS_DIR, (n) => n === 'SKILL.md');
+    const skills = await loadAll(SKILLS_DIR, (n) => n.endsWith('.md'));
     expect(prompts.length).toBeGreaterThan(20);
     expect(skills.length).toBeGreaterThan(0);
   });
@@ -76,7 +76,7 @@ describe('prompt hygiene', () => {
   });
 
   it('bundled skills carry no forbidden vocabulary', async () => {
-    expect(violations(await loadAll(SKILLS_DIR, (n) => n === 'SKILL.md'))).toEqual([]);
+    expect(violations(await loadAll(SKILLS_DIR, (n) => n.endsWith('.md')))).toEqual([]);
   });
 
   it('signal schemas declare no reasoning-style keys', async () => {

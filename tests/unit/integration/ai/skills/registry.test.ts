@@ -49,24 +49,39 @@ describe('BUNDLED_SKILLS', () => {
 });
 
 describe('skillsForFlow', () => {
-  it('returns the default skill names for a known flow', () => {
-    const names = skillsForFlow('refine');
-    expect(names.length).toBeGreaterThan(0);
-    expect(names).toContain('ralphctl-alignment');
+  it('pins the default set of every flow, in table order', () => {
+    const expected: Record<(typeof FLOW_IDS)[number], readonly string[]> = {
+      refine: [],
+      plan: ['ralphctl-ponytail'],
+      ideate: ['ralphctl-idea-refinement'],
+      implement: [
+        'ralphctl-ponytail',
+        'ralphctl-code-review-and-quality',
+        'ralphctl-security-and-hardening',
+        'ralphctl-test-driven-development',
+        'ralphctl-debugging-and-error-recovery',
+      ],
+      readiness: ['ralphctl-writing-for-agents'],
+      createPr: [],
+    };
+    for (const flowId of FLOW_IDS) expect(skillsForFlow(flowId), flowId).toEqual(expected[flowId]);
   });
 
   it('derives its result from defaultFor only (recommendedFor never loads)', () => {
-    // `ralphctl-surgical-simplicity` is recommendedFor `refine` but NOT defaultFor it.
-    expect(skillsForFlow('refine')).not.toContain('ralphctl-surgical-simplicity');
-    expect(skillsForFlow('implement')).toContain('ralphctl-surgical-simplicity');
+    // `ralphctl-writing-for-agents` is recommendedFor `plan` but defaultFor readiness only.
+    expect(skillsForFlow('plan')).not.toContain('ralphctl-writing-for-agents');
+    expect(skillsForFlow('readiness')).toContain('ralphctl-writing-for-agents');
   });
 
   it('never loads the opt-in-only skills by default in any flow', () => {
-    // The first two ride on flows that already own their loop / output + approval gate; the rest
-    // are topic-specific, and every default costs context on every session of its phase.
+    // The reinforcements restate what a prompt already owns; the rest are topic-specific, and
+    // every default costs context on every session of its phase.
     const optInOnly = [
+      'ralphctl-karpathy-guidelines',
       'ralphctl-spec-driven-development',
-      'ralphctl-cherny-workflow',
+      'ralphctl-ambition',
+      'ralphctl-humanizer',
+      'ralphctl-domain-driven-design',
       'ralphctl-api-and-interface-design',
       'ralphctl-performance-optimization',
       'ralphctl-frontend-ui-engineering',
@@ -75,22 +90,10 @@ describe('skillsForFlow', () => {
       'ralphctl-source-driven-development',
       'ralphctl-observability-and-instrumentation',
       'ralphctl-codebase-design',
-      'ralphctl-humanizer',
     ];
     for (const flowId of FLOW_IDS) {
       for (const name of optInOnly) expect(skillsForFlow(flowId)).not.toContain(name);
     }
-  });
-
-  it('loads ralphctl-writing-for-agents by default for readiness only', () => {
-    for (const flowId of FLOW_IDS) {
-      expect(skillsForFlow(flowId).includes('ralphctl-writing-for-agents')).toBe(flowId === 'readiness');
-    }
-  });
-
-  it('loads ralphctl-karpathy-guidelines by default for plan only (implement is opt-in)', () => {
-    expect(skillsForFlow('plan')).toContain('ralphctl-karpathy-guidelines');
-    expect(skillsForFlow('implement')).not.toContain('ralphctl-karpathy-guidelines');
   });
 
   it('returns names in table order', () => {
@@ -99,5 +102,37 @@ describe('skillsForFlow', () => {
       (entry) => entry.name
     );
     expect(names).toEqual(tableOrder);
+  });
+});
+
+describe('ralphctl-ambition placement', () => {
+  const ambition = BUNDLED_SKILLS.find((entry) => entry.name === 'ralphctl-ambition');
+
+  it('is registered as opt-in for ideate, refine and plan only', () => {
+    expect(ambition?.defaultFor).toEqual([]);
+    expect(ambition?.recommendedFor).toEqual(['ideate', 'refine', 'plan']);
+  });
+
+  it('is never mounted or suggested in implement or createPr', () => {
+    // implement's evaluator shares the generator's skill set and would grade against criteria
+    // nobody asked for; createPr is a one-shot extraction with nothing to raise.
+    for (const flowId of ['implement', 'createPr'] as const) {
+      expect(ambition?.defaultFor).not.toContain(flowId);
+      expect(ambition?.recommendedFor).not.toContain(flowId);
+    }
+  });
+});
+
+describe('retired bundled skills', () => {
+  it('stay out of the table', () => {
+    const retired = [
+      'ralphctl-alignment',
+      'ralphctl-iterative-review',
+      'ralphctl-abstraction-first',
+      'ralphctl-minimal-scaffolding',
+      'ralphctl-cherny-workflow',
+      'ralphctl-surgical-simplicity',
+    ];
+    for (const name of retired) expect(referencedSkillNames.has(name), name).toBe(false);
   });
 });

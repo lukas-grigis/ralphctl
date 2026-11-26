@@ -4,9 +4,9 @@
  *
  * The set of skills returned per flow comes from {@link skillsForFlow} (the registry's
  * `defaultFor` derivation). For each name in that
- * list, the source reads `<bundledRoot>/<name>/SKILL.md`, parses YAML frontmatter (`name`,
- * `description` — frontmatter `name` must match the folder name per the Agent Skills spec)
- * and returns the canonical {@link Skill} record.
+ * list, the source reads `<bundledRoot>/<name>/SKILL.md` plus its support files (`references/`,
+ * `scripts/`, `assets/`), parses YAML frontmatter (frontmatter `name` must match the folder name
+ * per the Agent Skills spec) and returns the canonical {@link Skill} record.
  *
  * Resolution of the bundled root: in dev (`tsx`) the SKILL.md folders sit next to this file;
  * in a production bundle the build step copies them alongside, so `import.meta.url` resolves
@@ -14,8 +14,8 @@
  *
  * Parsing failures (missing file, malformed frontmatter, missing required fields) return a
  * `StorageError` with `subCode: 'parse'`. Production callers route the error to the log and
- * proceed with an empty skill set. The frontmatter split + naive-YAML reader + body extraction
- * live in `_engine/parse-skill.ts` so the operator source shares one parse implementation.
+ * proceed with an empty skill set. The frontmatter split + YAML reader + body extraction live in
+ * `_engine/parse-skill.ts` so the operator source shares one parse implementation.
  */
 
 import { dirname, join } from 'node:path';
@@ -30,14 +30,18 @@ import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
-import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
+import type {
+  BundledSkillRawReader,
+  RawSkillFolder,
+} from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
+import { readSkillSupportFiles } from '@src/integration/ai/skills/_engine/skill-support-files.ts';
 
 /**
  * Resolve the default bundled-skill root from a module URL. `exists` is injectable for tests.
  *
  *   Dev (tsx): this module lives at src/integration/ai/skills/bundled/source.ts — SKILL.md folders
  *     sit next to it.
- *   Build (tsup): `scripts/build-assets.ts` copies SKILL.md folders to `<dist>/skills/<name>/SKILL.md`.
+ *   Build (tsup): `scripts/build-assets.ts` copies each skill folder to `<dist>/skills/<name>/`.
  *
  * Detection asks the filesystem, not the filename: if a `skills/` dir sits beside this module we are
  * running from a build, otherwise dev. This is deliberately NOT a filename check — tsup code-splitting
@@ -58,6 +62,18 @@ export interface BundledSkillSourceDeps {
   readonly bundledRoot?: string;
 }
 
+/** Attach the folder's support files to a parsed skill; a support-file read failure fails the skill. */
+const withSupportFiles = async (
+  root: string,
+  name: string,
+  parsed: Result<Skill, StorageError>
+): Promise<Result<Skill, StorageError>> => {
+  if (!parsed.ok) return parsed;
+  const files = await readSkillSupportFiles(join(root, name));
+  if (!files.ok) return Result.error(files.error);
+  return Result.ok(files.value.length > 0 ? { ...parsed.value, files: files.value } : parsed.value);
+};
+
 /**
  * Read + parse a SKILL.md when the file is REQUIRED — a missing file is a hard `io` error.
  * Used by `getForFlow` / `loadOne`, where every name in the flow's set must resolve.
@@ -72,7 +88,7 @@ const readSkill = async (root: string, name: string): Promise<Result<Skill, Stor
       new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
     );
   }
-  return parseSkill('bundled skill', path, name, raw);
+  return withSupportFiles(root, name, parseSkill('bundled skill', path, name, raw));
 };
 
 /**
@@ -93,7 +109,7 @@ const readSkillOptional = async (root: string, name: string): Promise<Result<Ski
       new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
     );
   }
-  return parseSkill('bundled skill', path, name, raw);
+  return withSupportFiles(root, name, parseSkill('bundled skill', path, name, raw));
 };
 
 export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): SkillSource => {
@@ -144,28 +160,31 @@ export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): Ski
  * distinction matters (provenance hashing must never round-trip through a parse → re-render).
  *
  * A tiny per-name cache mirrors `createBundledSkillSource`'s `loadOne` cache: the catalog reads
- * the same bundled skill repeatedly within one `list()` / `updateAll()` call, and the file never
+ * the same bundled skill repeatedly within one `list()` / `updateAll()` call, and the folder never
  * changes mid-process.
  */
 export const createBundledSkillRawReader = (deps: BundledSkillSourceDeps = {}): BundledSkillRawReader => {
   const root = deps.bundledRoot ?? defaultBundledRoot;
-  const cache = new Map<string, string>();
+  const cache = new Map<string, RawSkillFolder>();
 
   return {
-    async readRaw(name: string): Promise<Result<string, StorageError>> {
+    async readFolder(name: string): Promise<Result<RawSkillFolder, StorageError>> {
       const cached = cache.get(name);
       if (cached !== undefined) return Result.ok(cached);
       const path = join(root, name, 'SKILL.md');
-      let raw: string;
+      let skillMd: string;
       try {
-        raw = await readFile(path, 'utf-8');
+        skillMd = await readFile(path, 'utf-8');
       } catch (cause) {
         return Result.error(
           new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
         );
       }
-      cache.set(name, raw);
-      return Result.ok(raw);
+      const files = await readSkillSupportFiles(join(root, name));
+      if (!files.ok) return Result.error(files.error);
+      const folder: RawSkillFolder = { skillMd, files: files.value };
+      cache.set(name, folder);
+      return Result.ok(folder);
     },
   };
 };

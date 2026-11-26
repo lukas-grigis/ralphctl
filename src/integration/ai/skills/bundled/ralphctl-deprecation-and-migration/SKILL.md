@@ -19,8 +19,10 @@ removal half.
 - **Plan** — sequence the work so each step ships on its own: the replacement first, consumers next,
   removal last and alone. Give the removal task the verification criterion "no remaining consumers", and
   keep each data-shape phase below a separate task.
-- **Execute** — implement one phase per task. Do not fold an additive step and its destructive follow-up
-  into one change, and do not remove anything a consumer still reaches.
+- **Execute** — a change here is one verified step inside a task. In plan, one pattern across N call
+  sites stays one task; dropping a persisted shape stays its own task. When a task's steps combine an
+  expand and a contract on stored data, emit the prompt's ambiguous-request block naming the rollback
+  risk. Do not remove anything a consumer still reaches.
 
 ## Before removing anything
 
@@ -38,7 +40,7 @@ ordering, defaults, error text, side effects. Answer first:
 1. **Replacement first.** It covers the critical cases and is proven, not just "theoretically better".
 2. **Mark the old path deprecated** with the project's own mechanism — a deprecation annotation, a
    runtime warning, a changelog entry — when it has one. Do not invent a new notice file.
-3. **Migrate incrementally.** One consumer or area per change: find its touchpoints, switch it, confirm
+3. **Migrate incrementally.** One verified step at a time: find a consumer's touchpoints, switch it, confirm
    behaviour matches with its tests, remove its reference to the old path. Whoever retires a thing
    migrates its consumers or ships a compatible shim — never leave them to discover the break.
 4. **Remove only at zero.** Once no consumer remains: the code, its tests, docs, configuration, and the

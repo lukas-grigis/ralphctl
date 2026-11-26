@@ -1,16 +1,19 @@
 /**
- * Shared flat-frontmatter parsing primitives — the frontmatter split + naive-YAML reader that
+ * Shared frontmatter parsing primitives — the frontmatter split + YAML reader that
  * every Markdown-with-frontmatter format this codebase reads is built on: SKILL.md
  * (`./parse-skill.ts`'s `parseSkill`) and agent-definition Markdown
  * (`agents/_engine/parse-agent-definition.ts`'s `parseAgentDefinition`). Both formats use the
- * identical flat `key: value` frontmatter shape, so one implementation serves both — a real
- * YAML lib lands only when either format needs nested / multiline frontmatter.
+ * same YAML frontmatter, so one real YAML parser (the `yaml` package) serves both.
  *
  * Lives under `skills/_engine/` (rather than a new top-level `integration/ai/_engine/`) so the
  * existing cross-concept `_engine`-to-`_engine` import seam applies unchanged: `agents/_engine/`
  * reaches in here exactly the way `readiness/_engine/` already reaches into `providers/_engine/`
  * and `prompts/_engine/`.
  */
+
+import { parse } from 'yaml';
+import { Result } from '@src/domain/result.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 
 /**
  * Split a frontmatter-fenced Markdown file body into frontmatter + content. The frontmatter
@@ -33,26 +36,70 @@ export const splitFrontmatter = (raw: string): { readonly frontmatter: string; r
   return { frontmatter, body };
 };
 
+/** A parsed frontmatter block: the top-level YAML map, values left as YAML typed them. */
+export type FrontmatterMap = Readonly<Record<string, unknown>>;
+
+const parseStrict = (input: string): Result<unknown, string> => {
+  try {
+    return Result.ok(parse(input, { uniqueKeys: true, strict: true }));
+  } catch (cause) {
+    return Result.error(messageOf(cause));
+  }
+};
+
+const BLOCK_OR_FLOW_START = /^["'|>[{]/u;
+
 /**
- * Naive YAML key:value parser — keys are simple identifiers, values are plain strings,
- * double-quoted strings with `\"` / `\\` escapes (the shape the skills adapter's renderer
- * emits for values a strict YAML parser would reject unquoted), or single-quoted strings
- * without escapes. Frontmatter we control is always this shape, so a full YAML parser is
- * overkill (and adds a dep). Multiline / nested YAML is rejected via schema validation.
+ * Published skills and agents often write `description: Use when: X` — invalid YAML (a nested
+ * mapping in a plain scalar) that the CLIs loading them accept anyway. Quote each single-line,
+ * top-level plain value that does not parse on its own, so that one value reads as the string the
+ * author meant while every other key keeps its YAML type.
  */
-export const parseSimpleYaml = (input: string): Record<string, string> => {
+const quoteUnparseableTopLevelValues = (input: string): string => {
+  const lines = input.split('\n');
+  return lines
+    .map((line, i) => {
+      const match = /^(?<key>[^\s#-][^:]*):[ \t]+(?<value>\S.*?)\s*$/u.exec(line);
+      const value = match?.groups?.['value'];
+      if (match === null || value === undefined || BLOCK_OR_FLOW_START.test(value)) return line;
+      // An indented next line continues a multi-line plain scalar; quoting one line would break it.
+      if (/^\s+\S/u.test(lines[i + 1] ?? '')) return line;
+      if (parseStrict(`k: ${value}`).ok) return line;
+      return `${match.groups?.['key'] ?? ''}: ${JSON.stringify(value)}`;
+    })
+    .join('\n');
+};
+
+/**
+ * Parse a frontmatter block as YAML 1.2 (core schema): folded / literal scalars, nested maps
+ * (`metadata`), lists and typed scalars all read the way the downstream CLIs read them. A top-level
+ * value with an unquoted `: ` is read as its string (see {@link quoteUnparseableTopLevelValues}).
+ * Duplicate keys, any other syntax error, or a document that is not a map are rejected with the
+ * parser's message. Empty frontmatter is an empty map.
+ */
+export const parseYamlFrontmatter = (input: string): Result<FrontmatterMap, string> => {
+  let parsed = parseStrict(input);
+  if (!parsed.ok) {
+    const lenient = parseStrict(quoteUnparseableTopLevelValues(input));
+    if (lenient.ok) parsed = lenient;
+  }
+  if (!parsed.ok) return Result.error(parsed.error);
+  const data = parsed.value;
+  if (data === null || data === undefined) return Result.ok({});
+  if (typeof data !== 'object' || Array.isArray(data)) return Result.error('frontmatter is not a key: value map');
+  return Result.ok(data as FrontmatterMap);
+};
+
+/**
+ * Flat string projection of a parsed frontmatter map for flat-schema consumers (agent
+ * definitions): top-level scalars become strings; nested values are dropped so they can't stand in
+ * for a top-level key.
+ */
+export const flattenFrontmatter = (map: FrontmatterMap): Record<string, string> => {
   const result: Record<string, string> = {};
-  for (const line of input.split('\n')) {
-    const stripped = line.trim();
-    if (stripped.length === 0 || stripped.startsWith('#')) continue;
-    const colon = stripped.indexOf(':');
-    if (colon === -1) continue;
-    const key = stripped.slice(0, colon).trim();
-    let value = stripped.slice(colon + 1).trim();
-    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"'))
-      value = value.slice(1, -1).replace(/\\(["\\])/gu, '$1');
-    else if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
-    result[key] = value;
+  for (const [key, value] of Object.entries(map)) {
+    if (typeof value === 'string') result[key] = value.replace(/\n$/u, '');
+    else if (typeof value === 'number' || typeof value === 'boolean') result[key] = String(value);
   }
   return result;
 };

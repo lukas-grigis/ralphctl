@@ -25,9 +25,10 @@
 
 import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
+import { SKILL_SUPPORT_DIRS } from '@src/integration/ai/skills/_engine/skill.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -66,15 +67,25 @@ for (const absSrc of promptFiles) {
   assets.push(relative(DIST, dst));
 }
 
-// Skills: copy each SKILL.md folder under src/integration/ai/skills/bundled/.
-//   <name>/SKILL.md        → dist/skills/<name>/SKILL.md
+// Skills: copy each skill folder under src/integration/ai/skills/bundled/.
+//   <name>/SKILL.md                         → dist/skills/<name>/SKILL.md
+//   <name>/{references,scripts,assets}/**   → dist/skills/<name>/…
+// Only what the runtime reads ships (SKILL_SUPPORT_DIRS in _engine/skill.ts); dotfiles never do.
 // (Sibling .ts files like source.ts are excluded — they're the adapter, not the asset.)
+const shipsWithSkill = (skillDir: string, src: string): boolean => {
+  const segments = relative(skillDir, src)
+    .split(sep)
+    .filter((s) => s.length > 0);
+  if (segments.length === 0) return true; // the skill folder itself
+  if (segments.some((s) => s.startsWith('.'))) return false;
+  return segments[0] === 'SKILL.md' || SKILL_SUPPORT_DIRS.some((dir) => dir === segments[0]);
+};
 const skillEntries = await readdir(SKILLS_SRC, { withFileTypes: true });
 for (const entry of skillEntries) {
   if (!entry.isDirectory()) continue;
   const skillDir = join(SKILLS_SRC, entry.name);
   const dstDir = join(DIST, 'skills', entry.name);
-  await cp(skillDir, dstDir, { recursive: true });
+  await cp(skillDir, dstDir, { recursive: true, filter: (src) => shipsWithSkill(skillDir, src) });
   for (const f of await walkFiles(dstDir)) {
     assets.push(relative(DIST, f));
   }

@@ -24,7 +24,9 @@ These rules apply every round, identically on a first evaluation and on a re-eva
   expected value is a Correctness FAIL, not a PASS — cite the specific diff hunk, even if you flagged the
   same file in an earlier round. When `<reproduction>` is non-empty, this check extends to it: re-run its
   command yourself — the task cannot pass Correctness while that command still fails — and treat an
-  unexplained edit to the reproduction test the same as any other tampering.
+  unexplained edit to the reproduction test the same as any other tampering. The same audit covers
+  verification weakened by the change itself: new lint or type-check suppression comments, skipped or
+  deleted tests, stripped assertions, unimplemented stubs, swallowed errors, and lowered thresholds.
 - **Critique format.** Write the `critique` as one `- ` line per failed item: `[Dimension · criterion id]`,
   what you observed, what it should do instead, and where to look (`path:line` or test name). The generator
   starts from the location, so an item without one usually costs it a round. When a defect is one instance of

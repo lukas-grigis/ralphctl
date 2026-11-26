@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBundledSkillSource, resolveBundledRoot } from '@src/integration/ai/skills/bundled/source.ts';
+import {
+  createBundledSkillRawReader,
+  createBundledSkillSource,
+  resolveBundledRoot,
+} from '@src/integration/ai/skills/bundled/source.ts';
 import { BUNDLED_SKILLS, skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
 describe('resolveBundledRoot', () => {
   it('resolves the co-located skills/ dir when the build copied SKILL.md folders beside the bundle', () => {
@@ -24,44 +29,43 @@ describe('resolveBundledRoot', () => {
 });
 
 describe('createBundledSkillSource (production root)', () => {
-  // Hits the real `src/ai/skills/bundled/` folder. Asserts the three v1 skills load.
+  // Hits the real `src/integration/ai/skills/bundled/` folder.
   const source = createBundledSkillSource();
 
-  it('loads bundled skills for the refine flow', async () => {
-    const result = await source.getForFlow('refine');
+  it('loads bundled skills for the implement flow', async () => {
+    const result = await source.getForFlow('implement');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const names = result.value.map((s) => s.name);
-    expect(names).toContain('ralphctl-alignment');
-    expect(names).toContain('ralphctl-abstraction-first');
-    expect(names).toContain('ralphctl-iterative-review');
+    expect(names).toContain('ralphctl-ponytail');
+    expect(names).toContain('ralphctl-test-driven-development');
   });
 
   it('reads name + description from frontmatter', async () => {
-    const result = await source.getForFlow('refine');
+    const result = await source.getForFlow('plan');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const alignment = result.value.find((s) => s.name === 'ralphctl-alignment');
-    expect(alignment?.name).toBe('ralphctl-alignment');
-    expect(alignment?.description.length).toBeGreaterThan(0);
-    expect(alignment?.content).toContain('# Alignment');
+    const ponytail = result.value.find((s) => s.name === 'ralphctl-ponytail');
+    expect(ponytail?.name).toBe('ralphctl-ponytail');
+    expect(ponytail?.description.length).toBeGreaterThan(0);
+    expect(ponytail?.content).toContain('# Ponytail');
   });
 
   it('returns exactly the registry defaults for each flow, in table order', async () => {
-    const a = await source.getForFlow('refine');
-    const b = await source.getForFlow('plan');
-    expect(a.ok && b.ok).toBe(true);
-    if (!(a.ok && b.ok)) return;
-    expect(a.value.map((s) => s.name)).toEqual(skillsForFlow('refine'));
-    expect(b.value.map((s) => s.name)).toEqual(skillsForFlow('plan'));
+    for (const flowId of FLOW_IDS) {
+      const result = await source.getForFlow(flowId);
+      expect(result.ok, flowId).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.map((s) => s.name)).toEqual(skillsForFlow(flowId));
+    }
   });
 
   it('getByName resolves a known bundled skill by its exact folder name', async () => {
-    const result = await source.getByName('ralphctl-alignment');
+    const result = await source.getByName('ralphctl-ponytail');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value?.name).toBe('ralphctl-alignment');
-    expect(result.value?.content).toContain('# Alignment');
+    expect(result.value?.name).toBe('ralphctl-ponytail');
+    expect(result.value?.content).toContain('# Ponytail');
   });
 
   it('loads ralphctl-writing-for-agents into the readiness flow', async () => {
@@ -94,9 +98,9 @@ describe('createBundledSkillSource (production root)', () => {
 describe('createBundledSkillSource (custom root)', () => {
   it('errors out cleanly when a referenced skill folder is missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
-    // Empty root — the source will look up alignment etc and fail to read.
+    // Empty root — the source will look up plan's defaults and fail to read.
     const source = createBundledSkillSource({ bundledRoot: root });
-    const result = await source.getForFlow('refine');
+    const result = await source.getForFlow('plan');
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toMatch(/bundled skill not readable/u);
@@ -104,18 +108,12 @@ describe('createBundledSkillSource (custom root)', () => {
 
   it('rejects malformed frontmatter with a parse error', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
-    const skillDir = join(root, 'ralphctl-alignment');
+    // plan's only default is ponytail; its frontmatter is missing the required `name` field.
+    const skillDir = join(root, 'ralphctl-ponytail');
     await mkdir(skillDir, { recursive: true });
-    // Frontmatter missing the required `name` field.
     await writeFile(join(skillDir, 'SKILL.md'), '---\ndescription: only description\n---\n\n# body\n', 'utf-8');
-    // Need the other two too so the loop reaches alignment cleanly.
-    for (const id of ['ralphctl-abstraction-first', 'ralphctl-iterative-review']) {
-      const dir = join(root, id);
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, 'SKILL.md'), `---\nname: ${id}\ndescription: ok\n---\nbody\n`, 'utf-8');
-    }
     const source = createBundledSkillSource({ bundledRoot: root });
-    const result = await source.getForFlow('refine');
+    const result = await source.getForFlow('plan');
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toMatch(/invalid frontmatter/u);
@@ -149,19 +147,31 @@ describe('createBundledSkillSource (custom root)', () => {
 
   it('requires frontmatter name to match the folder name', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
-    const alignDir = join(root, 'ralphctl-alignment');
-    await mkdir(alignDir, { recursive: true });
-    // Frontmatter name does not match the folder ('ralphctl-alignment' vs. 'mismatch').
-    await writeFile(join(alignDir, 'SKILL.md'), `---\nname: mismatch\ndescription: ok\n---\n\nbody\n`, 'utf-8');
-    for (const name of ['ralphctl-abstraction-first', 'ralphctl-iterative-review']) {
-      const dir = join(root, name);
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ok\n---\nbody\n`, 'utf-8');
-    }
+    const dir = join(root, 'ralphctl-ponytail');
+    await mkdir(dir, { recursive: true });
+    // Frontmatter name does not match the folder ('ralphctl-ponytail' vs. 'mismatch').
+    await writeFile(join(dir, 'SKILL.md'), `---\nname: mismatch\ndescription: ok\n---\n\nbody\n`, 'utf-8');
     const source = createBundledSkillSource({ bundledRoot: root });
-    const result = await source.getForFlow('refine');
+    const result = await source.getForFlow('plan');
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toMatch(/must match folder name/u);
+  });
+});
+
+describe('createBundledSkillSource — folder skills', () => {
+  it('getByName returns the support files beside SKILL.md, and the raw reader hands the catalog the same folder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
+    const dir = join(root, 'ralphctl-folder');
+    await mkdir(join(dir, 'references'), { recursive: true });
+    const skillMd = '---\nname: ralphctl-folder\ndescription: folder skill\n---\n\nSee references/x.md.\n';
+    await writeFile(join(dir, 'SKILL.md'), skillMd, 'utf-8');
+    await writeFile(join(dir, 'references', 'x.md'), '# x\n', 'utf-8');
+
+    const result = await createBundledSkillSource({ bundledRoot: root }).getByName('ralphctl-folder');
+    expect(result.ok && result.value?.files).toEqual([{ path: 'references/x.md', content: '# x\n' }]);
+
+    const raw = await createBundledSkillRawReader({ bundledRoot: root }).readFolder('ralphctl-folder');
+    expect(raw.ok && raw.value).toEqual({ skillMd, files: [{ path: 'references/x.md', content: '# x\n' }] });
   });
 });

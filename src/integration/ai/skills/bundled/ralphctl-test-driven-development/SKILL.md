@@ -1,6 +1,6 @@
 ---
 name: ralphctl-test-driven-development
-description: Execute-phase skill — drive changes with the red-green-refactor loop; write the failing test before the code that makes it pass; for bug fixes, this is the reproduction test itself. Use for any logic change, bug fix, or behavioural modification; for the full root-cause triage pipeline around an unexpected failure, see ralphctl-debugging-and-error-recovery.
+description: Execute-phase skill — drive changes with the red-green-refactor loop; write the failing test before the code that makes it pass; for bug fixes, this is the reproduction test itself. Use for any logic change, bug fix, or behavioural modification; for the full root-cause triage pipeline around an unexpected failure, see ralphctl-debugging-and-error-recovery. Never ship the behavioural change alone.
 license: MIT
 ---
 
@@ -20,6 +20,8 @@ AI agent's superpower; a codebase without tests is a liability.
   unit of work. Run the project's narrow check after each step; signal the work complete once the task's
   acceptance criteria are met (generator role: a `task-complete` signal — the evaluator's contract has no
   `task-complete` schema). The harness runs the post-task verify gate — you do not own that verdict.
+
+RED→GREEN covers the behaviour the task's steps and criteria ask to test, or that the project already tests for this kind of change. Otherwise drive the change with a scratch check you delete before finishing. As a reviewer, a missing test beyond the steps is an observation, not a FAIL.
 
 **When NOT to use:** Pure configuration changes, documentation updates, or static content changes with no
 behavioural impact.
@@ -95,7 +97,7 @@ export async function createTask(input: { title: string }): Promise<Task> {
 
 ### Step 3: REFACTOR — Clean Up
 
-With tests green, improve the code without changing behaviour:
+With tests green, improve the code without changing behaviour. Refactor only code this task wrote or changed, within the project's existing patterns:
 
 - Extract shared logic
 - Improve naming
@@ -105,6 +107,8 @@ With tests green, improve the code without changing behaviour:
 Run the project's narrow check after every refactor step to confirm nothing broke.
 
 ## The Prove-It Pattern (Bug Fixes)
+
+When the prompt carries a reproduction test, it is your RED — do not write a second one. In a reproduction-only session, stop at RED: no fix.
 
 When a bug is reported, **do not start by trying to fix it.** Start by writing a test that reproduces it.
 
@@ -152,169 +156,11 @@ export async function completeTask(id: string): Promise<Task> {
 // Step 3: Test passes → bug fixed, regression guarded
 ```
 
-## The Test Pyramid
+## Test Sizing and Writing Good Tests
 
-Invest testing effort according to the pyramid — most tests should be small and fast, with progressively
-fewer tests at higher levels:
+Read `references/test-sizing.md` when deciding what level a test belongs at: the test pyramid, the small/medium/large resource model, and the unit/integration/E2E decision guide.
 
-```
-          ╱╲
-         ╱  ╲         E2E Tests (~5%)
-        ╱    ╲        Full user flows, real system
-       ╱──────╲
-      ╱        ╲      Integration Tests (~15%)
-     ╱          ╲     Component interactions, API boundaries
-    ╱────────────╲
-   ╱              ╲   Unit Tests (~80%)
-  ╱                ╲  Pure logic, isolated, milliseconds each
- ╱──────────────────╲
-```
-
-**The Beyoncé Rule:** If you liked it, you should have put a test on it. Infrastructure changes,
-refactoring, and migrations are not responsible for catching your bugs — your tests are. If a change
-breaks your code and you did not have a test for it, that is on you.
-
-### Test Sizes (Resource Model)
-
-Beyond the pyramid levels, classify tests by what resources they consume:
-
-| Size       | Constraints                                            | Speed        | Example                                 |
-| ---------- | ------------------------------------------------------ | ------------ | --------------------------------------- |
-| **Small**  | Single process, no I/O, no network, no database        | Milliseconds | Pure function tests, data transforms    |
-| **Medium** | Multi-process OK, localhost only, no external services | Seconds      | API tests with test DB, component tests |
-| **Large**  | Multi-machine OK, external services allowed            | Minutes      | E2E tests, performance benchmarks       |
-
-Small tests should make up the vast majority of your suite. They are fast, reliable, and easy to debug
-when they fail.
-
-### Decision Guide
-
-```
-Is it pure logic with no side effects?
-  → Unit test (small)
-
-Does it cross a boundary (API, database, file system)?
-  → Integration test (medium)
-
-Is it a critical user flow that must work end-to-end?
-  → E2E test (large) — limit these to critical paths
-```
-
-## Writing Good Tests
-
-### Test State, Not Interactions
-
-Assert on the _outcome_ of an operation, not on which methods were called internally. Tests that verify
-method call sequences break when you refactor, even if the behaviour is unchanged.
-
-```typescript
-// Good: Tests what the function does (state-based)
-it('returns tasks sorted by creation date, newest first', async () => {
-  const tasks = await listTasks({ sortBy: 'createdAt', sortOrder: 'desc' });
-  expect(tasks[0].createdAt.getTime()).toBeGreaterThan(tasks[1].createdAt.getTime());
-});
-
-// Bad: Tests how the function works internally (interaction-based)
-it('calls db.query with ORDER BY created_at DESC', async () => {
-  await listTasks({ sortBy: 'createdAt', sortOrder: 'desc' });
-  expect(db.query).toHaveBeenCalledWith(expect.stringContaining('ORDER BY created_at DESC'));
-});
-```
-
-### DAMP Over DRY in Tests
-
-In production code, DRY (Don't Repeat Yourself) is usually right. In tests, **DAMP (Descriptive And
-Meaningful Phrases)** is better. A test should read like a specification — each test should tell a
-complete story without requiring the reader to trace through shared helpers.
-
-```typescript
-// DAMP: Each test is self-contained and readable
-it('rejects tasks with empty titles', () => {
-  const input = { title: '', assignee: 'user-1' };
-  expect(() => createTask(input)).toThrow('Title is required');
-});
-
-it('trims whitespace from titles', () => {
-  const input = { title: '  Buy groceries  ', assignee: 'user-1' };
-  const task = createTask(input);
-  expect(task.title).toBe('Buy groceries');
-});
-
-// Over-DRY: Shared setup obscures what each test actually verifies
-// (Do not do this just to avoid repeating the input shape)
-```
-
-Duplication in tests is acceptable when it makes each test independently understandable.
-
-### Prefer Real Implementations Over Mocks
-
-Use the simplest test double that gets the job done. The more your tests use real code, the more
-confidence they provide.
-
-```
-Preference order (most to least preferred):
-1. Real implementation  → Highest confidence, catches real bugs
-2. Fake                 → In-memory version of a dependency (e.g., fake DB)
-3. Stub                 → Returns canned data, no behaviour
-4. Mock (interaction)   → Verifies method calls — use sparingly
-```
-
-Use mocks only when the real implementation is too slow, non-deterministic, or has side effects you
-cannot control (external APIs, email sending). Over-mocking creates tests that pass while production
-breaks.
-
-### Use the Arrange-Act-Assert Pattern
-
-```typescript
-it('marks overdue tasks when deadline has passed', () => {
-  // Arrange: Set up the test scenario
-  const task = createTask({
-    title: 'Test',
-    deadline: new Date('2025-01-01'),
-  });
-
-  // Act: Perform the action being tested
-  const result = checkOverdue(task, new Date('2025-01-02'));
-
-  // Assert: Verify the outcome
-  expect(result.isOverdue).toBe(true);
-});
-```
-
-### One Assertion Per Concept
-
-```typescript
-// Good: Each test verifies one behaviour
-it('rejects empty titles', () => { ... });
-it('trims whitespace from titles', () => { ... });
-it('enforces maximum title length', () => { ... });
-
-// Bad: Everything in one test
-it('validates titles correctly', () => {
-  expect(() => createTask({ title: '' })).toThrow();
-  expect(createTask({ title: '  hello  ' }).title).toBe('hello');
-  expect(() => createTask({ title: 'a'.repeat(256) })).toThrow();
-});
-```
-
-### Name Tests Descriptively
-
-```typescript
-// Good: Reads like a specification
-describe('TaskService.completeTask', () => {
-  it('sets status to completed and records timestamp', ...);
-  it('throws NotFoundError for non-existent task', ...);
-  it('is idempotent — completing an already-completed task is a no-op', ...);
-  it('sends notification to task assignee', ...);
-});
-
-// Bad: Vague names
-describe('TaskService', () => {
-  it('works', ...);
-  it('handles errors', ...);
-  it('test 3', ...);
-});
-```
+Read `references/writing-good-tests.md` when writing or reviewing a test's structure: state over interactions, DAMP over DRY, real implementations over mocks, Arrange-Act-Assert, one concept per test, and naming.
 
 ## Anti-Patterns to Avoid
 
@@ -326,6 +172,7 @@ describe('TaskService', () => {
 | Testing framework code                | Wastes time testing third-party behaviour                   | Only test YOUR code                                                                                                         |
 | Snapshot abuse                        | Large snapshots nobody reviews, break on any change         | Use snapshots sparingly and review every change                                                                             |
 | No test isolation                     | Tests pass individually but fail together                   | Each test sets up and tears down its own state                                                                              |
+| Horizontal slicing                    | Writing all the tests first, then all the code              | Work one vertical behaviour at a time: one RED, its GREEN, then the next                                                    |
 | Mocking everything                    | Tests pass but production breaks                            | Prefer real implementations > fakes > stubs > mocks — mock only at boundaries where real deps are slow or non-deterministic |
 
 ## Common Rationalizations
@@ -333,7 +180,7 @@ describe('TaskService', () => {
 | Rationalization                                    | Reality                                                                                                                             |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | "I'll write tests after the code works"            | You won't. And tests written after the fact test implementation, not behaviour.                                                     |
-| "This is too simple to test"                       | Simple code gets complicated. The test documents the expected behaviour.                                                            |
+| "This is too simple to test"                       | Simple code gets complicated. The test documents the expected behaviour — when the task or project practice calls for a test.       |
 | "Tests slow me down"                               | Tests slow you down now. They speed you up every time you change the code later.                                                    |
 | "I tested it manually"                             | Manual testing does not persist. Tomorrow's change might break it with no way to know.                                              |
 | "The code is self-explanatory"                     | Tests ARE the specification. They document what the code should do, not what it does.                                               |
@@ -342,7 +189,7 @@ describe('TaskService', () => {
 
 ## Red Flags
 
-- Writing code without any corresponding tests
+- Writing behaviour the task asks to test without a test
 - Reaching for a default test command without checking what this repository actually uses
 - Tests that pass on the first run (they may not be testing what you think)
 - An expected value computed with the code's own formula (`add(a, b)` checked against `a + b`) — it passes by
@@ -358,7 +205,7 @@ describe('TaskService', () => {
 
 Before you signal the work complete, confirm:
 
-- Every new behaviour introduced by this task has a corresponding test
+- [ ] Every behaviour the task's steps or criteria ask to test, or that the project tests for this kind of change, has a test.
 - Run the project's narrow check (consult the project's AI context file — `CLAUDE.md`, `AGENTS.md`,
   or `.github/copilot-instructions.md` when present — for the exact test command) after each meaningful
   change; confirm it is green

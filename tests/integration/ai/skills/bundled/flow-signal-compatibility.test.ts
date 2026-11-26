@@ -205,10 +205,10 @@ const PHASE_LABEL_TO_FLOW: Readonly<Record<string, FlowId>> = {
 };
 
 // `- **Execute** — …` / `1. **Plan** — …`: a bold phase label opening a list item scopes that
-// bullet to one phase, the way `ralphctl-iterative-review`'s "When this applies" list already
-// does. The label class stops at the first comma or full stop, so a bold SENTENCE opening a
-// bullet ("**When a fix attempt repeats the same failure, escalate rather than retry.**") yields
-// no label and the passage stays unscoped — which is the whole point: unscoped advice is
+// bullet to one phase, the way the skills' "When this applies" lists do. The label class stops
+// at the first comma or full stop, so a bold SENTENCE opening a bullet ("**When a fix attempt
+// repeats the same failure, escalate rather than retry.**") yields no label and the passage stays
+// unscoped — which is the whole point: unscoped advice is
 // advice for every phase the skill mounts into.
 const PHASE_SCOPE = /^(?:[-*+]|\d+[.)])\s+\*\*([a-z][a-z -]*)\*\*\s*—/u;
 

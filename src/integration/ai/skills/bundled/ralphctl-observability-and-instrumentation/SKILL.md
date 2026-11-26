@@ -18,11 +18,12 @@ or optimising measured slowness (ralphctl-performance-optimization when installe
 
 ## When this applies
 
-- **Plan** — for tasks that add I/O, retries, queues, jobs, or integrations, put the telemetry in the
+- **Plan** — when the ticket asks for observability or the neighbouring code already instruments this
+  kind of path, for tasks that add I/O, retries, queues, jobs, or integrations, put the telemetry in the
   task's steps and add a verification criterion that the failure path is observable. Name the operator
   questions it must answer.
-- **Execute** — instrument as you build, with the logging, metrics, and tracing libraries the project
-  already uses. Adding a new telemetry stack is a decision for the task to make, not a side effect.
+- **Execute** — instrument what the task's steps ask for, or what neighbouring code already instruments
+  on the same kind of path, with the logging, metrics, and tracing libraries the project already uses. Adding a new telemetry stack is a decision for the task to make, not a side effect.
 
 ## 1. Define "working" first
 
@@ -60,7 +61,8 @@ Metrics tell you _that_ something is wrong, traces tell you _where_, logs tell y
 Instrument rate, errors, and duration for every request-driven endpoint and every external dependency;
 utilisation, saturation, and errors for resources such as pools and queues. Labels come from small fixed
 sets (route template, status class, dependency name) — never user ids, raw URLs, or message text, which
-explode the number of series and belong in logs and traces. Record latency as a histogram and read
+explode the number of series and belong in logs and traces. No secrets or personal data in metric
+attributes either. Record latency as a histogram and read
 percentiles; an average hides the slowest users.
 
 ## 5. Tracing
@@ -68,7 +70,9 @@ percentiles; an average hides the slowest users.
 Prefer a vendor-neutral standard such as OpenTelemetry when choosing, and the project's existing setup
 when there is one. Use auto-instrumentation where the stack offers it; add manual spans only around
 meaningful units of work, with the attributes an operator will filter by. Propagate context across every
-async boundary or the trace dies at the gap.
+async boundary or the trace dies at the gap, using W3C trace context headers between services. Sample at
+the head to control volume, but keep every trace that contains an error. No secrets or personal data in
+span attributes.
 
 ## 6. Alerting
 

@@ -24,6 +24,7 @@
 - [seams_process_lifecycle.md](seams_process_lifecycle.md) — Group-kill only marked leaders, exit-time reap bounds 'close', skill-marker boot id, lock owner file, reaper tests, crash resume
 - [seams_migration_backup_and_dry_run.md](seams_migration_backup_and_dry_run.md) — Backup never dereferences + skips worktrees; the dry-run loop-skip depends on it; fs.cp root/verbatim traps
 - [seams_sprint_write_locks.md](seams_sprint_write_locks.md) — Sprint-dir lock vs update lock don't exclude; long-held flows end in update(); plan/ideate commit predicate; withUpdate stub trap
+- [seams_skill_folders_and_frontmatter.md](seams_skill_folders_and_frontmatter.md) — Folder hash back-compat, contract guard, S8/S4, lenient-colon YAML retry, byte/exec support files, retired-copy skip
 - [seams_eval_harness.md](seams_eval_harness.md) — Prompt-eval harness: budget under-counts (no cache tokens), private-constant duplicates, fixture tooling exclusions, protectedPaths granularity, refine operator turns vs nudges, no-tool question sentence, grader literals
 
 ## Standalone

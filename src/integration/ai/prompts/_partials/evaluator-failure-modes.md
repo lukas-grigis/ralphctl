@@ -17,3 +17,6 @@
 - Inventing a defect — a FAIL needs a reproduced failing command or cited code that demonstrably violates the
   criterion (see Evidence over suspicion in `<grading_rules>`). This disciplines the evidence a FAIL needs; it
   does not soften the bias above toward failing when a defect is genuinely there.
+- Installed skills cover writing as well as reviewing. In this role use only their review lens — never their
+  edit, install or test-writing steps — and a skill's "finding" is graded by the rules above: FAIL for a
+  violated criterion or declared step, or a floor defect the change causes; otherwise an observation.

@@ -1,8 +1,10 @@
 /**
  * `createFilesystemSkillsAdapter` — shared {@link SkillsAdapter} implementation backing
  * every provider whose skills convention is "write `<sessionDir>/<parentDir>/skills/<name>/
- * SKILL.md` and let the running CLI auto-discover it." That covers Claude (`.claude`), Codex
- * (`.agents`), and Copilot (`.github`) — all use the Agent Skills open-standard frontmatter.
+ * SKILL.md` (plus the skill's `references/` / `scripts/` / `assets/`) and let the running CLI
+ * auto-discover it." Every provider uses the Agent Skills open-standard folder layout; only the
+ * parent dir differs. Every file lands through the atomic {@link WriteFile} seam, so a crash never
+ * leaves a truncated `SKILL.md` that a later run would mistake for a complete copy.
  *
  * Behaviour (identical across providers, only `parentDir` and the {@link describeSkillsConvention}
  * text differ):
@@ -22,13 +24,17 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parse, stringify } from 'yaml';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { SkillNameSchema, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { writeSkillSupportFiles } from '@src/integration/ai/skills/_engine/skill-support-files.ts';
+import { SkillNameSchema, TYPED_FRONTMATTER_KEYS, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import {
   classifySkillFolder,
   INSTALL_MARKER_FILENAME,
@@ -50,29 +56,59 @@ export interface FilesystemSkillsAdapterDeps {
   readonly convention: string;
   /** Warns on a failed best-effort `.git/info/exclude` write and on shadowed / stale skill folders. */
   readonly logger?: Logger;
+  /** Atomic write seam for `SKILL.md` and support files. Defaults to the real atomic writer. */
+  readonly writeFile?: WriteFile;
 }
 
 /**
  * Downstream CLIs parse the installed frontmatter with STRICT YAML parsers — Copilot rejects an
  * unquoted plain scalar containing `: ` outright ("mapping values are not allowed in this
  * context"). Values that are safe plain scalars stay unquoted to keep the files human-readable;
- * anything else is double-quoted with YAML escapes, which `parseSimpleYaml` unescapes on read.
+ * anything else is double-quoted. JSON string escapes are valid YAML double-quoted escapes, so a
+ * newline or control character survives the round trip.
  */
+const hasControlChar = (value: string): boolean =>
+  [...value].some((ch) => {
+    const code = ch.charCodeAt(0);
+    return code < 0x20 || code === 0x7f;
+  });
+
+/** True when `value` written bare reads back as the identical string (not `1.0` → number, `null` → null). */
+const readsBackAsItself = (value: string): boolean => {
+  try {
+    return (parse(`k: ${value}`, { strict: true }) as { k?: unknown } | null)?.k === value;
+  } catch {
+    return false;
+  }
+};
+
 const yamlValue = (value: string): string =>
-  /^[A-Za-z0-9]/u.test(value) && !value.includes(': ') && !value.includes(' #') && !/[\s:]$/u.test(value)
+  /^[A-Za-z0-9]/u.test(value) &&
+  !value.includes(': ') &&
+  !value.includes(' #') &&
+  !/[\s:]$/u.test(value) &&
+  !hasControlChar(value) &&
+  readsBackAsItself(value)
     ? value
-    : `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+    : JSON.stringify(value);
+
+/** One passthrough key, rendered by the YAML library so nested maps, lists and booleans stay typed. */
+const yamlEntry = (key: string, value: unknown): string => stringify({ [key]: value }, { lineWidth: 0 }).trimEnd();
 
 /**
  * Render the canonical Skill back into Markdown with frontmatter — Agent Skills spec
- * (`name`, `description`, plus optional `license` / `compatibility` / `allowed-tools`).
- * `name` renders bare: it is schema-fenced to kebab-case, which is always a safe plain scalar.
+ * (`name`, `description`, the optional typed fields, then every passthrough key such as
+ * `metadata` or `disable-model-invocation`). `name` renders bare: it is schema-fenced to
+ * kebab-case, which is always a safe plain scalar.
  */
 const renderSkill = (skill: Skill): string => {
   const lines = ['---', `name: ${skill.name}`, `description: ${yamlValue(skill.description)}`];
   if (skill.license !== undefined) lines.push(`license: ${yamlValue(skill.license)}`);
   if (skill.compatibility !== undefined) lines.push(`compatibility: ${yamlValue(skill.compatibility)}`);
   if (skill.allowedTools !== undefined) lines.push(`allowed-tools: ${yamlValue(skill.allowedTools)}`);
+  for (const [key, value] of Object.entries(skill.extraFrontmatter ?? {})) {
+    if (!TYPED_FRONTMATTER_KEYS.has(key)) lines.push(yamlEntry(key, value));
+  }
   lines.push('---');
   return `${lines.join('\n')}\n\n${skill.content.replace(/\s+$/u, '')}\n`;
 };
@@ -114,17 +150,40 @@ const installActionFor = async (dst: string, name: string, tracked: ReadonlySet<
   return { action: ownership === 'project-owned' ? 'keep-project-copy' : 'keep' };
 };
 
-const writeSkillFolder = async (dst: string, skill: Skill): Promise<void> => {
+/**
+ * Support files first, `SKILL.md` last: the CLI and the project-wins check both key off `SKILL.md`,
+ * so its presence means the folder is complete.
+ */
+const writeSkillFiles = async (
+  dst: string,
+  skill: Skill,
+  writeFile: WriteFile
+): Promise<Result<void, StorageError>> => {
+  const support = await writeSkillSupportFiles(dst, skill.files ?? [], writeFile);
+  if (!support.ok) return support;
+  const skillMd = AbsolutePath.parse(join(dst, 'SKILL.md'));
+  if (!skillMd.ok) {
+    return Result.error(new StorageError({ subCode: 'io', message: `skill path not absolute: ${dst}`, path: dst }));
+  }
+  return writeFile(skillMd.value, renderSkill(skill));
+};
+
+const writeSkillFolder = async (
+  dst: string,
+  skill: Skill,
+  writeFile: WriteFile
+): Promise<Result<void, StorageError>> => {
   await mkdir(dst, { recursive: true });
   // Marker first: a crash before `SKILL.md` lands leaves a folder the next run can reclaim, never
   // an unmarked half-install that passes for a project copy.
   await writeInstallMarker(dst, skill.name);
-  await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+  return writeSkillFiles(dst, skill, writeFile);
 };
 
 /** Per-adapter state for the unmarked-shadow warning. */
 interface ShadowWarnings {
   readonly providerId: string;
+  readonly writeFile: WriteFile;
   readonly logger: Logger | undefined;
   /** Destinations already warned about by this adapter, so repeated installs stay quiet. */
   readonly warned: Set<string>;
@@ -201,8 +260,10 @@ const writeAllSkills = async (
         logStaleReplacement(shadow, dst, skill, deadPid);
         await rm(dst, { recursive: true, force: true });
       }
-      await writeSkillFolder(dst, skill);
+      const written = await writeSkillFolder(dst, skill, shadow.writeFile);
+      // Tracked even on failure: the marked half-folder is ours, and uninstall must remove it.
       tracked.add(skill.name);
+      if (!written.ok) return written;
     } catch (cause) {
       return Result.error(
         new StorageError({
@@ -227,7 +288,13 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
   });
   const skillsSubdir = manifest.managedSubdir;
   // One shadow warning per folder per adapter, i.e. per launch, is enough — never cleared.
-  const shadow: ShadowWarnings = { providerId: deps.providerId, logger: deps.logger, warned: new Set<string>() };
+  const writeFile = deps.writeFile ?? createAtomicWriteFile();
+  const shadow: ShadowWarnings = {
+    providerId: deps.providerId,
+    writeFile,
+    logger: deps.logger,
+    warned: new Set<string>(),
+  };
 
   return {
     install(sessionDir: AbsolutePath, skills: readonly Skill[]): Promise<Result<void, StorageError>> {
@@ -249,8 +316,8 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       // exist from a previous run; we don't want to overwrite operator edits).
       if (existsSync(join(dst, 'SKILL.md'))) return Result.ok(undefined);
       try {
-        await mkdir(dst, { recursive: true });
-        await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+        const written = await writeSkillFiles(dst, skill, writeFile);
+        if (!written.ok) return written;
       } catch (cause) {
         return Result.error(
           new StorageError({

@@ -59,12 +59,12 @@ describe('checkBundleIntegrity', () => {
 
   it('(a) passes silently in bundle mode when every asset is present and the version matches', async () => {
     await writeAsset('prompts/refine/template.md');
-    await writeAsset('skills/ralphctl-alignment/SKILL.md');
+    await writeAsset('skills/ralphctl-spec-driven-development/SKILL.md');
     await writeManifest({
       schemaVersion: 1,
       packageVersion: '1.2.3',
       generatedAt: new Date().toISOString(),
-      assets: ['prompts/refine/template.md', 'skills/ralphctl-alignment/SKILL.md'],
+      assets: ['prompts/refine/template.md', 'skills/ralphctl-spec-driven-development/SKILL.md'],
     });
 
     const result = await checkBundleIntegrity({ moduleUrl, currentVersion: '1.2.3' });
@@ -79,7 +79,11 @@ describe('checkBundleIntegrity', () => {
       schemaVersion: 1,
       packageVersion: '1.2.3',
       generatedAt: new Date().toISOString(),
-      assets: ['prompts/refine/template.md', 'skills/ralphctl-alignment/SKILL.md', 'prompts/plan/template.md'],
+      assets: [
+        'prompts/refine/template.md',
+        'skills/ralphctl-spec-driven-development/SKILL.md',
+        'prompts/plan/template.md',
+      ],
     });
 
     const result = await checkBundleIntegrity({ moduleUrl, currentVersion: '1.2.3' });

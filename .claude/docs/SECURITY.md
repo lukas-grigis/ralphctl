@@ -342,7 +342,7 @@ already has a link; comments use the ticket link, not the create origin.
 
 `Project.defaultIssueOrigin` survives as a persisted field but these writes do not consult it.
 
-**Bundled skills (25 total) always lose to project skills — unless the folder is a leftover of ralphctl's
+**Bundled skills (20 total) always lose to project skills — unless the folder is a leftover of ralphctl's
 own.** When `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project
 copy is left untouched, UNLESS that folder itself carries a `.ralphctl-install.json` ownership marker
 (`skill-install-marker.ts`) naming a process that is no longer running — a leftover from a run that was
@@ -355,10 +355,11 @@ is a leftover (an unidentifiable one still counts as live). No content compariso
 made before replacing — version drift between the leftover and the current bundle is normal and not
 itself a signal. The skills adapter (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it
 installed; uninstall removes only those entries. Every bundled `SKILL.md` is validated by
-`skill-contract-checker.ts` against seven harness
+`skill-contract-checker.ts` against eight harness
 rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate,
-angle-bracket signal-tag syntax); the contract test hard-fails on any violation, keeping bundled skills
-safe to auto-install. The seventh (S7) is a syntax rule, not an imperative-command one: the shipped output
+angle-bracket signal-tag syntax, template placeholders); the contract test hard-fails on any violation,
+keeping bundled skills safe to auto-install. The checker scans every Markdown file in the skill folder, not
+only `SKILL.md`, and names a violation after the file that holds it. The seventh (S7) is a syntax rule, not an imperative-command one: the shipped output
 contract is a typed `signals.json` object, so a skill telling the AI to emit `<task-complete>` or `<note>`
 teaches a contract the harness never parses. It therefore runs on every line rather than only instruction
 lines, and its pattern is bounded on both sides so a generic type (`Array<Change>`) is not read as a tag.
@@ -373,19 +374,23 @@ flow. There is no per-project operator location.
 `<appRoot>/skills/<flow>/<name>/SKILL.md` — the provider-agnostic sibling of the operator drop-in above.
 Discovered by `createPhaseSkillSource` and installed through the same `ralphctl-` namespace and
 `.git/info/exclude` wildcard as bundled/operator skills. The TUI's Skills-catalog view (`K` from Home) is
-the intended writer: enabling a bundled skill copies its raw `SKILL.md` bytes into the flow's phase dir
-and drops a `.provenance.json` sidecar next to it (sha256 of the copied bytes, `ralphctlVersion`,
+the intended writer: enabling a bundled skill copies its raw folder (`SKILL.md` plus `references/`,
+`scripts/`, `assets/`) into the flow's phase dir and drops a `.provenance.json` sidecar next to it (sha256
+of the copied folder, `ralphctlVersion`,
 `copiedAt`) so a later `list()` can tell in-sync / update-available / locally-modified apart; disabling
 removes the folder. The sidecar is catalog-only bookkeeping — no `SkillSource` (bundled, project,
-operator, or phase) ever reads it or installs it into an AI session; only `SKILL.md` reaches the model.
+operator, or phase) ever reads it or installs it into an AI session; only `SKILL.md` and the allowlisted
+support dirs reach the model — anything else in a skill folder is never read or copied.
 A hand-dropped folder with no sidecar is a valid `manual` entry and loads exactly like a catalog-managed
 one. Selection is resolved once, at launch, by `createResolvedSkillSource`: a phase-folder copy shadows
 a same-named bundled default, and either can be subtracted per-flow via `settings.ai.skills[flow].disabled`
 or the customize picker's per-run override (see `AI-SETTINGS.md`).
 
-**`pnpm skills:update` (maintainers only).** Re-vendors upstream `SKILL.md` files from URLs in
-`scripts/skills-sources.json` into `scripts/vendor/skills/` for human review; adapted committed copies live
-under `src/integration/ai/skills/bundled/<name>/SKILL.md`. Bundled skills are frozen committed source —
+**`pnpm skills:update` (maintainers only).** Re-vendors upstream `SKILL.md` files, plus each entry's
+`extraPaths` Markdown siblings, from `scripts/skills-sources.json` into `scripts/vendor/skills/` for human
+review. The manifest is Zod-validated before any request; each repo ref is pinned to a commit SHA recorded
+in `scripts/vendor/skills/skills-lock.json` (`--locked` reuses it). Adapted committed copies live
+under `src/integration/ai/skills/bundled/<name>/`. Bundled skills are frozen committed source —
 no runtime download, no runtime provenance check.
 
 **File-based AI provider contract** — providers write `signals.json` and a `session-id.txt` file per spawn

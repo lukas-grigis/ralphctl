@@ -1,10 +1,9 @@
 {
-  "$comment": "Maintainer-only manifest mapping each UPSTREAM-DERIVED bundled skill to its upstream source. Drives `pnpm skills:update` (scripts/sync-skills.ts), which refreshes the raw-upstream cache under scripts/vendor/skills/ so `git diff scripts/vendor/` shows what changed upstream since the last sync. The maintainer then hand-re-applies the de-JS / compat adaptation to the live bundled SKILL.md under src/integration/ai/skills/bundled/<name>/. Bundled skills are FROZEN committed source \u2014 this tooling never touches src/.",
+  "$comment": "Maintainer-only manifest mapping each UPSTREAM-DERIVED bundled skill to its upstream source. Drives `pnpm skills:update` (scripts/sync-skills.ts), which resolves each repo@ref to a commit SHA (recorded in scripts/vendor/skills/skills-lock.json) and refreshes the raw-upstream cache under scripts/vendor/skills/ (SKILL.md plus `extraPaths`, relative to the upstream skill folder) so `git diff scripts/vendor/` shows what changed upstream since the last sync. The maintainer then hand-re-applies the de-JS / compat adaptation to the live bundled SKILL.md under src/integration/ai/skills/bundled/<name>/. Bundled skills are FROZEN committed source — this tooling never touches src/.",
   "$cleanRoom": [
-    "ralphctl-surgical-simplicity is clean-room (authored in-repo, no upstream) \u2014 intentionally omitted from `skills` below; `pnpm skills:update` does not manage it.",
-    "ralphctl-karpathy-guidelines is clean-room (distilled from Andrej Karpathy's public X post https://x.com/karpathy/status/2015883857489522876 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed.",
-    "ralphctl-cherny-workflow is clean-room (distilled from Boris Cherny's public X thread https://x.com/bcherny/status/2007179832300581177 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed.",
-    "ralphctl-humanizer IS sync-managed below, but for drift review only: its pattern catalogue is paraphrased, never copied, because upstream derives it from Wikipedia's CC BY-SA \"Signs of AI writing\" page. Re-word any new upstream pattern in your own words."
+    "ralphctl-karpathy-guidelines is clean-room (distilled from Andrej Karpathy's public X post https://x.com/karpathy/status/2015883857489522876 — concepts only, no upstream SKILL.md) — not sync-managed.",
+    "ralphctl-ambition is clean-room (distilled from Felix Rieseberg's article https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/ — concepts only; robonuggets/be-ambitious is credited as prior art only, nothing copied) — not sync-managed.",
+    "ralphctl-humanizer IS sync-managed below, but for drift review only: its pattern catalogue is paraphrased, never copied, because upstream derives it from Wikipedia's CC BY-SA \"Signs of AI writing\" page. Re-word any new upstream pattern in your own words. Bundled version tracks upstream 4.0.0 patterns (the vague \"the part\" stand-in under Staging, the \"Overall\"/\"Ultimately\" closer under Closers) in fresh wording. Upstream 4.0.0 step 2 (\"add a specific detail you know to be true\") was rejected: create-pr/template.md:18 forbids invention and the vendored 3.1.0 text (:15, :37) says to add nothing, so the bundled skill keeps \"Add nothing\". The stock-word list (pattern 10) and promotional examples (pattern 13) are rebuilt from upstream §12, §15 and §16 only."
   ],
   "skills": [
     {
@@ -21,7 +20,8 @@
       "path": "skills/code-review-and-quality/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/shared/security-checklist.md", "references/shared/performance-checklist.md"]
     },
     {
       "name": "ralphctl-test-driven-development",
@@ -29,7 +29,8 @@
       "path": "skills/test-driven-development/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/shared/testing-patterns.md"]
     },
     {
       "name": "ralphctl-ponytail",
@@ -45,7 +46,8 @@
       "path": "skills/idea-refine/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["examples.md", "frameworks.md", "refinement-criteria.md"]
     },
     {
       "name": "ralphctl-domain-driven-design",
@@ -53,7 +55,15 @@
       "path": "domain-driven-design/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/wondelai/skills"
+      "upstreamUrl": "https://github.com/wondelai/skills",
+      "extraPaths": [
+        "references/bounded-contexts.md",
+        "references/building-blocks.md",
+        "references/domain-events.md",
+        "references/repositories-factories.md",
+        "references/strategic-design.md",
+        "references/ubiquitous-language.md"
+      ]
     },
     {
       "name": "ralphctl-security-and-hardening",
@@ -61,7 +71,8 @@
       "path": "skills/security-and-hardening/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/hardening-patterns.md", "references/shared/security-checklist.md"]
     },
     {
       "name": "ralphctl-spec-driven-development",
@@ -85,7 +96,8 @@
       "path": "skills/performance-optimization/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/optimization-patterns.md", "references/shared/performance-checklist.md"]
     },
     {
       "name": "ralphctl-frontend-ui-engineering",
@@ -93,7 +105,8 @@
       "path": "skills/frontend-ui-engineering/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/shared/accessibility-checklist.md"]
     },
     {
       "name": "ralphctl-deprecation-and-migration",
@@ -125,7 +138,8 @@
       "path": "skills/observability-and-instrumentation/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills",
+      "extraPaths": ["references/shared/observability-checklist.md"]
     },
     {
       "name": "ralphctl-codebase-design",
@@ -133,7 +147,8 @@
       "path": "skills/engineering/codebase-design/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/mattpocock/skills"
+      "upstreamUrl": "https://github.com/mattpocock/skills",
+      "extraPaths": ["DEEPENING.md", "DESIGN-IT-TWICE.md"]
     },
     {
       "name": "ralphctl-writing-for-agents",
@@ -141,7 +156,8 @@
       "path": "skills/productivity/writing-for-agents/SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/mattpocock/skills"
+      "upstreamUrl": "https://github.com/mattpocock/skills",
+      "extraPaths": ["SKILL-MECHANICS.md"]
     },
     {
       "name": "ralphctl-humanizer",
@@ -149,7 +165,8 @@
       "path": "SKILL.md",
       "ref": "main",
       "license": "MIT",
-      "upstreamUrl": "https://github.com/blader/humanizer"
+      "upstreamUrl": "https://github.com/blader/humanizer",
+      "note": "Adopt the pattern catalogue only. Step 2's \"add a specific detail\" clause is deliberately NOT adopted: it nudges the agent to invent facts, which no ralphctl flow wants."
     }
   ]
 }

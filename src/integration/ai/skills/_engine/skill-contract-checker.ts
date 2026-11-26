@@ -8,7 +8,7 @@
  * signal contract (signals.json at outputDir), harness-owned git, one-PR-per-sprint, the
  * attribution-aware verify gate, ecosystem-agnosticism, controlled delegation.
  *
- * This module is the single source of truth for those seven rules (S1–S7). It is deliberately
+ * This module is the single source of truth for those eight rules (S1–S8). It is deliberately
  * I/O-free and free of outer-layer imports so two callers can share it: the contract test
  * (asserts every bundled skill passes) and {@link warnIfContractViolated} (an operator-skill
  * warn path). The {@link Logger} type is a business-layer port — integration may import inward.
@@ -28,17 +28,22 @@
  *     forbidden pattern on the same line DEMOTES that pattern: "never open a separate PR" is
  *     good advice, not a violation. Anti-pattern prose is the whole point of a posture skill.
  *
- * S7 (angle-bracket signal tag syntax) is deliberately NOT gated by this classification: a tag
- * literal is a syntax mistake with no legitimate line shape, so `checkSkillContract` runs it
- * against every line (prose, list continuation lines, blockquotes, fenced content) except the
- * fence delimiter itself. Negation demotion still applies. See the S7 pattern comment below.
+ * S7 (angle-bracket signal tag syntax) and S8 (template placeholders) are deliberately NOT gated
+ * by this classification: each is a syntax mistake with no legitimate line shape, so
+ * `checkSkillContract` runs them against every line (prose, list continuation lines, blockquotes,
+ * fenced content) except the fence delimiter itself. Negation demotion still applies to S7 but not
+ * to S8 — "never hardcode commands, use {{X}}" is exactly the shape S8 exists to catch.
+ *
+ * A skill is a folder, so callers scan every Markdown document in it: {@link skillContractDocuments}
+ * lists `SKILL.md` and each Markdown support file under its own name.
  */
 
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 
 /** One failed contract rule, with enough context for a human to locate and judge it. */
 export interface SkillViolation {
-  /** Rule id (`S1`…`S7`) — names the harness mechanism the rule protects. */
+  /** Rule id (`S1`…`S8`) — names the harness mechanism the rule protects. */
   readonly rule: string;
   /** Human-readable explanation of what the line directs and why it is forbidden. */
   readonly description: string;
@@ -84,7 +89,12 @@ const clip = (line: string): string => {
 interface Rule {
   readonly id: string;
   readonly description: string;
-  readonly match: (lowerLine: string) => number;
+  /** Receives the lowercased line, or the original line when {@link Rule.caseSensitive} is set. */
+  readonly match: (line: string) => number;
+  /** Match against the original casing (S8 keys on UPPER_SNAKE placeholder names). */
+  readonly caseSensitive?: boolean;
+  /** When false, a preceding negation does not demote a match. Defaults to true. */
+  readonly negatable?: boolean;
 }
 
 /** First index at which any of `needles` occurs in `haystack`, else -1. */
@@ -144,8 +154,9 @@ const S3_PR_PATTERNS = [
   'open a pull request',
 ] as const;
 
-// S4 — package-manager command literals as unconditional instructions. Downstream ecosystems
-// differ; concrete commands belong in {{PROJECT_TOOLING}}, never baked into a skill.
+// S4 — package-manager / build-tool command literals as unconditional instructions. Downstream
+// ecosystems differ; a skill names the step generically ("run the project's test command") and the
+// harness supplies the real commands in the prompt. Matched on a word boundary (see S4_PM_REGEX).
 const S4_PM_COMMANDS = [
   'pnpm install',
   'pnpm run',
@@ -155,9 +166,40 @@ const S4_PM_COMMANDS = [
   'npm run',
   'npm test',
   'npm ci',
+  'pnpm exec',
+  'pnpm dlx',
   'yarn install',
   'yarn add',
+  'yarn test',
+  'yarn run',
+  'yarn build',
+  'npx',
+  'bunx',
+  'bun install',
+  'bun run',
+  'bun test',
+  'bun add',
   'pip install',
+  'uv run',
+  'uv sync',
+  'uv pip',
+  'uv add',
+  'poetry install',
+  'poetry run',
+  'poetry add',
+  // Bare tool names (`./gradlew`, `mvn`) stay legal: a skill may name a wrapper without running it.
+  'mvn test',
+  'mvn install',
+  'mvn package',
+  'mvn verify',
+  'gradle build',
+  'gradle test',
+  'gradlew build',
+  'gradlew test',
+  'dotnet build',
+  'dotnet test',
+  'dotnet run',
+  'dotnet restore',
   'cargo build',
   'cargo test',
   'cargo run',
@@ -165,6 +207,16 @@ const S4_PM_COMMANDS = [
   'go build',
   'go run',
 ] as const;
+
+const escapeRegex = (literal: string): string => literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
+// Bounded on both sides so `go run` doesn't fire inside "ego run" and `mvn` not inside a longer word.
+const S4_PM_REGEX = new RegExp(`(?<![a-z0-9_-])(?:${S4_PM_COMMANDS.map(escapeRegex).join('|')})(?![a-z0-9_-])`, 'u');
+
+// S8 — template placeholders. Skill files are installed verbatim; nothing substitutes `{{NAME}}`,
+// so the session reads the literal braces. Keyed on the harness's UPPER_SNAKE placeholder shape so
+// lowercase view-template syntax in examples (`{{ user.name }}`) stays legal.
+const S8_PLACEHOLDER_REGEX = /\{\{\s*[A-Z][A-Z0-9_]*\s*\}\}/u;
 
 // S5 — uncontrolled delegation. The AI must not spin up its own subagents or fresh provider
 // sessions; delegation goes only through the harness's declared mechanisms.
@@ -244,6 +296,15 @@ const S7_SIGNAL_TAG_REGEX = new RegExp(`(?<![A-Za-z0-9_])<\\/?(?:${S7_SIGNAL_TAG
 /** S7's matcher: the index of the first angle-bracket signal tag in `lowerLine`, else -1. */
 const matchSignalTag = (lowerLine: string): number => S7_SIGNAL_TAG_REGEX.exec(lowerLine)?.index ?? -1;
 
+const S8_RULE: Rule = {
+  id: 'S8',
+  description:
+    'contains a `{{PLACEHOLDER}}` — skill files are installed verbatim and never substituted, so the session sees the literal braces; describe the step in plain words instead',
+  match: (line) => S8_PLACEHOLDER_REGEX.exec(line)?.index ?? -1,
+  caseSensitive: true,
+  negatable: false,
+};
+
 const S7_RULE: Rule = {
   id: 'S7',
   description:
@@ -272,8 +333,9 @@ const RULES: readonly Rule[] = [
   },
   {
     id: 'S4',
-    description: 'hardcodes a package-manager command literal — breaks ecosystem-agnosticism (use {{PROJECT_TOOLING}})',
-    match: (line) => firstIndexOf(line, S4_PM_COMMANDS),
+    description:
+      'hardcodes a package-manager / build-tool command — breaks ecosystem-agnosticism; name the step generically ("run the project\'s test command") and let the prompt supply the real command',
+    match: (line) => S4_PM_REGEX.exec(line)?.index ?? -1,
   },
   {
     id: 'S5',
@@ -320,16 +382,16 @@ const findViolationsInLine = (line: string, lineNumber: number, rules: readonly 
   const lowerLine = line.toLowerCase();
   const violations: SkillViolation[] = [];
   for (const rule of rules) {
-    const matchIndex = rule.match(lowerLine);
+    const matchIndex = rule.match(rule.caseSensitive === true ? line : lowerLine);
     if (matchIndex === -1) continue;
-    if (isNegated(lowerLine, matchIndex)) continue; // anti-pattern prose — demoted.
+    if (rule.negatable !== false && isNegated(lowerLine, matchIndex)) continue; // anti-pattern prose — demoted.
     violations.push({ rule: rule.id, description: rule.description, evidence: clip(line), lineNumber });
   }
   return violations;
 };
 
 /**
- * Scan SKILL.md `content` against the seven harness-compatibility rules.
+ * Scan one Markdown document of a skill against the eight harness-compatibility rules.
  *
  * @param skillName folder / frontmatter name, echoed back for caller correlation.
  * @param content   raw SKILL.md body (frontmatter or not — frontmatter lines are harmless prose).
@@ -350,7 +412,7 @@ export const checkSkillContract = (skillName: string, content: string): SkillCon
     // delimiter itself (never on the ``` line, but yes on the prose/continuation/fenced-content
     // lines classifyLine would otherwise skip for S1–S6). See the S7 comment above for why.
     if (!CODE_FENCE.test(line)) {
-      violations.push(...findViolationsInLine(line, lineNumber, [S7_RULE]));
+      violations.push(...findViolationsInLine(line, lineNumber, [S7_RULE, S8_RULE]));
     }
 
     if (!classified.isInstruction) continue;
@@ -360,6 +422,24 @@ export const checkSkillContract = (skillName: string, content: string): SkillCon
 
   return { skillName, violations, pass: violations.length === 0 };
 };
+
+/** One Markdown document of a skill folder, named for log / report correlation. */
+export interface SkillContractDocument {
+  readonly name: string;
+  readonly content: string;
+}
+
+/** Every document the contract covers: `SKILL.md` as `<name>`, then each `.md` support file as `<name>/<path>`. */
+export const skillContractDocuments = (
+  skill: Pick<Skill, 'name' | 'content' | 'files'>
+): readonly SkillContractDocument[] => [
+  { name: skill.name, content: skill.content },
+  ...(skill.files ?? []).flatMap((f) =>
+    f.path.endsWith('.md') && typeof f.content === 'string'
+      ? [{ name: `${skill.name}/${f.path}`, content: f.content }]
+      : []
+  ),
+];
 
 /**
  * Operator-skill warn path: log one warn-level line per contract violation. Never throws — a

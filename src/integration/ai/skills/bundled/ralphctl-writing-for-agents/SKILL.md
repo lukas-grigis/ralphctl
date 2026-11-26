@@ -25,6 +25,10 @@ rules win over anything here.
 - **Refine** — the requirements are read by the planner and every implementing session. Give each
   criterion a checkable completion condition, keep each meaning in one place, and phrase the target
   behaviour positively.
+- **Plan** — each task step ends on a completion criterion; keep one meaning per task, not repeated
+  across tasks.
+- **Execute** — when a task edits a context file or skill, the prompt's context-file rules (preserve
+  existing prose verbatim) win; apply this skill to the lines you add.
 
 ## Context pointers
 
@@ -88,6 +92,10 @@ available. State the target behaviour ("write one-line comments"). Keep a prohib
 guardrail you cannot phrase positively, and pair it with the positive target.
 
 ## Pruning
+
+Pruning applies to text you write. A file the prompt tells you to preserve is not yours to prune; propose
+removals in a note. An out-of-scope list or error-case criterion the prompt requires is not a banned
+prohibition or a duplicate.
 
 - **One meaning, one place.** Duplication costs maintenance and tokens and inflates a meaning's
   prominence. (A leading word repeats a token on purpose, never the meaning.)

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -12,6 +13,7 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
+import type { SkillFile } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { PHASE_FLOW_DIR } from '@src/integration/ai/skills/phase/source.ts';
 import { PROVENANCE_FILENAME } from '@src/integration/ai/skills/phase/provenance.ts';
@@ -39,12 +41,16 @@ const fakeBundledContent = (name: string, seed = 0): string =>
  * tests mutate `overrides` to simulate "the bundle moved on", or add to `errorFor` to exercise
  * the read-failure propagation path.
  */
-const createFakeRawReader = (overrides: Map<string, string>, errorFor: Set<string>): BundledSkillRawReader => ({
-  async readRaw(name: string) {
+const createFakeRawReader = (
+  overrides: Map<string, string>,
+  errorFor: Set<string>,
+  supportFiles: Map<string, readonly SkillFile[]> = new Map()
+): BundledSkillRawReader => ({
+  async readFolder(name: string) {
     if (errorFor.has(name)) {
       return Result.error(new StorageError({ subCode: 'io', message: `boom: ${name}`, path: name }));
     }
-    return Result.ok(overrides.get(name) ?? fakeBundledContent(name));
+    return Result.ok({ skillMd: overrides.get(name) ?? fakeBundledContent(name), files: supportFiles.get(name) ?? [] });
   },
 });
 
@@ -385,5 +391,43 @@ describe('createSkillCatalog', () => {
     expect(after.ok).toBe(true);
     if (!after.ok) return;
     expect(findEntry(after.value, name)?.installs).toEqual([]);
+  });
+
+  it('copies the whole folder, flags an edited reference, and update() drops files the bundle no longer ships', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skill-catalog-'));
+    const name = BUNDLED_SKILLS[0]!.name;
+    const support = new Map<string, readonly SkillFile[]>([
+      [
+        name,
+        [
+          { path: 'references/checklist.md', content: '# v1\n' },
+          { path: 'scripts/old.sh', content: 'old\n' },
+        ],
+      ],
+    ]);
+    const catalog = createSkillCatalog({
+      operatorSkillsRoot: abs(root),
+      writeFile: createAtomicWriteFile(),
+      bundledRawReader: createFakeRawReader(new Map(), new Set(), support),
+      logger: recordingLogger(),
+    });
+    const dir = join(root, PHASE_FLOW_DIR.plan, name);
+
+    expect((await catalog.enable(name, ['plan'])).ok).toBe(true);
+    expect(await readFile(join(dir, 'references/checklist.md'), 'utf-8')).toBe('# v1\n');
+    const installsOf = async (): Promise<unknown> => {
+      const listed = await catalog.list();
+      return listed.ok ? findEntry(listed.value, name)?.installs : listed.error;
+    };
+    expect(await installsOf()).toEqual([{ flow: 'plan', status: 'in-sync' }]);
+
+    await writeFile(join(dir, 'references/checklist.md'), '# operator edit\n', 'utf-8');
+    expect(await installsOf()).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
+
+    support.set(name, [{ path: 'references/checklist.md', content: '# v2\n' }]);
+    expect((await catalog.update(name, ['plan'])).ok).toBe(true);
+    expect(await readFile(join(dir, 'references/checklist.md'), 'utf-8')).toBe('# v2\n');
+    expect(existsSync(join(dir, 'scripts/old.sh'))).toBe(false);
+    expect(await installsOf()).toEqual([{ flow: 'plan', status: 'in-sync' }]);
   });
 });

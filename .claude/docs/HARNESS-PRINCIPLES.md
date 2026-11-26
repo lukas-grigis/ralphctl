@@ -372,7 +372,10 @@ check gate is the deployed form of this loop; the same posture belongs inside ea
 
 **Where it lives.**
 
-- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-iterative-review/SKILL.md` (bundled skill)
+- Check gate: the harness runs the project's check script between attempts (`src/application/flows/implement/`).
+- Task ordering: `src/integration/ai/prompts/_partials/task-sizing.md` puts the least certain independent
+  task first, so the riskiest assumption is tested early. No bundled skill carries this rule — a skill that
+  restated it contradicted the plateau directive and plan's foundation-first order.
 
 ---
 
@@ -383,11 +386,13 @@ acceptance criteria. "Big blob" output is a failure to align first.
 
 **Source.** Zhang & Xia (martinfowler.com) — Structured Prompt Driven: alignment concept.
 
-**ralphctl status.** `applied`
+**ralphctl status.** `partial`
 
 **Where it lives.**
 
-- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-alignment/SKILL.md` (bundled skill)
+- Prompt-owned, per flow: refine and ideate require explicit in / out / deferred scope boundaries before
+  approval (`src/integration/ai/prompts/refine/template.md`, `ideate/template.md`). No cross-phase skill
+  repeats it — a bundled one batched questions and forced a restate round against those flows' protocols.
 
 ---
 
@@ -398,11 +403,14 @@ acceptance criteria.
 
 **Source.** Zhang & Xia (martinfowler.com) — Structured Prompt Driven: abstraction-first concept.
 
-**ralphctl status.** `applied`
+**ralphctl status.** `partial`
 
 **Where it lives.**
 
-- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-abstraction-first/SKILL.md` (bundled skill)
+- Plan: the foundation-first task order and `_partials/task-sizing.md` carry the shape-before-code step;
+  `ralphctl-codebase-design` is the opt-in skill for module and seam placement in plan and implement.
+- Refine deliberately stops short of it: refine elicits requirements and leaves entities and file
+  boundaries to plan.
 
 ---
 
@@ -420,7 +428,6 @@ harness when new model releases; strip non-load-bearing pieces."_
 
 **Where it lives.**
 
-- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-minimal-scaffolding/SKILL.md` (bundled skill)
 - Audit trigger is mechanized: `tests/unit/business/task/escalation-map.test.ts` fingerprints the three
   provider model catalogs and fails `pnpm verify` the moment one changes — see the "Model-bump audit
   checklist" below.
@@ -549,8 +556,7 @@ non-load-bearing pieces."_
 - Audit trigger is mechanized, not a ticket convention: `tests/unit/business/task/escalation-map.test.ts`
   fingerprints the three model catalogs (`domain/value/settings-models/{claude,codex,copilot}.ts`) and
   fails `pnpm verify` the moment a catalog changes — see the "Model-bump audit checklist" below. This doc
-  remains the home for the checklist content itself, and the `ralphctl-minimal-scaffolding` skill captures
-  the per-change discipline.
+  remains the home for the checklist content itself.
 - Durable trace: an eval run's `results.json` (git SHA, prompt-template hash, fixture-set hash, per-arm
   model rows, per-trial grades) is the comparable record a model-bump audit can point at — see
   `.claude/docs/EVALS.md`. Running it is still a manual step; nothing enforces that a bump ran one.

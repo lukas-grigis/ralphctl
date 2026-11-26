@@ -89,7 +89,7 @@ keyed on the dispatched flow's row, so mixed and uniform configs traverse the sa
 `Partial<Record<FlowId, { disabled: string[] }>>`. Every flow key is optional; an absent key — or an absent
 `ai.skills` altogether — means the flow's registry defaults apply. Each flow's `disabled` array lists skill
 names (`ralphctl-*`) to SUBTRACT from that flow's bundled defaults at launch. Names are not validated against
-the bundled catalog at parse time, so an unknown name is a harmless no-op. This is opt-OUT only — adding a
+the bundled catalog at parse time, so an unknown name is a harmless no-op — a saved selection naming a removed bundled skill is simply ignored. This is opt-OUT only — adding a
 skill beyond the defaults is filesystem-based (`<appRoot>/skills/<flow>/` folders), never settings.
 
 ```json
