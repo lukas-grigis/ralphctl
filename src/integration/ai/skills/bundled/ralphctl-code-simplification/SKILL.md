@@ -1,6 +1,6 @@
 ---
 name: ralphctl-code-simplification
-description: Behaviour-preserving simplification of existing code — understand why the code exists before changing it, then reduce nesting, unclear names, duplication, dead code, and needless indirection one step at a time with the existing tests unchanged and green after each. Use when a task asks to refactor or clean up working code, or when code you just made work is heavier than it needs to be; for keeping a new change small from the start, see ralphctl-surgical-simplicity and ralphctl-ponytail when installed.
+description: Behaviour-preserving simplification of existing code — understand why the code exists before changing it, then reduce nesting, unclear names, duplication, dead code, and needless indirection one step at a time with the existing tests unchanged and green after each. Use when a task asks to refactor or clean up working code, or when code you just made work is heavier than it needs to be; for keeping a new change small from the start, see ralphctl-ponytail and ralphctl-karpathy-guidelines when installed.
 license: MIT
 ---
 
